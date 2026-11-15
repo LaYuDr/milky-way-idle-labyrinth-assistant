@@ -2,7 +2,7 @@
 // @name         A迷宫助手 开发加载器
 // @description  从本机加载迷宫助手，仅用于开发。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.8
+// @version      0.12.9
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
