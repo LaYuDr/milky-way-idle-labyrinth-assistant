@@ -37,9 +37,15 @@ try {
     async function boot() {
       await page.goto("http://mwi-tokens.fixture.test/");
       for (const file of files) await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, file), "utf8") });
-      await page.evaluate(() => {
+      await page.evaluate(async () => {
         window.MwiLabyrinthSidebar.enabled = true;
         const M = window.MwiLabyrinthTokens;
+        const seedStore = window.MwiLabyrinthTokenStore.create();
+        const seed = await seedStore.load("42");
+        if (!seed.plan.entries.length && !seed.runs.length) {
+          await seedStore.savePlan("42", { ...seed.plan, reserve: 2000, futureRuns: 99, perRun: 900 });
+        }
+        seedStore.close();
         window.state = {
           character: { id: 42 },
           characterInfo: Object.fromEntries(M.definitions.map((d) => [d[2], d[5]])),
@@ -136,6 +142,30 @@ try {
     assert.equal(await page.locator(".native").isVisible(), true);
     await page.getByRole("tab", { name: "迷宫助手", exact: true }).click();
     assert.equal(await page.locator("#mwi-labyrinth-calc-tokens").isVisible(), true);
+    const budget = page.getByRole("spinbutton", { name: "规划数量", exact: true });
+    const remaining = page.locator(".mt-balance");
+    const stored = () =>
+      page.evaluate(async () => {
+        const store = window.MwiLabyrinthTokenStore.create();
+        try {
+          return await store.load("42");
+        } finally {
+          store.close();
+        }
+      });
+    const income = async () => (await stored()).runs.reduce((sum, run) => sum + run.tokens, 0);
+    assert.equal(await page.locator(".mt-budget-area input").count(), 1);
+    assert.equal(
+      await page
+        .locator(
+          ".mt-stats, .mt-eta, .mt-metrics, [data-budget=reserve], [data-budget=futureRuns], [data-budget=perRun]"
+        )
+        .count(),
+      0
+    );
+    assert.equal(await budget.inputValue(), "");
+    assert.equal(await budget.getAttribute("placeholder"), "当前 500");
+    assert.equal(await remaining.textContent(), "500");
     const id = (key) => `/labyrinth_upgrades/${key}`;
     const row = (key) => page.locator(`.mt-group[data-id="${key}"]`);
     const target = (key) => row(key).locator("[data-target]");
@@ -151,7 +181,7 @@ try {
     await target("/labyrinth_shop_items/shard").fill("4");
     await target("/labyrinth_shop_items/shard").press("Tab");
     assert.deepEqual(await costs(), ["240", "800", "100"]);
-    assert.equal(await page.locator(".mt-affordable").textContent(), "3 / 8");
+    assert.equal(await remaining.textContent(), "-640");
     assert.match(await page.locator(".mt-cutoff").innerText(), /还差 540/);
     await page.getByRole("button", { name: "上移迷宫精炼碎片", exact: true }).click();
     assert.deepEqual(await costs(), ["240", "100", "800"]);
@@ -195,36 +225,34 @@ try {
     await page.getByRole("button", { name: "拖动入场冷却排序", exact: true }).press("Alt+ArrowDown");
     await page.getByRole("button", { name: "拖动入场冷却排序", exact: true }).press("Alt+ArrowDown");
     assert.deepEqual(await costs(), ["240", "100", "800"]);
+    // Explicit zero is a real budget; blank follows live inventory. Old forecasts are ignored.
+    for (const [value, expected] of [
+      ["1250", "110"],
+      ["0", "-1,140"],
+      ["", "-640"]
+    ]) {
+      await budget.fill(value);
+      await budget.press("Tab");
+      assert.equal(await remaining.textContent(), expected);
+    }
+    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    assert.equal((await stored()).plan.budget, null);
     await page.evaluate(() => {
-      for (const [date, count] of [
-        ["2026-11-01", 200],
-        ["2026-11-05", 300]
-      ]) {
-        const run = {
-          ...window.state.characterLabyrinth,
-          startedAt: `${date}T00:00:00Z`,
-          isActive: false,
-          lootedItemsData: JSON.stringify({ "/items/labyrinth_token": count })
-        };
-        window.emit(run);
-        window.emit(run);
-      }
+      window.state.characterItemMap.get("tokens").count = 700;
+      window.ctx.refreshTokens();
     });
-    await page.waitForFunction(() => document.querySelector(".mt-stat-grid strong")?.textContent.includes("620 代币"));
-    assert.match(await page.locator(".mt-stat-grid").innerText(), /完整记录均值\s*250/);
-    await page.getByLabel("预计再进行的迷宫次数").fill("3");
-    await page.getByLabel("预计再进行的迷宫次数").press("Tab");
-    assert.equal(await page.locator(".mt-balance").textContent(), "110");
-    assert.equal(await page.locator(".mt-affordable").textContent(), "8 / 8");
-    await page.getByRole("button", { name: "减少规划挑战次数", exact: true }).click();
-    assert.equal(await page.getByLabel("预计再进行的迷宫次数").inputValue(), "2");
-    await page.getByRole("button", { name: "增加规划挑战次数", exact: true }).click();
-    await page.getByLabel("预测起始挑战", { exact: true }).selectOption("2026-11-05T00:00:00.000Z");
-    assert.equal(await page.locator(".mt-balance").textContent(), "260");
-    assert.match(await page.locator(".mt-stat-grid").textContent(), /完整记录均值250/);
-    await page.getByLabel("预测起始挑战", { exact: true }).selectOption("");
-    await page.getByRole("button", { name: "展开收入记录", exact: true }).click();
-    // Copy and both CSV exports are real user-triggered actions, using local data only.
+    assert.equal(await remaining.textContent(), "-440");
+    assert.equal(await budget.getAttribute("placeholder"), "当前 700");
+    await budget.fill("1500");
+    await budget.press("Tab");
+    await page.evaluate(() => {
+      window.state.characterItemMap.get("tokens").count = 100;
+      window.ctx.refreshTokens();
+    });
+    assert.equal(await remaining.textContent(), "360");
+    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    assert.equal((await stored()).plan.budget, 1500);
+    // Copy/export only use the active budget and plan.
     await page.evaluate(() =>
       Object.defineProperty(window.navigator, "clipboard", {
         configurable: true,
@@ -237,10 +265,7 @@ try {
     );
     await page.getByRole("button", { name: "复制计划", exact: true }).click();
     assert.match(await page.evaluate(() => window.copied), /生活行动速度 0 → 3/);
-    for (const [label, file] of [
-      ["导出 CSV", "plan"],
-      ["导出收入 CSV", "income"]
-    ]) {
+    for (const [label, file] of [["导出 CSV", "plan"]]) {
       const pending = page.waitForEvent("download");
       await page.getByRole("button", { name: label, exact: true }).click();
       const download = await pending;
@@ -253,21 +278,13 @@ try {
     assert.equal(await page.locator(".mt-group").count(), 0);
     await page.getByRole("button", { name: "撤销清空", exact: true }).click();
     assert.equal(await page.locator(".mt-group").count(), 3);
-    assert.match(await page.locator(".mt-stat-grid").textContent(), /620/);
+    assert.equal(await income(), 120);
     await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
     await page.evaluate(() => {
       document.activeElement?.blur();
       window.scrollTo(0, 0);
     });
     await page.screenshot({ path: path.join(output, `workspace-${width}.png`), fullPage: true });
-    await page.locator(".mt-stats").screenshot({ path: path.join(output, `stats-${width}.png`) });
-    // Future income must first fund a reserve larger than today's balance.
-    await page.getByLabel("保留代币", { exact: true }).fill("2000");
-    await page.getByLabel("保留代币", { exact: true }).press("Tab");
-    assert.equal(await page.locator(".mt-affordable").textContent(), "0 / 8");
-    assert.equal(await page.locator(".mt-balance").textContent(), "1,140");
-    await page.getByLabel("保留代币", { exact: true }).fill("0");
-    await page.getByLabel("保留代币", { exact: true }).press("Tab");
     // Real state changes update remaining costs but cannot erase income.
     await page.evaluate(() => {
       window.state.characterItemMap.get("tokens").count = 100;
@@ -275,7 +292,7 @@ try {
       window.ctx.refreshTokens();
     });
     assert.equal(await row(id("skill_action_speed")).locator(".mt-cost strong").textContent(), "120 代币");
-    assert.match(await page.locator(".mt-stat-grid").textContent(), /620/);
+    assert.equal(await income(), 120);
     await page.evaluate(() =>
       window.emit({ ...window.state.characterLabyrinth, lootedItemsData: '{"/items/labyrinth_token":9999}' }, 999)
     );
@@ -283,8 +300,9 @@ try {
     await page.evaluate(() => window.stop());
     await boot();
     assert.equal(await page.locator(".mt-group").count(), 3);
-    assert.equal(await page.locator("#mwi-labyrinth-token-history").isVisible(), true);
-    assert.match(await page.locator(".mt-stat-grid").textContent(), /620/);
+    assert.equal(await budget.inputValue(), "1500");
+    assert.equal(await remaining.textContent(), "360");
+    assert.equal(await income(), 120);
     await page.evaluate(async () => {
       const a = window.MwiLabyrinthTokenStore.create(),
         b = window.MwiLabyrinthTokenStore.create();
@@ -296,7 +314,14 @@ try {
       b.close();
       window.dispatchEvent(new Event("focus"));
     });
-    await page.waitForFunction(() => document.querySelector(".mt-stat-grid strong")?.textContent.includes("630 代币"));
+    await page.waitForFunction(async () => {
+      const store = window.MwiLabyrinthTokenStore.create();
+      try {
+        return (await store.load("42")).runs[0]?.tokens === 130;
+      } finally {
+        store.close();
+      }
+    });
     await page.evaluate(() => {
       window.originalPut = IDBObjectStore.prototype.put;
       window.failWrites = true;
@@ -305,27 +330,21 @@ try {
         return window.originalPut.apply(this, args);
       };
     });
-    await page.getByLabel("保留代币", { exact: true }).fill("50");
-    await page.getByLabel("保留代币", { exact: true }).press("Tab");
+    await budget.fill("50");
+    await budget.press("Tab");
     await page.waitForFunction(() => document.querySelector(".mt-error")?.textContent.includes("未能保存"));
-    assert.equal(await page.getByLabel("保留代币", { exact: true }).inputValue(), "50");
+    assert.equal(await budget.inputValue(), "50");
     await page.evaluate(() => {
       window.failWrites = false;
     });
     await page.getByRole("button", { name: "重试保存", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
     assert.equal(await page.locator(".mt-error").isVisible(), false);
-    await page.getByLabel("保留代币", { exact: true }).fill("-1");
-    await page.getByLabel("保留代币", { exact: true }).press("Tab");
+    await budget.fill("-1");
+    await budget.press("Tab");
     assert.equal(await page.locator(".mt-error").isVisible(), true);
-    await page.getByLabel("保留代币", { exact: true }).fill("50");
-    await page.getByLabel("保留代币", { exact: true }).press("Tab");
-    const pending = page.waitForEvent("download");
-    await page.getByRole("button", { name: "导出记录", exact: true }).click();
-    const backup = await pending,
-      backupPath = path.join(output, `export-${width}.json`);
-    await backup.saveAs(backupPath);
-    assert.equal(JSON.parse(fs.readFileSync(backupPath, "utf8")).runs.length, 3);
+    await budget.fill("50");
+    await budget.press("Tab");
     await page.evaluate(() => {
       const native = document.querySelector(".TabsComponent_tabsComponent__fixture"),
         clone = native.cloneNode(true);
@@ -366,7 +385,7 @@ try {
     );
     await context.close();
     console.log(
-      `通过 ${width}px：公会式目录/队列、逐级预算、拖动与键盘、清空撤销、预测起点、复制/CSV、收入去重、IDB恢复与原生页签隔离。`
+      `通过 ${width}px：两栏预算、空值跟随余额、零预算、负数缺口、旧预测隔离、目录/排序、撤销、保存恢复与原生隔离。`
     );
   }
 } finally {

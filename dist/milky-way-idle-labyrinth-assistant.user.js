@@ -2,7 +2,7 @@
 // @name         迷宫助手
 // @description  银河奶牛迷宫路线规划、房间胜率、预计耗时、推荐等级与重开建议。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.7
+// @version      0.12.8
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -509,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.7","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.8","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -5058,7 +5058,6 @@ DEALINGS IN THE SOFTWARE.
       message = "",
       undo = null,
       undoTimer = null,
-      shown = 20,
       drag = null,
       disposed = false;
     const body = el("div", "mt-workspace");
@@ -5084,21 +5083,11 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-calc-tokens .mt-savebar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
 #mwi-labyrinth-calc-tokens .mt-error{color:var(--ml-danger)}
 #mwi-labyrinth-calc-tokens .mt-feedback{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--ml-accent);margin:8px 0}
-#mwi-labyrinth-calc-tokens .mt-budget-area{padding:0 0 16px;border-bottom:1px solid var(--ml-line);margin-bottom:16px}
-#mwi-labyrinth-calc-tokens .mt-budget-body{display:grid;gap:16px;margin-top:12px}
-#mwi-labyrinth-calc-tokens .mt-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
-#mwi-labyrinth-calc-tokens .mt-controls label{display:grid;gap:4px;align-content:start;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-controls input{width:100%;height:36px}
-#mwi-labyrinth-calc-tokens .mt-stepper{display:flex;align-items:stretch;gap:0;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-stepper input{width:0;flex:1;border-radius:4px 0 0 4px}
-#mwi-labyrinth-calc-tokens .mt-stepper button{padding:0;width:28px;min-width:28px;border-radius:0}
-#mwi-labyrinth-calc-tokens .mt-stepper button:last-child{border-radius:0 4px 4px 0}
-#mwi-labyrinth-calc-tokens .mt-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;padding:12px;background:var(--ml-surface);border-radius:6px}
-#mwi-labyrinth-calc-tokens .mt-metric{display:grid;align-content:start;gap:4px;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-metric strong{font-size:20px;line-height:1.3;overflow-wrap:anywhere}
-#mwi-labyrinth-calc-tokens [data-danger="true"] strong{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-eta{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-top:8px}
-#mwi-labyrinth-calc-tokens .mt-eta strong{color:var(--ml-accent)}
+#mwi-labyrinth-calc-tokens .mt-budget-area{display:grid;grid-template-columns:minmax(0,240px) minmax(0,1fr);gap:24px;align-items:start;padding-bottom:16px;border-bottom:1px solid var(--ml-line);margin-bottom:16px}
+#mwi-labyrinth-calc-tokens .mt-budget-area label,#mwi-labyrinth-calc-tokens .mt-balance-metric{display:grid;gap:6px;min-width:0}
+#mwi-labyrinth-calc-tokens .mt-budget-area input{width:100%;height:36px}
+#mwi-labyrinth-calc-tokens .mt-balance{font-size:20px;line-height:36px;overflow-wrap:anywhere}
+#mwi-labyrinth-calc-tokens [data-danger="true"] .mt-balance{color:var(--ml-danger)}
 #mwi-labyrinth-calc-tokens .mt-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
 #mwi-labyrinth-calc-tokens .mt-queue-pane,#mwi-labyrinth-calc-tokens .mt-picker{min-width:0;container-type:inline-size}
 #mwi-labyrinth-calc-tokens .mt-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
@@ -5145,31 +5134,16 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-calc-tokens .mt-tile strong{font-size:14px;font-weight:500}
 #mwi-labyrinth-calc-tokens .mt-tile[data-planned="true"]{background:var(--ml-selected-bg,#2d4947);border-color:var(--ml-selected-line,#527d73)}
 #mwi-labyrinth-calc-tokens .mt-empty{padding:16px 0;color:var(--ml-muted)}
-#mwi-labyrinth-calc-tokens .mt-stats{margin-top:20px;padding-top:14px;border-top:1px solid var(--ml-line);min-width:0}
-#mwi-labyrinth-calc-tokens .mt-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}
-#mwi-labyrinth-calc-tokens .mt-stat-grid>div{display:grid;align-content:start;gap:4px;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-stat-grid strong{font-size:18px;overflow-wrap:anywhere}
-#mwi-labyrinth-calc-tokens .mt-forecast-setting{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-block:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-forecast-setting select{flex:1;min-width:0;max-width:330px}
-#mwi-labyrinth-calc-tokens .mt-history-heading{margin-top:12px}
-#mwi-labyrinth-calc-tokens table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12px}
-#mwi-labyrinth-calc-tokens th,#mwi-labyrinth-calc-tokens td{padding:8px 4px;border-bottom:1px solid var(--ml-line);text-align:right;overflow-wrap:anywhere;white-space:normal}
-#mwi-labyrinth-calc-tokens th:first-child,#mwi-labyrinth-calc-tokens td:first-child{width:36%;text-align:left}
-#mwi-labyrinth-calc-tokens th:last-child,#mwi-labyrinth-calc-tokens td:last-child{width:26%}
-#mwi-labyrinth-calc-tokens th{color:var(--ml-muted);font-weight:500}
-@container (min-width:720px){#mwi-labyrinth-calc-tokens .mt-budget-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}#mwi-labyrinth-calc-tokens .mt-layout[data-picker-open="true"]{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}}
-@container (max-width:370px){#mwi-labyrinth-calc-tokens .mt-row{grid-template-columns:20px 28px minmax(0,1fr);gap:6px}#mwi-labyrinth-calc-tokens .mt-drag{grid-row:1/4;min-width:20px}#mwi-labyrinth-calc-tokens .mt-cost{grid-column:2/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:4px 8px;text-align:left}#mwi-labyrinth-calc-tokens .mt-row-actions{grid-row:3}#mwi-labyrinth-calc-tokens .mt-order{margin-left:0}#mwi-labyrinth-calc-tokens .mt-metric strong{font-size:18px}}
+@container (min-width:720px){#mwi-labyrinth-calc-tokens .mt-layout[data-picker-open="true"]{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}}
+@container (max-width:370px){#mwi-labyrinth-calc-tokens .mt-row{grid-template-columns:20px 28px minmax(0,1fr);gap:6px}#mwi-labyrinth-calc-tokens .mt-drag{grid-row:1/4;min-width:20px}#mwi-labyrinth-calc-tokens .mt-cost{grid-column:2/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:4px 8px;text-align:left}#mwi-labyrinth-calc-tokens .mt-row-actions{grid-row:3}#mwi-labyrinth-calc-tokens .mt-order{margin-left:0}#mwi-labyrinth-calc-tokens .mt-budget-area{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}
 </style>
 <div class="mt-savebar"><span class="mt-save mt-muted" role="status"></span><button data-action="retry" hidden>重试保存</button><span class="mt-error" role="alert" hidden></span></div>
 <div class="mt-feedback" role="status"><span></span><button data-action="undo" hidden>撤销清空</button></div>
-<section class="mt-budget-area" aria-label="代币预算"><div class="mt-heading"><h3>代币预算</h3><span><span>背包余额</span><strong class="mt-live-balance"></strong></span></div><div class="mt-budget-body"><div class="mt-controls">
-<label>起始代币<input data-budget="budget" type="number" min="0" step="1" placeholder="跟随余额" aria-label="自定代币预算，留空跟随余额"></label>
-<label>挑战次数<span class="mt-stepper"><input data-budget="futureRuns" type="number" min="0" max="10000" step="1" aria-label="预计再进行的迷宫次数"><button data-action="less-run" aria-label="减少规划挑战次数">−</button><button data-action="more-run" aria-label="增加规划挑战次数">+</button></span></label>
-<label>保留代币<input data-budget="reserve" type="number" min="0" step="1" aria-label="保留代币"></label><label>单次收入<input data-budget="perRun" type="number" min="0" step="1" placeholder="完整记录均值" aria-label="估算单次收入，留空使用完整记录均值"></label></div><div><div class="mt-metrics"><div class="mt-metric"><span>计划花费</span><strong class="mt-total"></strong></div><div class="mt-metric"><span>预算可完成</span><strong class="mt-affordable"></strong></div><div class="mt-metric mt-balance-metric"><span class="mt-balance-label"></span><strong class="mt-balance"></strong></div></div><div class="mt-eta"><span>预计还需</span><strong></strong></div></div></div></section>
+<section class="mt-budget-area" aria-label="代币预算"><label>规划数量<input data-budget="budget" type="number" min="0" step="1" aria-label="规划数量" placeholder="使用当前数量"></label><div class="mt-balance-metric"><span>剩余数量</span><strong class="mt-balance" role="status"></strong></div></section>
 <div class="mt-layout"><section class="mt-queue-pane" aria-label="代币使用计划"><div class="mt-heading mt-queue-heading"><span><h3>使用计划</h3></span><div class="mt-actions"><button data-action="copy">复制计划</button><button data-action="export-plan">导出 CSV</button><button data-action="clear">清空计划</button></div></div><ol class="mt-queue"></ol><div class="mt-empty mt-queue-empty">暂无计划</div></section>
 <section class="mt-picker"><button class="mt-picker-toggle" data-action="picker" aria-controls="mwi-labyrinth-token-picker"><span class="mt-picker-title">收起商店目录</span></button><div class="mt-picker-body" id="mwi-labyrinth-token-picker"><div class="mt-catalog-heading"><input class="mt-search" type="search" placeholder="搜索升级或商品" aria-label="搜索升级或商品" maxlength="200"></div><div class="mt-categories" role="group" aria-label="商店项目分类"></div><div class="mt-catalog"></div><p class="mt-filter-empty mt-muted" hidden>没有匹配的项目。</p></div></section></div>
 
-<section class="mt-stats" aria-label="代币收入"><div class="mt-heading"><h3>代币收入</h3></div><div class="mt-stat-grid"></div><label class="mt-forecast-setting">预测起始挑战<select aria-label="预测起始挑战"></select></label><div class="mt-heading mt-history-heading"><button data-action="history" aria-controls="mwi-labyrinth-token-history">展开收入记录</button><div class="mt-actions"><button data-action="export-history">导出收入 CSV</button><button data-action="backup">导出记录</button></div></div><div id="mwi-labyrinth-token-history" hidden><table><thead><tr><th>开始时间</th><th>层数</th><th>实际代币</th><th>记录状态</th></tr></thead><tbody class="mt-runs"></tbody></table><p class="mt-history-empty mt-muted"></p><button data-action="more" hidden>显示更多</button></div></section>`;
+`;
     section.append(body);
     const $ = (s) => body.querySelector(s);
     for (const [key, label] of Object.entries(categories)) $(".mt-categories").append(button(label, "category", key));
@@ -5341,9 +5315,14 @@ DEALINGS IN THE SOFTWARE.
       if (!data || disposed || drag) return;
       const plan = data.profile.plan,
         prefs = M.preferences(plan),
-        stats = M.summary(data.profile.runs),
         focus = captureFocus();
-      result = M.buildPlan(plan, data.catalog, data.balance, data.profile.runs);
+      // Legacy forecast/reserve fields remain readable but no longer affect this budget-only view.
+      result = M.buildPlan(
+        { ...plan, reserve: 0, futureRuns: 0, perRun: null, forecastStart: null },
+        data.catalog,
+        data.balance,
+        []
+      );
       $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : data.saving ? "正在保存" : "";
       $(".mt-save").hidden = !$(".mt-save").textContent;
       $("[data-action=retry]").hidden = !data.saveError;
@@ -5352,23 +5331,13 @@ DEALINGS IN THE SOFTWARE.
       $(".mt-error").hidden = !data.saveError;
       $(".mt-feedback span").textContent = message;
       $("[data-action=undo]").hidden = !undo;
-      $(".mt-live-balance").textContent = fmt(data.balance);
+      $('[data-budget="budget"]').placeholder = `当前 ${fmt(data.balance)}`;
       for (const input of body.querySelectorAll("[data-budget]")) {
         if (document.activeElement !== input) input.value = plan[input.dataset.budget] ?? "";
         input.disabled = !data.loaded;
       }
-      $(".mt-total").textContent = fmt(result.total);
-      $(".mt-affordable").textContent = `${fmt(result.affordable)} / ${fmt(result.count)}`;
-      $(".mt-balance-label").textContent = result.remaining !== null && result.remaining < 0 ? "超出预算" : "剩余代币";
-      $(".mt-balance").textContent = result.remaining === null ? "—" : fmt(Math.abs(result.remaining));
+      $(".mt-balance").textContent = fmt(result.remaining);
       $(".mt-balance-metric").dataset.danger = result.remaining !== null && result.remaining < 0;
-      $(".mt-eta strong").textContent = !plan.entries.length
-        ? "尚无计划"
-        : result.eta === 0
-          ? "当前预算已足够"
-          : result.eta !== null
-            ? `约 ${fmt(result.eta)} 次挑战`
-            : "暂无有效收入估计";
       $(".mt-queue-empty").hidden = !!result.groups.length;
       for (const action of ["copy", "export-plan", "clear"])
         $(`[data-action=${action}]`).disabled = !data.loaded || !result.groups.length;
@@ -5423,59 +5392,6 @@ DEALINGS IN THE SOFTWARE.
       }
       $(".mt-catalog").scrollTop = scroll;
       filter();
-      $(".mt-stat-grid").replaceChildren();
-      for (const [label, value] of [
-        ["累计收入", stats.total],
-        ["完整记录均值", stats.average],
-        ["预计单次收入", result.income]
-      ]) {
-        const node = el("div");
-        node.append(el("span", "", label), el("strong", "", `${fmt(value)} 代币`));
-        $(".mt-stat-grid").append(node);
-      }
-      const select = $(".mt-forecast-setting select"),
-        runs = [...data.profile.runs].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-      select.replaceChildren();
-      const all = el("option", "", "全部已记录挑战");
-      all.value = "";
-      select.append(all);
-      runs.forEach((r, i) => {
-        const o = el("option", "", `第 ${i + 1} 次 · ${new Date(r.startedAt).toLocaleDateString("zh-CN")}`);
-        o.value = r.startedAt;
-        select.append(o);
-      });
-      if (plan.forecastStart && !runs.some((r) => r.startedAt === plan.forecastStart)) {
-        const o = el("option", "", `从 ${new Date(plan.forecastStart).toLocaleDateString("zh-CN")} 起`);
-        o.value = plan.forecastStart;
-        select.append(o);
-      }
-      select.value = plan.forecastStart || "";
-      select.disabled = !data.loaded;
-      $("#mwi-labyrinth-token-history").hidden = !prefs.historyOpen;
-      $("[data-action=history]").setAttribute("aria-expanded", prefs.historyOpen);
-      $("[data-action=history]").textContent = prefs.historyOpen ? "收起收入记录" : "展开收入记录";
-      $(".mt-runs").replaceChildren();
-      for (const r of runs.reverse().slice(0, shown)) {
-        const row = el("tr");
-        for (const text of [
-          new Date(r.startedAt).toLocaleString("zh-CN", { hour12: false }),
-          r.floor,
-          fmt(r.tokens),
-          r.conflict
-            ? "数据待核对"
-            : r.complete
-              ? "已确认结束"
-              : r.startedAt === data.activeRun
-                ? "本次已获"
-                : "未收到结束数据"
-        ])
-          row.append(el("td", "", text));
-        $(".mt-runs").append(row);
-      }
-      $(".mt-history-empty").textContent = runs.length ? "" : "暂无收入记录";
-      $("[data-action=more]").hidden = runs.length <= shown;
-      $("[data-action=export-history]").disabled = !data.loaded || !runs.length;
-      $("[data-action=backup]").disabled = !data.loaded;
       restoreFocus(focus);
     }
     function move(id, target) {
@@ -5492,7 +5408,7 @@ DEALINGS IN THE SOFTWARE.
         const plan = structuredClone(data.profile.plan),
           key = input.dataset.budget,
           raw = input.value.trim();
-        plan[key] = !raw && ["budget", "perRun"].includes(key) ? null : !raw ? NaN : Number(raw);
+        plan[key] = input.validity.badInput ? NaN : raw === "" ? null : Number(raw);
         commit(plan);
       } else if (input.dataset.target) {
         const plan = structuredClone(data.profile.plan),
@@ -5513,11 +5429,6 @@ DEALINGS IN THE SOFTWARE.
         entry.target = value;
         commit(plan);
       } else if (input.matches(".mt-search")) changeUi({ search: input.value });
-      else if (input.matches(".mt-forecast-setting select")) {
-        const plan = structuredClone(data.profile.plan);
-        plan.forecastStart = input.value || null;
-        commit(plan);
-      }
     });
     body.addEventListener("input", (e) => {
       if (e.target.matches(".mt-search")) filter();
@@ -5533,14 +5444,6 @@ DEALINGS IN THE SOFTWARE.
         item = data.catalog.find((i) => i.id === id);
       if (action === "retry") {
         onRetry();
-        return;
-      }
-      if (action === "backup") {
-        onExport();
-        return;
-      }
-      if (action === "export-history") {
-        onExport({ text: M.historyCsv(data.profile.runs), name: "迷宫代币收入" });
         return;
       }
       if (action === "export-plan") {
@@ -5560,11 +5463,7 @@ DEALINGS IN THE SOFTWARE.
       if (!data.loaded) return;
       if (action === "picker") changeUi({ pickerOpen: !prefs.pickerOpen });
       else if (action === "category") changeUi({ category: id });
-      else if (action === "history") changeUi({ historyOpen: !prefs.historyOpen });
-      else if (action === "more") {
-        shown += 50;
-        render();
-      } else if (action === "expand")
+      else if (action === "expand")
         changeUi({
           expanded: prefs.expanded.includes(id) ? prefs.expanded.filter((v) => v !== id) : [...prefs.expanded, id]
         });
@@ -5578,9 +5477,6 @@ DEALINGS IN THE SOFTWARE.
         move(id, plan.entries.findIndex((e) => e.id === id) + (action === "up" ? -1 : 1));
       else if (action === "remove") {
         plan.entries = plan.entries.filter((e) => e.id !== id);
-        commit(plan);
-      } else if (action === "more-run" || action === "less-run") {
-        plan.futureRuns = Math.max(0, Math.min(10000, plan.futureRuns + (action === "more-run" ? 1 : -1)));
         commit(plan);
       } else if (action === "clear") {
         discardUndo();
@@ -5650,7 +5546,6 @@ DEALINGS IN THE SOFTWARE.
           owner = next.owner;
           discardUndo();
           message = "";
-          shown = 20;
           drag = null;
         }
         data = next;
@@ -23810,7 +23705,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.7",
+    version: "0.12.8",
     status: "ready",
     plan: core?.plan,
     destroy() {
