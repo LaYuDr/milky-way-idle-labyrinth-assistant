@@ -104,6 +104,28 @@ export function archive(root = ROOT) {
   manifest.releases.push({ version, path: destination, sizeBytes: bytes.length, sha256: digest(bytes) });
   write(root, "releases/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 }
+export function publishedSourceMatches(actual, expected) {
+  const canonical = (source) => {
+    const normalized = source.replaceAll("\r\n", "\n");
+    const end = normalized.indexOf("// ==/UserScript==");
+    if (!normalized.startsWith("// ==UserScript==\n") || end < 0) return null;
+    const urls = [];
+    const header = normalized
+      .slice(0, end)
+      .split("\n")
+      .filter((line) => {
+        const match = /^\/\/ @(downloadURL|updateURL)\s+(\S+)[ \t]*$/.exec(line);
+        if (!match) return true;
+        urls.push([match[1], match[2]]);
+        return false;
+      });
+    if (urls.length !== 2 || new Set(urls.map(([key]) => key)).size !== 2) return null;
+    urls.sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify([urls, header.join("\n") + normalized.slice(end)]);
+  };
+  const expectedSource = canonical(expected);
+  return expectedSource !== null && canonical(actual) === expectedSource;
+}
 export async function main(args) {
   if (args.some((arg) => arg !== "--dry-run") || args.length > 1)
     throw new Error("用法：npm run release [-- --dry-run]；版本请在 package.json 和锁文件中同步修改");
@@ -134,11 +156,10 @@ export async function main(args) {
   git(["push", "origin", `HEAD:refs/heads/${checked.config.branch}`]);
   const remote = git(["ls-remote", "origin", `refs/heads/${checked.config.branch}`]).split(/\s+/)[0];
   if (remote !== commit) throw new Error("推送后远端提交不一致，请人工核对");
-  const response = await fetch(checked.config.downloadURL, { signal: AbortSignal.timeout(15000), cache: "no-store" });
-  if (
-    !response.ok ||
-    (await response.text()).replaceAll("\r\n", "\n") !== read(ROOT, `dist/${ARTIFACT}`).replaceAll("\r\n", "\n")
-  )
+  const verificationURL = new URL(checked.config.downloadURL);
+  verificationURL.searchParams.set("release", commit);
+  const response = await fetch(verificationURL, { signal: AbortSignal.timeout(15000), cache: "no-store" });
+  if (!response.ok || !publishedSourceMatches(await response.text(), read(ROOT, `dist/${ARTIFACT}`)))
     throw new Error("GitHub 已推送，Greasy Fork 尚未同步或内容不一致。请稍后核对公开脚本，不要重跑发布。");
   console.log(`已发布并核对 v${checked.version}。`);
 }

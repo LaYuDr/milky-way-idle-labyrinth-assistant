@@ -243,3 +243,22 @@ test("开发服务仅提供允许文件，构建失败返回 503", async (t) => 
   t.mock.method(console, "error", () => {});
   assert.equal((await fetch(base + "/runtime.js")).status, 503);
 });
+
+test("发布校验允许平台重排更新地址，但拒绝地址、代码及其他元数据差异", async () => {
+  const { publishedSourceMatches } = await import("../tools/release-current-version.mjs");
+  const expected =
+    "// ==UserScript==\n// @version 1.0\n// @downloadURL  https://example.com/a.user.js\n// @updateURL  https://example.com/a.meta.js\n// @grant none\n// ==/UserScript==\nrun();\n";
+  const actual =
+    "// ==UserScript==\n// @version 1.0\n// @grant none\n// @updateURL https://example.com/a.meta.js\n// @downloadURL https://example.com/a.user.js\n// ==/UserScript==\nrun();\n";
+  assert.equal(publishedSourceMatches(actual, expected), true);
+  assert.equal(publishedSourceMatches(actual.replaceAll("\n", "\r\n"), expected), true);
+  for (const altered of [
+    actual.replace("run();", "other();"),
+    actual.replace("@version 1.0", "@version 0.9"),
+    actual.replace("a.meta.js", "wrong.meta.js"),
+    actual.replace("// @grant none", "// @grant unsafeWindow"),
+    actual.replace("// @grant none", "// @downloadURL https://example.com/a.user.js"),
+    actual.replace("// @updateURL https://example.com/a.meta.js\n", "")
+  ])
+    assert.equal(publishedSourceMatches(altered, expected), false);
+});
