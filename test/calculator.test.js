@@ -456,10 +456,7 @@ test("胜率条样式及五档颜色与参考插件原版一致", async () => {
     "#d27a1f",
     "#d84b4b"
   ]);
-  const reference = fs.readFileSync(
-    path.join(__dirname, "../references/local-plugins/迷宫胜率计算器-1.6.0.txt"),
-    "utf8"
-  );
+  const reference = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/reference-badge-style.json"), "utf8"));
   const appearance = fs
     .readFileSync(path.join(__dirname, "../src/calculator/appearance.js"), "utf8")
     .replaceAll("ctx.", "");
@@ -467,7 +464,7 @@ test("胜率条样式及五档颜色与参考插件原版一致", async () => {
     source
       .slice(source.indexOf(".${BADGE_CLASS} {"), source.indexOf(".${LIVE_ACTION_RATE_CLASS} {"))
       .replace(/\s+/g, " ");
-  assert.equal(badgeCss(appearance), badgeCss(reference));
+  assert.equal(badgeCss(appearance), reference.badgeCss.replace(/\s+/g, " "));
 });
 
 test("专业升级的下一档代币花费与预览使用同一等级快照", async () => {
