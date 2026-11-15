@@ -15,46 +15,6 @@
       if (!panel || panel.querySelector(".mwi-labyrinth-calc-options")) return panel;
       const advanced = document.createElement("div");
       advanced.className = "mwi-labyrinth-calc-options";
-      const credits = document.createElement("section"),
-        creditsTitle = document.createElement("h3");
-      credits.className = "mwi-labyrinth-credits";
-      credits.setAttribute("aria-label", text("作者与致谢", "Authors and credits"));
-      creditsTitle.textContent = text("作者与致谢", "Authors and credits");
-      credits.append(creditsTitle);
-      for (const [label, links] of [
-        [text("开发与维护：", "Development: "), [["柆雨", "https://github.com/LaYuDr"]]],
-        [text("原计算器：", "Original calculator: "), [["dakonglong", "https://greasyfork.org/zh-CN/scripts/566829"]]],
-        [
-          text("战斗内核：", "Combat engine: "),
-          [
-            ["wow121", "https://github.com/wow121/mwi-fastsim"],
-            ["Yinhr", "https://github.com/Yinhaoran1128/labyrinth-clear-rate"]
-          ]
-        ],
-        [
-          text("来源与许可：", "Sources and licenses: "),
-          [
-            [
-              text("第三方说明", "Third-party notices"),
-              "https://github.com/LaYuDr/milky-way-idle-labyrinth-assistant/blob/main/docs/THIRD_PARTY.md"
-            ]
-          ]
-        ]
-      ]) {
-        const line = document.createElement("p");
-        line.append(label);
-        links.forEach(([name, url], index) => {
-          if (index) line.append(" · ");
-          const link = document.createElement("a");
-          link.textContent = name;
-          link.href = url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          line.append(link);
-        });
-        credits.append(line);
-      }
-      advanced.append(credits);
       const budget = panel.querySelector(`.${ctx.CONTROL_CLASS}__settings`);
       if (budget) {
         budget.querySelector("input").setAttribute("aria-label", ctx.t("combatTrials"));
@@ -63,12 +23,6 @@
         const button = panel.querySelector(`.${ctx.CONTROL_CLASS}__button`);
         panel.prepend(action);
         action.append(button, budget);
-      }
-      if (root.__layuUsage_mwi_labyrinth) {
-        const usage = document.createElement("div");
-        usage.setAttribute("data-layu-usage-settings", "mwi_labyrinth");
-        usage.lang = ctx.isChineseUi() ? "zh-CN" : "en";
-        advanced.append(usage);
       }
       panel.append(advanced);
       return panel;

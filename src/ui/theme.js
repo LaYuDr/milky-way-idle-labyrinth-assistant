@@ -85,11 +85,6 @@
 #mwi-labyrinth-planner .mwi-labyrinth-calc-clear-rate-control__distribution-toggle:has(:disabled){opacity:.55;cursor:default;}
 #mwi-labyrinth-planner .mwi-labyrinth-calc-options{grid-column:1/-1;border:0;padding:0;margin:0;}
 #mwi-labyrinth-planner .mwi-labyrinth-calc-options:empty{display:none;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits{margin-top:8px;padding-top:8px;border-top:1px solid var(--ml-line);color:var(--ml-muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits h3{margin:0 0 4px;color:var(--ml-text);font-size:12px;font-weight:600;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits p{margin:2px 0;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits a{color:var(--ml-accent);text-decoration:underline;text-underline-offset:2px;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits a:hover{color:var(--ml-text);}
 #mwi-labyrinth-calc-clear-rate-control>.mwi-labyrinth-calc-clear-rate-control__progress{grid-column:1/-1;width:100%;margin:0;display:flex;flex-direction:column;gap:3px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__track{height:3px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__bar{background:var(--ml-action);}

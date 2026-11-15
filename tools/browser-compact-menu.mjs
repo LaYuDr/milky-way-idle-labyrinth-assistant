@@ -68,6 +68,9 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    await context.addInitScript(() => {
+      window.__layuUsage_mwi_labyrinth = true;
+    });
     await page.goto("https://mwi-fixture.invalid/");
     const panel = page.locator("#mwi-labyrinth-planner");
     await page.locator("#mwi-labyrinth-calc-dock").waitFor();
@@ -105,24 +108,8 @@ try {
     assert.doesNotMatch(await panel.innerText(), /收起|展开|快速联合方案|规划使用数量/);
     await panel.screenshot({ path: path.join(directory, `menu-compact-${width}.png`) });
     assert.ok((await panel.boundingBox()).height < 560);
-    const credits = panel.getByRole("region", { name: "作者与致谢" });
-    assert.equal(await credits.isVisible(), true);
-    assert.equal(
-      await credits.getByRole("link", { name: "dakonglong", exact: true }).getAttribute("href"),
-      "https://greasyfork.org/zh-CN/scripts/566829"
-    );
-    assert.equal(await credits.getByRole("link").count(), 5);
-    for (const link of await credits.getByRole("link").all()) {
-      assert.equal(await link.getAttribute("target"), "_blank");
-      assert.equal(await link.getAttribute("rel"), "noopener noreferrer");
-    }
-    await credits.getByRole("link", { name: "dakonglong", exact: true }).focus();
-    assert.equal(
-      await credits
-        .getByRole("link", { name: "dakonglong", exact: true })
-        .evaluate((el) => el === document.activeElement),
-      true
-    );
+    assert.equal(await panel.getByRole("region", { name: "作者与致谢" }).count(), 0);
+    assert.equal(await panel.locator("[data-layu-usage-settings]").count(), 0);
     assert.equal(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth), true);
     await panel.screenshot({ path: path.join(directory, `menu-compact-${width}.png`) });
     await page.getByRole("button", { name: "增加一盏", exact: true }).click();

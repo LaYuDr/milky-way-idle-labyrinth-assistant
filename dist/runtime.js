@@ -5950,11 +5950,6 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-planner .mwi-labyrinth-calc-clear-rate-control__distribution-toggle:has(:disabled){opacity:.55;cursor:default;}
 #mwi-labyrinth-planner .mwi-labyrinth-calc-options{grid-column:1/-1;border:0;padding:0;margin:0;}
 #mwi-labyrinth-planner .mwi-labyrinth-calc-options:empty{display:none;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits{margin-top:8px;padding-top:8px;border-top:1px solid var(--ml-line);color:var(--ml-muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits h3{margin:0 0 4px;color:var(--ml-text);font-size:12px;font-weight:600;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits p{margin:2px 0;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits a{color:var(--ml-accent);text-decoration:underline;text-underline-offset:2px;}
-#mwi-labyrinth-planner .mwi-labyrinth-credits a:hover{color:var(--ml-text);}
 #mwi-labyrinth-calc-clear-rate-control>.mwi-labyrinth-calc-clear-rate-control__progress{grid-column:1/-1;width:100%;margin:0;display:flex;flex-direction:column;gap:3px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__track{height:3px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__bar{background:var(--ml-action);}
@@ -21386,46 +21381,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (!panel || panel.querySelector(".mwi-labyrinth-calc-options")) return panel;
       const advanced = document.createElement("div");
       advanced.className = "mwi-labyrinth-calc-options";
-      const credits = document.createElement("section"),
-        creditsTitle = document.createElement("h3");
-      credits.className = "mwi-labyrinth-credits";
-      credits.setAttribute("aria-label", text("作者与致谢", "Authors and credits"));
-      creditsTitle.textContent = text("作者与致谢", "Authors and credits");
-      credits.append(creditsTitle);
-      for (const [label, links] of [
-        [text("开发与维护：", "Development: "), [["柆雨", "https://github.com/LaYuDr"]]],
-        [text("原计算器：", "Original calculator: "), [["dakonglong", "https://greasyfork.org/zh-CN/scripts/566829"]]],
-        [
-          text("战斗内核：", "Combat engine: "),
-          [
-            ["wow121", "https://github.com/wow121/mwi-fastsim"],
-            ["Yinhr", "https://github.com/Yinhaoran1128/labyrinth-clear-rate"]
-          ]
-        ],
-        [
-          text("来源与许可：", "Sources and licenses: "),
-          [
-            [
-              text("第三方说明", "Third-party notices"),
-              "https://github.com/LaYuDr/milky-way-idle-labyrinth-assistant/blob/main/docs/THIRD_PARTY.md"
-            ]
-          ]
-        ]
-      ]) {
-        const line = document.createElement("p");
-        line.append(label);
-        links.forEach(([name, url], index) => {
-          if (index) line.append(" · ");
-          const link = document.createElement("a");
-          link.textContent = name;
-          link.href = url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          line.append(link);
-        });
-        credits.append(line);
-      }
-      advanced.append(credits);
       const budget = panel.querySelector(`.${ctx.CONTROL_CLASS}__settings`);
       if (budget) {
         budget.querySelector("input").setAttribute("aria-label", ctx.t("combatTrials"));
@@ -21434,12 +21389,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const button = panel.querySelector(`.${ctx.CONTROL_CLASS}__button`);
         panel.prepend(action);
         action.append(button, budget);
-      }
-      if (root.__layuUsage_mwi_labyrinth) {
-        const usage = document.createElement("div");
-        usage.setAttribute("data-layu-usage-settings", "mwi_labyrinth");
-        usage.lang = ctx.isChineseUi() ? "zh-CN" : "en";
-        advanced.append(usage);
       }
       panel.append(advanced);
       return panel;
@@ -23186,7 +23135,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.9",
+    version: "0.12.10",
     status: "ready",
     plan: core?.plan,
     destroy() {
