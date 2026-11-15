@@ -603,6 +603,9 @@
       }
       ctx.appendPreviewRow(tooltip, ctx.t("combatStyle"), String(preview.styleLabel || "--"));
       ctx.appendPreviewRow(tooltip, ctx.t("damageType"), String(preview.damageTypeLabel || "--"));
+      if (preview.failureReason) {
+        ctx.appendPreviewRow(tooltip, ctx.t("failureReason"), preview.failureReason);
+      }
       ctx.appendRewardPreviewRows(tooltip, preview.rewardPreview);
       ctx.appendPreviewRow(tooltip, ctx.t("operation"), ctx.t("rightClickOpenSimulator"));
 

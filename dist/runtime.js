@@ -13254,6 +13254,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       ctx.appendPreviewRow(tooltip, ctx.t("combatStyle"), String(preview.styleLabel || "--"));
       ctx.appendPreviewRow(tooltip, ctx.t("damageType"), String(preview.damageTypeLabel || "--"));
+      if (preview.failureReason) {
+        ctx.appendPreviewRow(tooltip, ctx.t("failureReason"), preview.failureReason);
+      }
       ctx.appendRewardPreviewRows(tooltip, preview.rewardPreview);
       ctx.appendPreviewRow(tooltip, ctx.t("operation"), ctx.t("rightClickOpenSimulator"));
 
@@ -23135,7 +23138,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.10",
+    version: "0.12.11",
     status: "ready",
     plan: core?.plan,
     destroy() {

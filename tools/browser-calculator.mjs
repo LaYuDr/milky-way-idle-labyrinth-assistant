@@ -214,6 +214,39 @@ try {
     const page = await context.newPage();
     await page.goto("https://mwi-fixture.invalid/");
     await page.locator("#mwi-labyrinth-calc-dock").waitFor({ state: "attached" });
+    if (process.argv.includes("--combat-preview-only")) {
+      await page.waitForFunction(
+        () => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3,
+        {},
+        { timeout: 60000 }
+      );
+      await page.locator('[data-room-x="3"][data-room-y="0"]').hover();
+      const preview = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
+      await preview.waitFor({ state: "visible" });
+      assert.match(await preview.innerText(), /失败原因\s+(防御不足|伤害不足)/);
+      await preview.screenshot({ path: path.join(directory, `failure-reason-${width}.png`) });
+      const failurePreviews = await page.evaluate(() => {
+        const ctx = window.MwiLabyrinthCalculator.create({ start: false }).context;
+        ctx.ensurePreviewTooltip = () => document.createElement("div");
+        return [
+          [10, 2, 8],
+          [10, 8, 2],
+          [0, 0, 0]
+        ].map(([failures, timeouts, deaths]) => {
+          const failureReason = ctx.deriveCombatFailureReasonFromCounts(failures, timeouts, deaths);
+          return ctx.renderCombatPreviewTooltip({ failureReason }).textContent;
+        });
+      });
+      assert.match(failurePreviews[0], /失败原因防御不足/);
+      assert.match(failurePreviews[1], /失败原因伤害不足/);
+      assert.doesNotMatch(failurePreviews[2], /失败原因|防御不足|伤害不足/);
+
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`Combat failure preview ${width}: passed`);
+      continue;
+    }
+
     await page.waitForFunction(
       () => document.querySelector('[data-room-x="5"][data-room-y="5"]')?.__mwiLabyrinthCalcPreviewBound
     );
@@ -352,10 +385,26 @@ try {
       if (name === "combat") {
         for (const label of ["战斗风格", "伤害类型", "代币期望"])
           assert.ok((await preview.innerText()).includes(label));
-        assert.doesNotMatch(await preview.innerText(), /攻击间隔|最大HP|失败原因/);
+        assert.match(await preview.innerText(), /失败原因\s+(防御不足|伤害不足)/);
+        assert.doesNotMatch(await preview.innerText(), /攻击间隔|最大HP/);
       }
       await page.screenshot({ path: path.join(directory, `${name}-${width}.png`) });
     }
+    const failurePreviews = await page.evaluate(() => {
+      const ctx = window.MwiLabyrinthCalculator.create({ start: false }).context;
+      ctx.ensurePreviewTooltip = () => document.createElement("div");
+      return [
+        [10, 2, 8],
+        [10, 8, 2],
+        [0, 0, 0]
+      ].map(([failures, timeouts, deaths]) => {
+        const failureReason = ctx.deriveCombatFailureReasonFromCounts(failures, timeouts, deaths);
+        return ctx.renderCombatPreviewTooltip({ failureReason }).textContent;
+      });
+    });
+    assert.match(failurePreviews[0], /失败原因防御不足/);
+    assert.match(failurePreviews[1], /失败原因伤害不足/);
+    assert.doesNotMatch(failurePreviews[2], /失败原因|防御不足|伤害不足/);
     await page.mouse.move(0, 0);
     const resultKey = "mwi-labyrinth:calculator:room-results:v1:character:1001";
     const savedPreview = await page.evaluate(
@@ -920,6 +969,39 @@ try {
     );
     await page.addScriptTag({ content: runtime });
     await page.locator("#mwi-labyrinth-calc-dock").waitFor({ state: "attached" });
+    if (process.argv.includes("--combat-preview-only")) {
+      await page.waitForFunction(
+        () => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3,
+        {},
+        { timeout: 60000 }
+      );
+      await page.locator('[data-room-x="3"][data-room-y="0"]').hover();
+      const preview = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
+      await preview.waitFor({ state: "visible" });
+      assert.match(await preview.innerText(), /失败原因\s+(防御不足|伤害不足)/);
+      await preview.screenshot({ path: path.join(directory, `failure-reason-${width}.png`) });
+      const failurePreviews = await page.evaluate(() => {
+        const ctx = window.MwiLabyrinthCalculator.create({ start: false }).context;
+        ctx.ensurePreviewTooltip = () => document.createElement("div");
+        return [
+          [10, 2, 8],
+          [10, 8, 2],
+          [0, 0, 0]
+        ].map(([failures, timeouts, deaths]) => {
+          const failureReason = ctx.deriveCombatFailureReasonFromCounts(failures, timeouts, deaths);
+          return ctx.renderCombatPreviewTooltip({ failureReason }).textContent;
+        });
+      });
+      assert.match(failurePreviews[0], /失败原因防御不足/);
+      assert.match(failurePreviews[1], /失败原因伤害不足/);
+      assert.doesNotMatch(failurePreviews[2], /失败原因|防御不足|伤害不足/);
+
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`Combat failure preview ${width}: passed`);
+      continue;
+    }
+
     await page.locator("#mwi-labyrinth-calc-experience-goals").waitFor({ state: "attached" });
     assert.equal(await page.locator(".mwi-labyrinth-calc-prefill-toggle input").isChecked(), false);
     assert.equal(
@@ -936,6 +1018,39 @@ try {
     await page.locator("#leave").click();
     await page.locator("#mwi-labyrinth-planner").waitFor({ state: "visible" });
     await page.locator("#mwi-labyrinth-calc-dock").waitFor({ state: "attached" });
+    if (process.argv.includes("--combat-preview-only")) {
+      await page.waitForFunction(
+        () => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3,
+        {},
+        { timeout: 60000 }
+      );
+      await page.locator('[data-room-x="3"][data-room-y="0"]').hover();
+      const preview = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
+      await preview.waitFor({ state: "visible" });
+      assert.match(await preview.innerText(), /失败原因\s+(防御不足|伤害不足)/);
+      await preview.screenshot({ path: path.join(directory, `failure-reason-${width}.png`) });
+      const failurePreviews = await page.evaluate(() => {
+        const ctx = window.MwiLabyrinthCalculator.create({ start: false }).context;
+        ctx.ensurePreviewTooltip = () => document.createElement("div");
+        return [
+          [10, 2, 8],
+          [10, 8, 2],
+          [0, 0, 0]
+        ].map(([failures, timeouts, deaths]) => {
+          const failureReason = ctx.deriveCombatFailureReasonFromCounts(failures, timeouts, deaths);
+          return ctx.renderCombatPreviewTooltip({ failureReason }).textContent;
+        });
+      });
+      assert.match(failurePreviews[0], /失败原因防御不足/);
+      assert.match(failurePreviews[1], /失败原因伤害不足/);
+      assert.doesNotMatch(failurePreviews[2], /失败原因|防御不足|伤害不足/);
+
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`Combat failure preview ${width}: passed`);
+      continue;
+    }
+
     assert.equal(await page.locator("#mwi-labyrinth-planner").count(), 1);
     assert.equal(await page.locator("#mwi-labyrinth-planner #mwi-labyrinth-calc-dock").count(), 1);
     assert.equal(await page.locator("#mwi-labyrinth-calc-clear-rate-control").count(), 1);

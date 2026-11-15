@@ -2,7 +2,7 @@
 // @name         迷宫助手
 // @description  银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级与重开建议。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.10
+// @version      0.12.11
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -509,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.10","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.11","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -13773,6 +13773,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       ctx.appendPreviewRow(tooltip, ctx.t("combatStyle"), String(preview.styleLabel || "--"));
       ctx.appendPreviewRow(tooltip, ctx.t("damageType"), String(preview.damageTypeLabel || "--"));
+      if (preview.failureReason) {
+        ctx.appendPreviewRow(tooltip, ctx.t("failureReason"), preview.failureReason);
+      }
       ctx.appendRewardPreviewRows(tooltip, preview.rewardPreview);
       ctx.appendPreviewRow(tooltip, ctx.t("operation"), ctx.t("rightClickOpenSimulator"));
 
@@ -23654,7 +23657,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.10",
+    version: "0.12.11",
     status: "ready",
     plan: core?.plan,
     destroy() {
