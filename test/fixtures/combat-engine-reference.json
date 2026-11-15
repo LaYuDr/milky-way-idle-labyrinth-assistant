@@ -1,0 +1,806 @@
+{
+  "commit": "e30f758841ba28b2af117ee14e8d97764ab1c8b3",
+  "wasmSha256": "57f444599979b2f6de7a23ccb21963acbfe6948b023c0eb40cf24a5c0b62308c",
+  "cases": [
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/shadow_archer",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 8,
+        "failedByDeath": 0,
+        "failedByTimeout": 9,
+        "totalSpentSeconds": 1829.714274
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/shadow_archer",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1098.731635
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/pyre_hunter",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 13,
+        "failedByDeath": 0,
+        "failedByTimeout": 4,
+        "totalSpentSeconds": 1567.999983
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/pyre_hunter",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1027.512174
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/frost_sniper",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 10,
+        "failedByDeath": 0,
+        "failedByTimeout": 7,
+        "totalSpentSeconds": 1711.619034
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/frost_sniper",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1210.341441
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/siren",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 17,
+        "failedByDeath": 0,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 344.380947
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/siren",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1395.999975
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/salamander",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 17,
+        "failedByDeath": 0,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 326.095233
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/salamander",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1071.048765
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/dryad",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 17,
+        "failedByDeath": 0,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 380.87827
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/dryad",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1277.853683
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/giant_scorpion",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 17,
+        "failedByDeath": 0,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1094.095221
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/giant_scorpion",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1149.365769
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/giant_mantis",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 16,
+        "failedByDeath": 0,
+        "failedByTimeout": 1,
+        "totalSpentSeconds": 1302.4761720000001
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/giant_mantis",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1296.9999050000001
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/cyclops",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 17,
+        "failedByDeath": 0,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1192.830212
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/cyclops",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1407.512091
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/mimic",
+        "mazeDifficulty": 1,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 14,
+        "failedByDeath": 0,
+        "failedByTimeout": 3,
+        "totalSpentSeconds": 1457.14284
+      }
+    },
+    {
+      "params": {
+        "playerDto": {
+          "hrid": "player1",
+          "equipment": {
+            "/equipment_types/two_hand": {
+              "hrid": "/items/wooden_bow",
+              "enhancementLevel": 5
+            }
+          },
+          "food": [],
+          "drinks": [],
+          "abilities": [null, null, null, null, null],
+          "houseRooms": {},
+          "achievements": {},
+          "guildBuffs": {},
+          "labyrinthUpgrades": {},
+          "debuffOnLevelGap": 0,
+          "staminaLevel": 100,
+          "intelligenceLevel": 100,
+          "attackLevel": 100,
+          "meleeLevel": 100,
+          "defenseLevel": 100,
+          "rangedLevel": 100,
+          "magicLevel": 100
+        },
+        "monsterHrid": "/monsters/mimic",
+        "mazeDifficulty": 50,
+        "trials": 17,
+        "seed": 123,
+        "mazeCrateItemHrids": []
+      },
+      "expected": {
+        "trials": 17,
+        "successes": 0,
+        "failedByDeath": 17,
+        "failedByTimeout": 0,
+        "totalSpentSeconds": 1554.640592
+      }
+    }
+  ]
+}

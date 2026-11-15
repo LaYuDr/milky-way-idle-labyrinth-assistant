@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>迷宫助手房间计算测试台</title>
+  <style>
+    body {
+      background: #161722;
+      color: #eeeef5;
+      font: 14px/1.5 system-ui;
+      margin: 20px;
+    }
+    main {
+      max-width: 960px;
+      margin: auto;
+    }
+    button,
+    input,
+    select {
+      font: inherit;
+      padding: 6px;
+    }
+    button {
+      cursor: pointer;
+    }
+    h1 {
+      font-size: 22px;
+    }
+    .LabyrinthPanel_roomGrid_fixture {
+      display: grid;
+      grid-template-columns: repeat(6, 64px);
+      gap: 3px;
+      width: max-content;
+      margin: 30px auto;
+    }
+    .LabyrinthPanel_roomCell_fixture {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      background: #30334c;
+    }
+    .LabyrinthPanel_clearedRoom_fixture {
+      background: #484e80;
+    }
+    .LabyrinthPanel_roomLevel_fixture {
+      font-size: 11px;
+    }
+    .LabyrinthPanel_roomIcon_fixture {
+      text-align: center;
+      padding-top: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    td,
+    th {
+      padding: 8px;
+      border-bottom: 1px solid #555979;
+      text-align: left;
+    }
+    .LabyrinthPanel_automationSection_fixture {
+      overflow: auto;
+    }
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+  <main class="GamePage_fixture">
+    <h1>迷宫助手 · 房间计算测试台</h1>
+    <p>全部为模拟数据，不连接账号。战斗使用内置 Worker 和 WASM。</p>
+    <div class="Header_actionName_fixture"><div class="Header_displayName_fixture">生活挑战</div></div>
+    <p>
+      <button id="step">动作失败一次</button> <button id="upgrade">模拟等级提升</button>
+      <button id="floor">下一层</button> <button id="leave">离开迷宫</button>
+    </p>
+    <div class="LabyrinthPanel_labyrinthPanel_fixture">
+      <div class="LabyrinthPanel_activeRun_fixture">
+        <div class="LabyrinthPanel_gridContainer_fixture"><div class="LabyrinthPanel_roomGrid_fixture"></div></div>
+      </div>
+      <div class="LabyrinthPanel_automationSection_fixture">
+        <h2>各类房间</h2>
+        <table class="LabyrinthPanel_automationTable_fixture">
+          <thead>
+            <tr>
+              <th>房间类型</th>
+              <th>装备方案</th>
+              <th>跳过等级</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>挤奶</td>
+              <td>当前装备</td>
+              <td>20</td>
+            </tr>
+            <tr>
+              <td>强化</td>
+              <td>当前装备</td>
+              <td>20</td>
+            </tr>
+            <tr>
+              <td>暗影弓手</td>
+              <td>测试战斗方案</td>
+              <td>20</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+  <script>
+    localStorage.setItem("i18nextLng", "zh-CN");
+    localStorage.setItem("mwi-labyrinth:calculator:clear_rate_combat_trials:character:1001", "5");
+    localStorage.setItem("mwi-labyrinth:calculator:auto_combat_trials:character:1001", "5");
+    const roomData = Array.from({ length: 6 }, () => Array.from({ length: 6 }, () => ({})));
+    roomData[0][0] = { roomType: "/labyrinth_room_types/start", isCleared: true, entryCount: 1 };
+    roomData[0][1] = {
+      roomType: "/labyrinth_room_types/skilling",
+      skillHrid: "/skills/milking",
+      recommendedLevel: 100
+    };
+    roomData[0][2] = {
+      roomType: "/labyrinth_room_types/skilling",
+      skillHrid: "/skills/enhancing",
+      recommendedLevel: 120
+    };
+    roomData[0][3] = {
+      roomType: "/labyrinth_room_types/combat",
+      monsterHrid: "/monsters/shadow_archer",
+      recommendedLevel: 20
+    };
+    roomData[0][4] = { roomType: "/labyrinth_room_types/treasure" };
+    window.fixtureState = {
+      character: { id: 1001, name: "测试角色" },
+      characterLabyrinth: {
+        isActive: true,
+        startedAt: "fixture",
+        currentFloor: 1,
+        roomData,
+        pathData: JSON.stringify([{ x: 1, y: 0 }]),
+        teaCrateItemHrid: "/items/expert_tea_crate",
+        coffeeCrateItemHrid: "/items/expert_coffee_crate",
+        foodCrateItemHrid: "/items/expert_food_crate"
+      },
+      characterSetting: { labyrinthLoadoutShadowArcher: 1 },
+      characterSkillMap: Object.fromEntries(
+        [
+          "milking",
+          "enhancing",
+          "stamina",
+          "intelligence",
+          "attack",
+          "melee",
+          "defense",
+          "ranged",
+          "magic",
+          "combat"
+        ].map((x) => ["/skills/" + x, { level: 100, experience: 100 }])
+      ),
+      characterItemMap: { sword: { itemHrid: "/items/cheese_sword", count: 1, enhancementLevel: 5 } },
+      characterLoadoutDict: {
+        1: {
+          id: 1,
+          name: "测试战斗方案",
+          actionTypeHrid: "/action_types/combat",
+          wearableMap: { main_hand: "/items/cheese_sword::5" },
+          abilityMap: {},
+          useExactEnhancement: true
+        }
+      },
+      labyrinthRoomProgress: {
+        actionCounter: 1,
+        actionTimeMs: 10000,
+        successRate: 0.65,
+        doubleProgressChance: 0.1,
+        progressPerAction: 100,
+        targetWorkValue: 1000,
+        currentWorkValue: 0,
+        currentProgress: 0
+      }
+    };
+    localStorage.setItem(
+      "mwi-labyrinth:calculator:skilling_room_logs_v1:character:1001",
+      JSON.stringify({
+        sessions: [
+          {
+            id: "fixture-milking",
+            mode: "skilling",
+            startedAt: Date.now() - 90000,
+            endedAt: Date.now(),
+            roomKey: "1:0",
+            skillHrid: "/skills/milking",
+            skillName: "挤奶",
+            recommendedLevel: 100,
+            successRate: 0.65,
+            doubleChance: 0.1,
+            progressPerAction: 100,
+            targetWorkValue: 1000,
+            currentWorkValue: 1000,
+            currentProgressPct: 100,
+            predictedExperience: 5750,
+            actualExperienceGain: 5750,
+            totalExperience: 5750,
+            completed: true,
+            actions: [
+              { counter: 1, outcome: "fail", text: "0%" },
+              { counter: 2, outcome: "success", text: "10%" },
+              { counter: 3, outcome: "double", text: "30%" }
+            ]
+          }
+        ],
+        active: null
+      })
+    );
+    const game = document.querySelector(".GamePage_fixture");
+    game.__reactFiber$fixture = { return: { stateNode: { state: fixtureState } } };
+    const panel = document.querySelector(".LabyrinthPanel_labyrinthPanel_fixture");
+    panel.__reactFiber$fixture = {
+      stateNode: {
+        getSkillingRoomTypes: () => [
+          { key: "milking", skillHrid: "/skills/milking" },
+          { key: "enhancing", skillHrid: "/skills/enhancing" }
+        ],
+        getCombatRoomTypes: () => [{ key: "shadow_archer", monsterHrid: "/monsters/shadow_archer" }],
+        getEffectiveLevelForRoom: () => 100
+      }
+    };
+    function draw() {
+      const grid = document.querySelector(".LabyrinthPanel_roomGrid_fixture");
+      grid.replaceChildren();
+      for (let y = 0; y < 6; y++)
+        for (let x = 0; x < 6; x++) {
+          const room = roomData[y][x];
+          const cell = document.createElement("div");
+          cell.className =
+            "LabyrinthPanel_roomCell_fixture" + (room.isCleared ? " LabyrinthPanel_clearedRoom_fixture" : "");
+          cell.dataset.roomX = x;
+          cell.dataset.roomY = y;
+          cell.innerHTML =
+            (room.recommendedLevel
+              ? '<span class="LabyrinthPanel_roomLevel_fixture">' + room.recommendedLevel + "</span>"
+              : "") +
+            '<div class="LabyrinthPanel_roomIcon_fixture">' +
+            (["入口", "挤奶", "强化", "弓手", "宝箱"][x] && y === 0
+              ? ["入口", "挤奶", "强化", "弓手", "宝箱"][x]
+              : "") +
+            "</div>";
+          grid.append(cell);
+        }
+    }
+    draw();
+    document.querySelector("#step").onclick = () => {
+      fixtureState.labyrinthRoomProgress.actionCounter++;
+    };
+    document.querySelector("#upgrade").onclick = () => {
+      fixtureState.characterSkillMap["/skills/milking"].level++;
+    };
+    document.querySelector("#floor").onclick = () => {
+      fixtureState.characterLabyrinth.currentFloor++;
+      draw();
+    };
+    const savedLabyrinth = fixtureState.characterLabyrinth;
+    const savedProgress = fixtureState.labyrinthRoomProgress;
+    document.querySelector("#leave").onclick = () => {
+      const leaving = !!fixtureState.characterLabyrinth;
+      fixtureState.characterLabyrinth = leaving ? null : savedLabyrinth;
+      fixtureState.labyrinthRoomProgress = leaving ? null : savedProgress;
+      document.querySelector(".LabyrinthPanel_labyrinthPanel_fixture").hidden = leaving;
+      document.querySelector("#leave").textContent = leaving ? "返回迷宫" : "离开迷宫";
+    };
+  </script>
+  <script src="/runtime.js"></script>
+</html>

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>迷宫助手 · 本地测试台</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+        color: #eeeef5;
+        background: #161722;
+      }
+      main {
+        max-width: 850px;
+        margin: auto;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      button,
+      select {
+        font: inherit;
+        padding: 7px;
+        margin: 3px;
+      }
+      .LabyrinthPanel_gridContainer_fixture {
+        padding: 20px 0;
+        overflow: auto;
+      }
+      .LabyrinthPanel_roomGrid_fixture {
+        display: grid;
+        width: max-content;
+        gap: 3px;
+        margin: auto;
+      }
+      .LabyrinthPanel_roomCell_fixture {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        background: #1d1e28;
+        box-shadow: 0 0 0 1px #06060c;
+      }
+      .LabyrinthPanel_clearedRoom_fixture {
+        background: #484e80;
+      }
+      .LabyrinthPanel_visibleRoom_fixture {
+        background: #30334c;
+      }
+      .LabyrinthPanel_roomLevel_fixture {
+        font-size: 10px;
+      }
+      .LabyrinthPanel_roomLevelWarning_fixture {
+        color: #ef4444;
+      }
+      .LabyrinthPanel_roomIcon_fixture {
+        font-size: 20px;
+        text-align: center;
+      }
+      footer {
+        color: #bfc4d8;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>迷宫助手 · 本地测试台</h1>
+      <p><a href="/route-lab.html">打开路线实验台：画路线与比较视野</a></p>
+      <p>模拟地图，与游戏账号无关。蓝色底线标记主路线，金色底线标记宝箱支线。</p>
+      <label
+        >场景
+        <select id="scenario">
+          <option value="6">6×6 初始地图</option>
+          <option value="8">8×8 初始地图</option>
+          <option value="15">15×15 大地图</option>
+          <option value="blocked">红色等级封路</option>
+          <option value="sealed">入口两侧红色</option>
+          <option value="treasure">顺路宝箱</option>
+          <option value="cleared">免费往返</option>
+        </select></label
+      >
+      <label><input type="checkbox" id="enabled" checked />启用助手</label>
+      <button id="queue">模拟选择下一格</button>
+      <button id="advance">模拟走入下一格</button>
+      <div class="LabyrinthPanel_activeRun_fixture">
+        <div class="LabyrinthPanel_gridContainer_fixture"><div class="LabyrinthPanel_roomGrid_fixture"></div></div>
+      </div>
+      <footer>测试页中的“模拟”仅改变这张本地地图，不会向游戏发送请求。</footer>
+    </main>
+    <script>
+      let size = 6,
+        cleared = new Set([0]),
+        mode = "6",
+        queued = [];
+      function draw() {
+        const grid = document.querySelector(".LabyrinthPanel_roomGrid_fixture");
+        grid.style.gridTemplateColumns = `repeat(${size},46px)`;
+        grid.replaceChildren();
+        const adjacent = (id) =>
+          [
+            id % size ? id - 1 : -1,
+            id % size < size - 1 ? id + 1 : -1,
+            id >= size ? id - size : -1,
+            id + size < size * size ? id + size : -1
+          ].filter((i) => i >= 0);
+        for (let id = 0; id < size * size; id++) {
+          const e = document.createElement("div");
+          e.dataset.roomX = String(id % size);
+          e.dataset.roomY = String(Math.floor(id / size));
+          const visible = cleared.has(id) || adjacent(id).some((i) => cleared.has(i));
+          e.className = `LabyrinthPanel_roomCell_fixture ${cleared.has(id) ? "LabyrinthPanel_clearedRoom_fixture" : visible ? "LabyrinthPanel_visibleRoom_fixture" : "LabyrinthPanel_fogRoom_fixture"}`;
+          if (id === 0 || id === size * size - 1) {
+            const icon = document.createElement("div");
+            icon.className = "LabyrinthPanel_roomIcon_fixture";
+            icon.textContent = id === 0 ? "➜" : "⚑";
+            e.append(icon);
+          } else if (visible && !cleared.has(id)) {
+            if (mode === "treasure" && id === 1) {
+              e.innerHTML =
+                '<div class="LabyrinthPanel_roomIcon_fixture"><svg width="24" height="24"><use href="#loot"></use></svg>宝</div>';
+            } else
+              e.innerHTML = `<span class="LabyrinthPanel_roomLevel_fixture ${((mode === "blocked" || mode === "sealed") && id === 1) || (mode === "sealed" && id === size) ? "LabyrinthPanel_roomLevelWarning_fixture" : ""}">Lv.70</span><div class="LabyrinthPanel_roomIcon_fixture">◇</div>`;
+          }
+          if (queued.includes(id)) {
+            const order = document.createElement("span");
+            order.className = "LabyrinthPanel_queueNumber_fixture";
+            order.textContent = String(queued.indexOf(id) + 1);
+            e.append(order);
+            for (const adjacentId of adjacent(id)) {
+              const alreadyDrawn = grid.children[adjacentId];
+              if (alreadyDrawn && !cleared.has(adjacentId))
+                alreadyDrawn.classList.add("LabyrinthPanel_visibleRoom_fixture");
+            }
+          }
+          grid.append(e);
+        }
+      }
+      document.querySelector("#scenario").addEventListener("change", (e) => {
+        mode = e.target.value;
+        size = Number(mode) || 6;
+        cleared = new Set([0]);
+        queued = [];
+        if (mode === "cleared") for (let x = 1; x < size; x++) cleared.add(x);
+        draw();
+      });
+      document.querySelector("#queue").addEventListener("click", () => {
+        const marked = [...document.querySelectorAll('.mwi-lab-route:not([data-treasure="true"])')].sort(
+          (a, b) => Number(a.textContent) - Number(b.textContent)
+        );
+        const next = marked
+          .map((e) => Number(e.parentElement.dataset.roomY) * size + Number(e.parentElement.dataset.roomX))
+          .find((id) => !queued.includes(id));
+        if (next !== undefined) queued.push(next);
+        draw();
+      });
+      document.querySelector("#advance").addEventListener("click", () => {
+        const marker = document.querySelector('.mwi-lab-route:not([data-treasure="true"]) b');
+        const cell = marker?.parentElement.parentElement;
+        const next = queued[0] ?? (cell ? Number(cell.dataset.roomY) * size + Number(cell.dataset.roomX) : null);
+        if (next !== null) {
+          cleared.add(next);
+          queued = queued.filter((id) => id !== next);
+          draw();
+        }
+      });
+      document.querySelector("#enabled").addEventListener("change", (e) => {
+        if (!e.target.checked) globalThis.__mwiLabyrinthAssistant?.destroy();
+        else {
+          const script = document.createElement("script");
+          script.src = "/runtime.js";
+          script.onload = () => script.remove();
+          document.body.append(script);
+        }
+      });
+      draw();
+    </script>
+    <script src="/runtime.js"></script>
+  </body>
+</html>

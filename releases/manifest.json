@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "version": "0.12.6",
+      "path": "releases/v0.12/迷宫助手-v0.12.6.user.js",
+      "sizeBytes": 1744591,
+      "sha256": "29134a8326317313145953ac4cc4933a3dcd9ab0abbf610802d6d79b422e8d9d"
+    }
+  ]
+}

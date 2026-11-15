@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/Yinhaoran1128/labyrinth-clear-rate",
+  "commit": "e30f758841ba28b2af117ee14e8d97764ab1c8b3",
+  "version": "1.8.2",
+  "scriptSha256": "663ad862424fd424f54c03cdd9861cb153309d67a553914606651f7d9484c76c",
+  "workerSha256": "119a14f9e6828dd71f6843c0a679299b1aaf4b3c81ee85b263fb3ed2c92044a4",
+  "wasmSha256": "57f444599979b2f6de7a23ccb21963acbfe6948b023c0eb40cf24a5c0b62308c",
+  "authors": [
+    "dakonglong",
+    "wow121",
+    "Yinhr"
+  ],
+  "experienceWorkerSha256": "635869c4009a38d87ca4495496529625beb5f2ba8b30858f19e19a0b8487d986",
+  "workerExtension": "Expose experienceGained only; pinned WASM and battle rules unchanged."
+}

@@ -1,0 +1,10 @@
+.DS_Store
+.workbench/
+/node_modules/
+/references/local-plugins/
+*.orig
+*.rej
+
+# Local design previews and skill metadata
+/outputs/
+/.impeccable/

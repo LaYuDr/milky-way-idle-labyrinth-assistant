@@ -1,0 +1,1382 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>迷宫路线实验台</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --surface: #f5f8fe;
+        --line: #ccd8e9;
+        --text: #1d304e;
+        --muted: #536782;
+        --cyan: #245dcc;
+        --gold: #875615;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 system-ui,
+          -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      main {
+        max-width: 1260px;
+        margin: auto;
+        padding: 28px;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+      p {
+        margin: 6px 0;
+        color: var(--muted);
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        color: inherit;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 10px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        background: #e7effd;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button[aria-pressed="true"] {
+        background: #245dcc;
+        border-color: #245dcc;
+        color: #ffffff;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin: 0 0 18px;
+        padding: 16px 0;
+        border-block: 1px solid var(--line);
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(360px, 640px) minmax(280px, 1fr);
+        gap: 32px;
+      }
+      .workspace > section,
+      .workspace > aside {
+        min-width: 0;
+      }
+      #step-value {
+        white-space: nowrap;
+      }
+      .map-scroll {
+        overflow: auto;
+        padding: 2px;
+      }
+      .map {
+        position: relative;
+        width: 100%;
+        min-width: 340px;
+        aspect-ratio: 1;
+        isolation: isolate;
+        touch-action: none;
+      }
+      .cells {
+        display: grid;
+        grid-template-columns: repeat(var(--n), 1fr);
+        height: 100%;
+      }
+      .cell {
+        border: 1px solid #bfcfe3;
+        border-radius: 0;
+        background: #ffffff;
+        padding: 0;
+        position: relative;
+        min-width: 0;
+        font-size: 12px;
+        user-select: none;
+      }
+      .cell.known {
+        background: #e8edf5;
+      }
+      .cell.direct {
+        background: #d6e8ff;
+      }
+      .cell.extra {
+        background: #f6edcf;
+      }
+      .cell.only-a {
+        background: #b8d6ff;
+      }
+      .cell.only-b {
+        background: #f0dfaa;
+      }
+      .cell.common {
+        background: #e1e7ef;
+      }
+      .cell.blocked {
+        background: #f9dfe3;
+      }
+      .cell.visited {
+        box-shadow: inset 0 0 0 2px #477bd4;
+      }
+      .cell .tag {
+        position: absolute;
+        top: 2px;
+        left: 3px;
+        font-size: 10px;
+        z-index: 2;
+      }
+      .cell .step {
+        position: absolute;
+        bottom: 2px;
+        right: 3px;
+        z-index: 2;
+        color: #fff;
+        background: #245dcc;
+        padding: 0 2px;
+        line-height: 1.25;
+      }
+      .map svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .map polyline {
+        fill: none;
+        stroke: var(--cyan);
+        stroke-width: 4;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        opacity: 0.8;
+      }
+      .map circle {
+        fill: var(--cyan);
+        stroke: #ffffff;
+        stroke-width: 2;
+      }
+      .legend {
+        margin-top: 12px;
+        font-size: 12px;
+        gap: 16px;
+      }
+      .swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        margin-right: 5px;
+        background: #d6e8ff;
+      }
+      .swatch.extra {
+        background: #f0dfaa;
+      }
+      .swatch.known {
+        background: #e8edf5;
+      }
+      .swatch.visited {
+        background: #477bd4;
+      }
+      .routes {
+        margin-bottom: 12px;
+      }
+      #route-name {
+        width: 150px;
+      }
+      aside section {
+        padding-bottom: 22px;
+        margin-bottom: 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      .table-scroll {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      th,
+      td {
+        text-align: right;
+        padding: 9px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      th:first-child,
+      td:first-child {
+        text-align: left;
+      }
+      tr.active {
+        background: #eaf2ff;
+      }
+      td strong {
+        color: var(--cyan);
+      }
+      .note {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #status {
+        min-height: 25px;
+        color: var(--gold);
+      }
+      #step {
+        width: 100%;
+        accent-color: var(--cyan);
+      }
+      #step-summary {
+        color: var(--text);
+      }
+      #difference {
+        color: var(--cyan);
+        min-height: 42px;
+      }
+      details {
+        font-size: 13px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--muted);
+      }
+      .danger {
+        color: #b32940;
+      }
+      .footer {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+      #storage {
+        font-size: 12px;
+      }
+      input[type="file"] {
+        max-width: 100%;
+      }
+      .hidden {
+        display: none;
+      }
+      a {
+        color: var(--cyan);
+      }
+      @media (max-width: 900px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+        .map {
+          max-width: 640px;
+        }
+        main {
+          padding: 16px;
+        }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .cell {
+          font-size: 11px;
+        }
+        .workspace {
+          gap: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>迷宫路线实验台</h1>
+          <p>在同一张地图上画路线，比较每一步带来的新视野。</p>
+        </div>
+        <span id="storage">仅在本机保存</span>
+      </header>
+      <div class="toolbar">
+        <label
+          >地图大小
+          <select id="size"></select></label
+        ><label
+          >示例
+          <select id="preset">
+            <option value="original">8×8 内侧与靠边</option>
+            <option value="shortcut">7×7 88 级与 89 级起步</option>
+            <option value="blank">空白地图</option>
+          </select></label
+        ><button id="load">载入示例</button><button id="export">导出方案</button><button id="import">导入方案</button
+        ><input type="file" id="file" accept="application/json,.json" hidden />
+      </div>
+      <div class="workspace">
+        <section>
+          <div class="row routes" id="routes" aria-label="选择路线"></div>
+          <div class="row">
+            <label
+              >操作
+              <select id="mode">
+                <option value="route">画路线</option>
+                <option value="visited">标记已通关</option>
+                <option value="revealed">标记已揭示</option>
+                <option value="blocked">标记不能通过</option>
+                <option value="treasure">标记宝箱</option>
+                <option value="passable">标记可通过挑战</option>
+                <option value="unknown">恢复未知</option>
+              </select></label
+            ><button id="undo">撤销一步</button><button id="clear">清空当前路线</button>
+          </div>
+          <p class="note">从路线末端点击或拖动；划回已有格子会撤掉后面的路线。也可用方向键绘制。</p>
+          <div id="status" role="status" aria-live="polite"></div>
+          <div class="map-scroll">
+            <div class="map" id="map">
+              <div id="cells" class="cells"></div>
+              <svg id="overlay" aria-hidden="true">
+                <polyline id="line"></polyline>
+                <circle id="endpoint" r="5"></circle>
+              </svg>
+            </div>
+          </div>
+          <div class="row legend">
+            <span><i class="swatch known"></i>起始已揭示</span><span><i class="swatch"></i>本路线揭示</span
+            ><span><i class="swatch extra"></i>外扩机会 / 对照独有</span
+            ><span><i class="swatch visited"></i>已通关描边</span>
+          </div>
+        </section>
+        <aside>
+          <section>
+            <h2>路线对比</h2>
+            <div class="row">
+              <input id="route-name" aria-label="路线名称" maxlength="30" /><button id="copy">复制为新路线</button
+              ><button id="new">新路线</button><button id="delete">删除</button>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>路线</th>
+                    <th>新格</th>
+                    <th>新增揭示</th>
+                    <th>外扩机会</th>
+                    <th>潜在新增</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="stats"></tbody>
+              </table>
+            </div>
+            <p id="difference"></p>
+            <p class="note">
+              新格越少越省；同成本先比较潜在新增范围（直接揭示＋外扩机会），再比较直接揭示。未到出口的路线不可直接作为完整方案排名。
+            </p>
+          </section>
+          <section>
+            <h2>地图着色</h2>
+            <div class="row">
+              <select id="layer" aria-label="着色内容">
+                <option value="direct">直接揭示</option>
+                <option value="opportunity">直接揭示 + 外扩机会</option>
+                <option value="difference">与另一条路线的揭示差异</option></select
+              ><label
+                >对照
+                <select id="compare"></select
+              ></label>
+            </div>
+            <p class="note">
+              差异模式：蓝色为当前路线独有，金色为对照独有，灰色为两者共有。比较当前回放前缀与对照完整路线。
+            </p>
+          </section>
+          <section>
+            <h2>逐步看视野</h2>
+            <label>第 <output id="step-value">0</output> 步 <input type="range" id="step" min="0" value="0" /></label>
+            <p id="step-summary"></p>
+            <div class="table-scroll">
+              <table>
+                <tbody id="details"></tbody>
+              </table>
+            </div>
+          </section>
+          <details>
+            <summary>统计口径与操作说明</summary>
+            <p>
+              只计算上下左右相邻，包含出口揭示。已通关区域及其四邻作为起始已知信息。路径按首次进入计费，重复经过不重复计费；“移动次数”仍计每次移动。
+            </p>
+            <p>
+              “新增揭示”对房间去重，包含进入的新房间；“仅邻格”扣除路线自身。“外扩机会”是从邻接未知房或宝箱多走一格，可能额外揭示的范围，不是已发现的奖励，也不是单个宝箱保证提供的视野。
+            </p>
+            <p>
+              所有路线共用地图。修改地块会同时影响所有路线；不能通过的格子会标记路线无效。宝箱数量只统计路线实际经过的已知宝箱。
+            </p>
+            <p>
+              方向键从路线末端延伸；撤销可恢复最近一次绘制、地图编辑或清空。方案自动保存在当前浏览器，也可导出备份；载入示例和更换尺寸可撤销。
+            </p>
+          </details>
+        </aside>
+      </div>
+      <p class="footer note">本地模拟工具，不连接游戏账号，不读取隐藏地图。表格统计完整路线，回放区统计当前步数。</p>
+    </main>
+    <script>
+      (function (root, factory) {
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.MwiLabyrinthCore = api;
+})(globalThis, function () {
+  "use strict";
+  function neighbors(id, size) {
+    const x = id % size,
+      y = Math.floor(id / size);
+    return [
+      x + 1 < size ? id + 1 : -1,
+      y + 1 < size ? id + size : -1,
+      x > 0 ? id - 1 : -1,
+      y > 0 ? id - size : -1
+    ].filter((n) => n >= 0);
+  }
+  function normalize(input) {
+    const { size, cells } = input;
+    if (!Number.isInteger(size) || size < 2 || size > 20 || !Array.isArray(cells) || cells.length !== size * size)
+      throw new Error("地图尺寸或格子数量无效");
+    const types = ["unknown", "challenge", "treasure", "start", "exit"];
+    const normalized = cells.map((c, id) => {
+      if (!c || !types.includes(c.type) || ![true, false, null].includes(c.passable))
+        throw new Error(`房间 ${id} 状态无效`);
+      if (typeof c.revealed !== "boolean" || typeof c.visited !== "boolean") throw new Error("探索状态缺失");
+      if (c.visited && (!c.revealed || c.passable === false)) throw new Error("已通关房间状态冲突");
+      return { ...c, entered: c.visited || c.entered === true };
+    });
+    if (!normalized[0].visited) throw new Error("尚未确认入口状态");
+    return { size, cells: normalized };
+  }
+  const bit = (i) => 1n << BigInt(i);
+  function count(mask) {
+    let n = 0;
+    while (mask) {
+      mask &= mask - 1n;
+      n++;
+    }
+    return n;
+  }
+  function distances(adj, costs, source, reverse = false) {
+    const d = Array(adj.length).fill(Infinity),
+      queue = Array.isArray(source) ? [...source] : [source];
+    for (const id of queue) d[id] = 0;
+    while (queue.length) {
+      const u = queue.shift();
+      for (const v of adj[u]) {
+        const w = reverse ? costs[u] : costs[v];
+        if (d[v] > d[u] + w) {
+          d[v] = d[u] + w;
+          if (w === 0) queue.unshift(v);
+          else queue.push(v);
+        }
+      }
+    }
+    return d;
+  }
+  // Each connected zero-cost region is one vertex, avoiding free-travel cycles.
+  const canForce = (cell) =>
+    cell.passable === false &&
+    cell.type === "challenge" &&
+    cell.revealed &&
+    Number.isFinite(cell.forceChance) &&
+    cell.forceChance > 0 &&
+    cell.forceChance <= 1;
+  function graph(board, knownOnly, force = false) {
+    const { size, cells } = board,
+      nodeOf = Array(cells.length).fill(-1),
+      nodes = [];
+    const allowed = (id) =>
+      (cells[id].passable !== false || (force && canForce(cells[id]))) &&
+      (!knownOnly ||
+        (cells[id].revealed &&
+          (cells[id].visited ||
+            cells[id].passable === true ||
+            ["start", "exit", "treasure"].includes(cells[id].type))));
+    for (let id = 0; id < cells.length; id++) {
+      if (nodeOf[id] !== -1 || !allowed(id)) continue;
+      const index = nodes.length,
+        members = [id];
+      nodeOf[id] = index;
+      if (cells[id].entered && cells[id].passable !== false) {
+        for (let k = 0; k < members.length; k++)
+          for (const v of neighbors(members[k], size)) {
+            if (nodeOf[v] === -1 && allowed(v) && cells[v].entered && cells[v].passable !== false) {
+              nodeOf[v] = index;
+              members.push(v);
+            }
+          }
+      }
+      nodes.push(members);
+    }
+    const adj = nodes.map(() => new Set()),
+      // One forced room outweighs every possible new room in a simple route.
+      costs = nodes.map((n) => (cells[n[0]].entered ? 0 : 1) + (cells[n[0]].passable === false ? cells.length + 1 : 0));
+    for (let id = 0; id < cells.length; id++)
+      if (nodeOf[id] >= 0)
+        for (const v of neighbors(id, size)) {
+          if (nodeOf[v] >= 0 && nodeOf[v] !== nodeOf[id]) adj[nodeOf[id]].add(nodeOf[v]);
+        }
+    return { nodeOf, nodes, costs, adj: adj.map((s) => [...s]) };
+  }
+  function expand(nodePath, g, board, target, source = 0) {
+    const selected = new Set(nodePath),
+      previous = new Map([[source, null]]),
+      queue = [source];
+    // Within the chosen chain, BFS gives an explicit adjacent walk through free rooms.
+    for (let k = 0; k < queue.length && !previous.has(target); k++) {
+      const u = queue[k],
+        a = nodePath.indexOf(g.nodeOf[u]);
+      for (const v of neighbors(u, board.size)) {
+        const b = nodePath.indexOf(g.nodeOf[v]);
+        if (!previous.has(v) && selected.has(g.nodeOf[v]) && (a === b || b === a + 1)) {
+          previous.set(v, u);
+          queue.push(v);
+        }
+      }
+    }
+    if (!previous.has(target)) throw new Error("路线展开失败");
+    const path = [];
+    for (let u = target; u !== null; u = previous.get(u)) path.push(u);
+    return path.reverse();
+  }
+  function coverageMasks(board, path) {
+    let direct = 0n,
+      opportunity = 0n;
+    for (const id of path) {
+      for (const v of [id, ...neighbors(id, board.size)]) {
+        if (!board.cells[v].revealed) direct |= bit(v);
+      }
+      for (const side of neighbors(id, board.size)) {
+        const cell = board.cells[side];
+        // Unknown rooms may be treasure; known non-treasure rooms are not harvest opportunities.
+        if (
+          cell.passable === false ||
+          cell.visited ||
+          (cell.revealed && cell.type !== "treasure" && cell.type !== "unknown")
+        )
+          continue;
+        for (const outer of neighbors(side, board.size)) if (!board.cells[outer].revealed) opportunity |= bit(outer);
+      }
+    }
+    return { direct, opportunity: opportunity | direct };
+  }
+  function scoreRoute(board, path) {
+    const { direct, opportunity } = coverageMasks(board, path);
+    return {
+      newRevealed: count(direct),
+      opportunityReach: count(opportunity),
+      extraOpportunity: count(opportunity & ~direct)
+    };
+  }
+  function planningOrigins(board, queue) {
+    const { cells, size } = board;
+    const connected = new Set();
+    function connect(id) {
+      const pending = [id];
+      connected.add(id);
+      for (let i = 0; i < pending.length; i++)
+        for (const next of neighbors(pending[i], size))
+          if (!connected.has(next) && cells[next].visited) {
+            connected.add(next);
+            pending.push(next);
+          }
+    }
+    connect(0);
+    // Native queue order matters: a later selection cannot repair an earlier gap.
+    // Failed/entered rooms save new-room cost, but do not connect cleared regions.
+    const planned = new Set();
+    for (const id of Array.isArray(queue) ? queue : []) {
+      if (!Number.isInteger(id) || !cells[id] || cells[id].passable === false || planned.has(id)) continue;
+      if (!connected.has(id) && !neighbors(id, size).some((next) => connected.has(next))) continue;
+      planned.add(id);
+      connect(id);
+    }
+    // Once a pending room is committed, another unqueued white room is not
+    // a second free starting challenge. It must be reached and paid for normally.
+    const hasPendingQueue = [...planned].some((id) => !cells[id].visited);
+    const sources = cells.flatMap((cell, id) =>
+      connected.has(id) ||
+      (!hasPendingQueue &&
+        cell.type === "challenge" &&
+        cell.revealed &&
+        cell.passable === true &&
+        neighbors(id, size).some((next) => connected.has(next)))
+        ? [id]
+        : []
+    );
+    return { sources, planned };
+  }
+  function solve(board, target, knownOnly, maxStates, source = 0, force = false, options = {}) {
+    const committed = options.committed || [];
+    const baseline = coverageMasks(board, committed);
+    if ((Array.isArray(source) ? source : [source]).includes(target))
+      return {
+        path: [target],
+        source: target,
+        newCells: [],
+        cost: 0,
+        ...scoreRoute(board, [...committed, target]),
+        explorationOptimal: true,
+        searchedStates: 1,
+        uncertain: !board.cells[target].revealed,
+        next: null
+      };
+    const g = graph(board, knownOnly, force),
+      sources = Array.isArray(source) ? source : [source],
+      starts = [...new Set(sources.map((id) => g.nodeOf[id]).filter((id) => id >= 0))],
+      end = g.nodeOf[target];
+    if (!starts.length || end < 0) return null;
+    const from = distances(g.adj, g.costs, starts),
+      to = distances(g.adj, g.costs, end, true),
+      cost = from[end];
+    if (!Number.isFinite(cost)) return null;
+    const coverage = g.nodes.map((members) => coverageMasks(board, members));
+    const masks = coverage.map((c) => c.direct);
+    const opportunities = coverage.map((c) => c.opportunity);
+    const next = g.adj.map((list, u) =>
+      list.filter((v) => from[u] + g.costs[v] === from[v] && from[v] + to[v] === cost)
+    );
+    const reliability = (path) =>
+      path.reduce(
+        (value, node) =>
+          value * (board.cells[g.nodes[node][0]].passable === false ? board.cells[g.nodes[node][0]].forceChance : 1),
+        1
+      );
+    let best = null,
+      bestReliability = -1,
+      bestScore = -1,
+      bestOpportunity = -1,
+      states = 0,
+      complete = true;
+    function consider(path, direct, opportunity) {
+      const score = count(direct),
+        potentialScore = count(opportunity),
+        chance = reliability(path);
+      if (
+        chance > bestReliability ||
+        (chance === bestReliability &&
+          (potentialScore > bestOpportunity || (potentialScore === bestOpportunity && score > bestScore)))
+      ) {
+        bestReliability = chance;
+        bestOpportunity = potentialScore;
+        bestScore = score;
+        best = [...path];
+      }
+    }
+    function seed(ids) {
+      if (
+        !Array.isArray(ids) ||
+        !ids.length ||
+        ids.at(-1) !== target ||
+        ids.some(
+          (id, i) =>
+            !Number.isInteger(id) || !board.cells[id] || (i > 0 && !neighbors(ids[i - 1], board.size).includes(id))
+        )
+      )
+        return;
+      const nodePath = [];
+      for (const id of ids) if (g.nodeOf[id] !== nodePath.at(-1)) nodePath.push(g.nodeOf[id]);
+      const originIndex = nodePath.findLastIndex((node) => starts.includes(node) && to[node] === cost);
+      if (originIndex < 0) return;
+      nodePath.splice(0, originIndex);
+      if (
+        nodePath.some((v) => v < 0) ||
+        new Set(nodePath).size !== nodePath.length ||
+        nodePath.some((v, i) => i > 0 && !next[nodePath[i - 1]].includes(v))
+      )
+        return;
+      let direct = baseline.direct,
+        potential = baseline.opportunity;
+      for (const node of nodePath) {
+        direct |= masks[node];
+        potential |= opportunities[node];
+      }
+      consider(nodePath, direct, potential);
+    }
+    // A previous suffix may win ties, but never override connectivity, cost or better coverage.
+    seed(options.preferredPath);
+    function visit(u, path, mask, opportunity) {
+      if (states >= maxStates) {
+        complete = false;
+        return;
+      }
+      states++;
+      const combined = mask | masks[u];
+      const potential = opportunity | opportunities[u];
+      if (u === end) {
+        consider(path, combined, potential);
+        return;
+      }
+      const candidates = next[u]
+        .filter((v) => !path.includes(v))
+        .sort(
+          (a, b) =>
+            count(opportunities[b] & ~potential) - count(opportunities[a] & ~potential) ||
+            count(masks[b] & ~combined) - count(masks[a] & ~combined) ||
+            a - b
+        );
+      for (const v of candidates) {
+        visit(v, [...path, v], combined, potential);
+        if (!complete) break;
+      }
+    }
+    // Seed several interior corridors before bounded DFS, so large maps do not
+    // spend the entire budget exploring variants of the first edge-hugging branch.
+    if (!knownOnly && sources.includes(0) && target === board.cells.length - 1) {
+      const n = board.size;
+      for (let x = 1; x < n - 1; x++)
+        for (let y = 1; y < n - 1; y++)
+          for (const transpose of [false, true]) {
+            const points = [
+              [0, 0],
+              [x, 0],
+              [x, y],
+              [n - 2, y],
+              [n - 2, n - 1],
+              [n - 1, n - 1]
+            ];
+            const ids = [0];
+            for (let k = 1; k < points.length; k++) {
+              let [a, b] = points[k - 1];
+              const [c, d] = points[k];
+              while (a !== c || b !== d) {
+                if (a !== c) a += Math.sign(c - a);
+                else b += Math.sign(d - b);
+                ids.push(transpose ? a * n + b : b * n + a);
+              }
+            }
+            seed(ids);
+          }
+    }
+    for (const start of starts) {
+      if (to[start] === cost) visit(start, [start], baseline.direct, baseline.opportunity);
+    }
+    // A bounded exploration still always returns a minimum-cost route.
+    if (!best) {
+      const queue = starts.filter((id) => to[id] === cost).map((id) => [id]),
+        seen = new Set(queue.map(([id]) => id));
+      while (queue.length) {
+        const p = queue.shift(),
+          u = p.at(-1);
+        if (u === end) {
+          best = p;
+          break;
+        }
+        for (const v of next[u])
+          if (!seen.has(v)) {
+            seen.add(v);
+            queue.push([...p, v]);
+          }
+      }
+    }
+    const origin = sources.find((id) => g.nodeOf[id] === best[0]);
+    const path = expand(best, g, board, target, origin);
+    const score = scoreRoute(board, [...committed, ...best.flatMap((node) => g.nodes[node])]);
+    // The selected known or queued origin is free, even if it has not been entered yet.
+    const newCells = path.slice(1).filter((id) => !board.cells[id].entered);
+    return {
+      path,
+      source: origin,
+      newCells,
+      cost: newCells.length,
+      ...score,
+      explorationOptimal: complete,
+      searchedStates: states,
+      uncertain: path.some(
+        (id) =>
+          !board.cells[id].revealed ||
+          (board.cells[id].type === "challenge" && !board.cells[id].visited && board.cells[id].passable !== true)
+      ),
+      next: path.slice(1).find((id) => !board.cells[id].visited) ?? null
+    };
+  }
+  function plan(input, options = {}) {
+    const board = normalize(input),
+      limit = options.maxStates ?? 20000;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200000) throw new Error("搜索上限无效");
+    const { sources, planned } = planningOrigins(board, input.queue);
+    const scoring = { committed: [...planned], preferredPath: options.preferredPath };
+    let main = solve(board, board.cells.length - 1, false, limit, sources, false, scoring);
+    let breakthrough = null,
+      forceStatus = "";
+    if (!main && input.forcePlanningEnabled) {
+      breakthrough = solve(board, board.cells.length - 1, false, limit, sources, true, scoring);
+      if (breakthrough) {
+        const forcedRooms = [...new Set(breakthrough.path.filter((id) => board.cells[id].passable === false))];
+        Object.assign(breakthrough, {
+          forcedRooms,
+          forceCount: forcedRooms.length,
+          forceSuccess: forcedRooms.reduce((chance, id) => chance * board.cells[id].forceChance, 1),
+          availableShrouds: Number.isInteger(input.shroudCount) && input.shroudCount >= 0 ? input.shroudCount : null
+        });
+        if (breakthrough.availableShrouds !== null && breakthrough.forceCount <= breakthrough.availableShrouds) {
+          main = breakthrough;
+          forceStatus = "ready";
+        } else forceStatus = breakthrough.availableShrouds === null ? "unknown-count" : "insufficient";
+      } else forceStatus = input.shroudInfoKnown ? "ineligible" : "unknown-item";
+    }
+    if (main && main !== breakthrough) Object.assign(main, { forcedRooms: [], forceCount: 0, forceSuccess: 1 });
+    const treasures = [];
+    board.cells.forEach((c, id) => {
+      if (c.type === "treasure" && c.revealed && !c.visited && !planned.has(id) && !main?.path.includes(id)) {
+        const route = solve(board, id, true, 1, sources);
+        if (route) treasures.push({ target: id, ...route });
+      }
+    });
+    treasures.sort((a, b) => a.cost - b.cost || a.target - b.target);
+    return { main, treasures, breakthrough, forceStatus };
+  }
+  return { neighbors, normalize, plan, scoreRoute };
+});
+
+    </script>
+    <script>
+      (function (root, factory) {
+  const api = factory(
+    typeof module === "object" && module.exports ? require("../../../src/core.js") : root.MwiLabyrinthCore
+  );
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.MwiRouteLab = api;
+})(globalThis, function (core) {
+  "use strict";
+  function blank(size = 8) {
+    if (!Number.isInteger(size) || size < 5 || size > 20) throw new Error("地图边长需为 5–20 格");
+    const cells = Array.from({ length: size * size }, () => ({
+      type: "unknown",
+      revealed: false,
+      visited: false,
+      passable: null
+    }));
+    cells[0] = { type: "start", revealed: true, visited: true, passable: true };
+    cells.at(-1).type = "exit";
+    cells.at(-1).passable = true;
+    return { size, cells };
+  }
+  function board(state) {
+    const b = structuredClone(state.board);
+    b.cells.forEach((cell, id) => {
+      if (cell.visited) for (const v of core.neighbors(id, b.size)) b.cells[v].revealed = true;
+    });
+    return core.normalize(b);
+  }
+  function drawTo(b, path, id) {
+    if (!Number.isInteger(id) || !b.cells[id]) throw new Error("路线超出地图");
+    const previous = path.indexOf(id);
+    if (previous >= 0) return path.slice(0, previous + 1);
+    const n = b.size,
+      last = path.at(-1);
+    if (Math.floor(last / n) !== Math.floor(id / n) && last % n !== id % n)
+      throw new Error("请接着路线末端画，只能上下左右移动。");
+    const delta = Math.floor(last / n) === Math.floor(id / n) ? Math.sign(id - last) : Math.sign(id - last) * n;
+    const segment = [];
+    for (let v = last + delta; ; v += delta) {
+      if (b.cells[v].passable === false) throw new Error("这段路线经过不能通过的房间。");
+      segment.push(v);
+      if (v === id) break;
+    }
+    const next = [...path];
+    for (const v of segment) {
+      const index = next.indexOf(v);
+      if (index >= 0) next.length = index + 1;
+      else next.push(v);
+    }
+    return next;
+  }
+  function measure(b, path) {
+    const issues = [];
+    if (path[0] !== 0) issues.push("路线需从入口开始");
+    path.forEach((id, i) => {
+      if (!Number.isInteger(id) || !b.cells[id]) issues.push("路线超出地图");
+      else {
+        if (b.cells[id].passable === false) issues.push("经过不能通过的房间");
+        if (i && !core.neighbors(path[i - 1], b.size).includes(id)) issues.push("路线存在不相邻跳跃");
+      }
+    });
+    const safe = path.filter((id) => b.cells[id]);
+    const known = new Set(b.cells.flatMap((c, id) => (c.revealed ? [id] : [])));
+    const direct = new Set(safe.flatMap((id) => [id, ...core.neighbors(id, b.size)]));
+    const extra = new Set();
+    for (const id of safe)
+      for (const side of core.neighbors(id, b.size)) {
+        const c = b.cells[side];
+        if (c.passable === false || c.visited || (c.revealed && !["unknown", "treasure"].includes(c.type))) continue;
+        for (const v of core.neighbors(side, b.size)) if (!direct.has(v) && !known.has(v)) extra.add(v);
+      }
+    const newly = new Set([...direct].filter((id) => !known.has(id)));
+    const unique = new Set(safe);
+    return {
+      issues: [...new Set(issues)],
+      complete: !issues.length && path.at(-1) === b.cells.length - 1,
+      moves: Math.max(0, path.length - 1),
+      cost: [...unique].filter((id) => !b.cells[id].entered).length,
+      revisits: safe.length - unique.size,
+      newRevealed: newly.size,
+      total: new Set([...known, ...direct]).size,
+      extraOpportunity: extra.size,
+      opportunityReach: newly.size + extra.size,
+      treasures: [...unique].filter((id) => b.cells[id].type === "treasure" && !b.cells[id].visited).length,
+      known,
+      direct,
+      newly,
+      extra
+    };
+  }
+  function validate(value) {
+    if (!value || value.schema !== 1) throw new Error("不是路线对比工具的存档");
+    blank(value.board?.size);
+    core.normalize(value.board);
+    if (!Array.isArray(value.routes) || value.routes.length < 1 || value.routes.length > 6)
+      throw new Error("需有 1–6 条路线");
+    for (const r of value.routes) {
+      if (
+        typeof r.name !== "string" ||
+        !r.name.trim() ||
+        r.name.length > 30 ||
+        !Array.isArray(r.path) ||
+        r.path.length > 5000 ||
+        r.path[0] !== 0
+      )
+        throw new Error("路线名称或路径无效");
+      if (
+        r.path.some(
+          (id, i) =>
+            !Number.isInteger(id) ||
+            !value.board.cells[id] ||
+            (i && !core.neighbors(r.path[i - 1], value.board.size).includes(id))
+        )
+      )
+        throw new Error("存档含不相邻或越界路线");
+    }
+    return {
+      schema: 1,
+      board: structuredClone(value.board),
+      routes: structuredClone(value.routes),
+      selected: Math.min(Math.max(Number.isInteger(value.selected) ? value.selected : 0, 0), value.routes.length - 1)
+    };
+  }
+  function preset(name, size = 8) {
+    const b = blank(name === "original" ? 8 : name === "shortcut" ? 7 : size);
+    let routes = [
+      { name: "路线 A", path: [0] },
+      { name: "路线 B", path: [0] }
+    ];
+    if (name === "original")
+      routes = [
+        { name: "内侧折线", path: [0, 1, 2, 10, 18, 26, 34, 42, 43, 44, 45, 46, 54, 62, 63] },
+        { name: "靠边折线", path: [0, 1, 9, 17, 25, 33, 41, 49, 50, 51, 52, 53, 54, 55, 63] }
+      ];
+    if (name === "shortcut") {
+      for (const id of [1, 8, 15, 16])
+        b.cells[id] = { type: "challenge", visited: true, revealed: true, passable: true };
+      for (const id of [2, 7, 9, 14, 17, 22, 23])
+        b.cells[id] = { type: "challenge", visited: false, revealed: true, passable: ![14, 17, 22, 23].includes(id) };
+      routes = [
+        { name: "88 级起步", path: [0, 1, 2, 3, 4, 11, 18, 25, 32, 39, 46, 47, 48] },
+        { name: "89 级起步", path: [0, 1, 8, 9, 10, 11, 18, 25, 32, 39, 46, 47, 48] }
+      ];
+    }
+    return { schema: 1, board: b, routes, selected: 0 };
+  }
+  return { blank, board, drawTo, measure, validate, preset };
+});
+
+    </script>
+    <script>
+      (function () {
+  "use strict";
+  const M = globalThis.MwiRouteLab,
+    core = globalThis.MwiLabyrinthCore;
+  const $ = (id) => document.getElementById(id),
+    key = "mwi-labyrinth:route-lab:v1";
+  let state = M.preset("original"),
+    step = Infinity,
+    compare = 1,
+    drag = false,
+    lastDrag = null;
+  const history = [];
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) state = M.validate(JSON.parse(raw));
+  } catch {
+    $("storage").textContent = "未能读取本机存档，可导入备份";
+  }
+  const el = (tag, text) => {
+    const e = document.createElement(tag);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const coordinate = (id) => `${Math.floor(id / state.board.size) + 1}行${(id % state.board.size) + 1}列`;
+  function message(text = "") {
+    $("status").textContent = text;
+  }
+  function remember() {
+    history.push(structuredClone(state));
+    if (history.length > 100) history.shift();
+  }
+  function save() {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+      $("storage").textContent = "方案已保存在本机";
+    } catch {
+      $("storage").textContent = "本机保存失败，请导出方案备份";
+    }
+  }
+  function mutate(fn) {
+    remember();
+    fn();
+    step = Infinity;
+    message();
+    render();
+    save();
+  }
+  function render() {
+    const b = M.board(state),
+      n = b.size,
+      route = state.routes[state.selected];
+    if (compare >= state.routes.length || compare === state.selected)
+      compare = state.routes.findIndex((_, i) => i !== state.selected);
+    const metrics = state.routes.map((r) => M.measure(b, r.path));
+    step = Math.min(step, route.path.length - 1);
+    const prefix = route.path.slice(0, step + 1),
+      current = M.measure(b, prefix),
+      other = metrics[compare];
+    $("size").value = String(n);
+    $("route-name").value = route.name;
+    $("undo").disabled = !history.length;
+    $("new").disabled = $("copy").disabled = state.routes.length >= 6;
+    $("delete").disabled = state.routes.length === 1;
+    $("compare").replaceChildren();
+    $("routes").replaceChildren();
+    $("stats").replaceChildren();
+    state.routes.forEach((r, index) => {
+      const button = el("button", r.name);
+      button.setAttribute("aria-pressed", String(index === state.selected));
+      button.onclick = () => {
+        state.selected = index;
+        step = Infinity;
+        message();
+        render();
+        save();
+      };
+      $("routes").append(button);
+      if (index !== state.selected) {
+        const option = el("option", r.name);
+        option.value = String(index);
+        $("compare").append(option);
+      }
+      const m = metrics[index],
+        row = el("tr");
+      if (index === state.selected) row.className = "active";
+      [
+        r.name,
+        m.cost,
+        m.newRevealed,
+        m.extraOpportunity,
+        m.opportunityReach,
+        m.issues.length ? "无效" : m.complete ? "到出口" : "未完成"
+      ].forEach((t) => row.append(el("td", t)));
+      row.title = m.issues.join("；");
+      $("stats").append(row);
+    });
+    $("compare").value = String(compare);
+    $("compare").disabled = compare < 0;
+    const own = metrics[state.selected];
+    if (own.issues.length) $("difference").textContent = own.issues.join("；") + "。请撤销或修改地图。";
+    else if (other) {
+      const sign = (x) => (x > 0 ? `+${x}` : String(x));
+      $("difference").textContent =
+        `相对「${state.routes[compare].name}」：新格 ${sign(own.cost - other.cost)}，新增揭示 ${sign(own.newRevealed - other.newRevealed)}，外扩机会 ${sign(own.extraOpportunity - other.extraOpportunity)}。`;
+    } else $("difference").textContent = "新建或复制一条路线，即可比较。";
+    $("step").max = String(route.path.length - 1);
+    $("step").value = String(step);
+    $("step-value").value = `${step} / ${route.path.length - 1}`;
+    const before = M.measure(b, prefix.slice(0, -1));
+    $("step-summary").textContent =
+      `到 ${coordinate(prefix.at(-1))}，这一步新增揭示 ${step ? current.newRevealed - before.newRevealed : 0} 格。`;
+    const pathSet = new Set(prefix),
+      neighborsOnly = [...current.newly].filter((id) => !pathSet.has(id)).length;
+    $("details").replaceChildren();
+    for (const [label, value] of [
+      ["移动次数 / 重复进入", `${current.moves} / ${current.revisits}`],
+      ["首次进入消耗", current.cost],
+      ["新增揭示 / 其中仅邻格", `${current.newRevealed} / ${neighborsOnly}`],
+      ["累计已揭示", `${current.total} / ${n * n}`],
+      ["潜在新增范围（含直接揭示）", current.opportunityReach],
+      ["实际经过的已知宝箱", current.treasures]
+    ]) {
+      const row = el("tr");
+      row.append(el("td", label), el("td", value));
+      $("details").append(row);
+    }
+    if ($("cells").children.length !== n * n) {
+      $("cells").replaceChildren();
+      for (let id = 0; id < n * n; id++) {
+        const cell = el("button");
+        cell.type = "button";
+        cell.dataset.id = String(id);
+        cell.append(el("span"), el("span"));
+        cell.children[0].className = "tag";
+        cell.children[1].className = "step";
+        $("cells").append(cell);
+      }
+    }
+    $("map").style.setProperty("--n", n);
+    $("overlay").setAttribute("viewBox", `0 0 ${n * 40} ${n * 40}`);
+    const layer = $("layer").value;
+    const names = { unknown: "未知", challenge: "挑战", treasure: "宝箱", start: "入口", exit: "出口" };
+    [...$("cells").children].forEach((e, id) => {
+      const c = b.cells[id],
+        classes = ["cell"];
+      if (current.known.has(id)) classes.push("known");
+      if (layer === "difference" && other) {
+        const a = current.newly.has(id),
+          z = other.newly.has(id);
+        if (a || z) classes.push(a && z ? "common" : a ? "only-a" : "only-b");
+      } else {
+        if (current.newly.has(id)) classes.push("direct");
+        if (layer === "opportunity" && current.extra.has(id)) classes.push("extra");
+      }
+      if (c.visited) classes.push("visited");
+      if (c.passable === false) classes.push("blocked");
+      e.className = classes.join(" ");
+      const tag =
+        id === 0
+          ? "入"
+          : id === n * n - 1
+            ? "出"
+            : c.visited
+              ? "已"
+              : c.passable === false
+                ? "禁"
+                : c.type === "treasure"
+                  ? "宝"
+                  : c.type === "challenge"
+                    ? "可"
+                    : "";
+      e.children[0].textContent = tag;
+      const indexes = prefix.flatMap((v, i) => (v === id && i ? [i] : []));
+      e.children[1].textContent = indexes.length
+        ? indexes.length > 1
+          ? `${indexes[0]}…${indexes.at(-1)}`
+          : String(indexes[0])
+        : "";
+      e.setAttribute(
+        "aria-label",
+        `${coordinate(id)} ${c.visited ? "已通关" : c.passable === false ? "不能通过" : names[c.type]}`
+      );
+      e.title = `${coordinate(id)}${indexes.length ? ` · 第 ${indexes.join("、")} 步` : ""}`;
+    });
+    $("line").setAttribute(
+      "points",
+      prefix.map((id) => `${(id % n) * 40 + 20},${Math.floor(id / n) * 40 + 20}`).join(" ")
+    );
+    $("endpoint").setAttribute("cx", (prefix.at(-1) % n) * 40 + 20);
+    $("endpoint").setAttribute("cy", Math.floor(prefix.at(-1) / n) * 40 + 20);
+  }
+  function edit(id) {
+    const mode = $("mode").value,
+      n = state.board.size,
+      r = state.routes[state.selected];
+    if (mode === "route") {
+      if (id === r.path.at(-1)) return;
+      try {
+        const next = M.drawTo(state.board, r.path, id);
+        mutate(() => {
+          r.path = next;
+        });
+      } catch (error) {
+        message(error.message);
+      }
+    } else {
+      if (id === 0 || id === n * n - 1) {
+        message("入口和出口固定，不能修改。");
+        return;
+      }
+      mutate(() => {
+        state.board.cells[id] = {
+          type: mode === "treasure" ? "treasure" : mode === "unknown" || mode === "revealed" ? "unknown" : "challenge",
+          revealed: mode !== "unknown",
+          visited: mode === "visited",
+          passable: mode === "blocked" ? false : mode === "unknown" || mode === "revealed" ? null : true
+        };
+      });
+    }
+  }
+  $("map").addEventListener("pointerdown", (e) => {
+    const cell = e.target.closest("[data-id]");
+    if (!cell || e.button !== 0) return;
+    drag = true;
+    lastDrag = Number(cell.dataset.id);
+    edit(lastDrag);
+  });
+  $("map").addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest("#cells [data-id]");
+    if (!cell) return;
+    const id = Number(cell.dataset.id);
+    if (id !== lastDrag) {
+      lastDrag = id;
+      edit(id);
+    }
+  });
+  window.addEventListener("pointerup", () => {
+    drag = false;
+    lastDrag = null;
+  });
+  window.addEventListener("pointercancel", () => {
+    drag = false;
+  });
+  $("map").addEventListener("click", (e) => {
+    if (e.detail === 0) {
+      const cell = e.target.closest("[data-id]");
+      if (cell) edit(Number(cell.dataset.id));
+    }
+  });
+  $("map").addEventListener("keydown", (e) => {
+    if ($("mode").value !== "route") return;
+    const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: state.board.size, ArrowUp: -state.board.size }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const last = state.routes[state.selected].path.at(-1);
+    if (core.neighbors(last, state.board.size).includes(last + delta)) edit(last + delta);
+  });
+  for (let n = 5; n <= 20; n++) {
+    const o = el("option", `${n} × ${n}`);
+    o.value = String(n);
+    $("size").append(o);
+  }
+  $("size").onchange = () =>
+    mutate(() => {
+      state = M.preset("blank", Number($("size").value));
+      $("preset").value = "blank";
+    });
+  $("load").onclick = () =>
+    mutate(() => {
+      state = M.preset($("preset").value, Number($("size").value));
+    });
+  $("route-name").onchange = () => {
+    const name = $("route-name").value.trim();
+    if (name)
+      mutate(() => {
+        state.routes[state.selected].name = name;
+      });
+    else render();
+  };
+  function add(copy) {
+    mutate(() => {
+      state.routes.push({
+        name: `路线 ${String.fromCharCode(65 + state.routes.length)}`,
+        path: copy ? [...state.routes[state.selected].path] : [0]
+      });
+      state.selected = state.routes.length - 1;
+    });
+  }
+  $("new").onclick = () => add(false);
+  $("copy").onclick = () => add(true);
+  $("delete").onclick = () =>
+    mutate(() => {
+      state.routes.splice(state.selected, 1);
+      state.selected = Math.max(0, state.selected - 1);
+    });
+  $("clear").onclick = () =>
+    mutate(() => {
+      state.routes[state.selected].path = [0];
+    });
+  $("undo").onclick = () => {
+    if (history.length) {
+      state = history.pop();
+      step = Infinity;
+      message();
+      render();
+      save();
+    }
+  };
+  $("step").oninput = () => {
+    step = Number($("step").value);
+    render();
+  };
+  $("layer").onchange = render;
+  $("compare").onchange = () => {
+    compare = Number($("compare").value);
+    render();
+  };
+  $("export").onclick = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
+    const a = el("a");
+    a.href = url;
+    a.download = "迷宫路线方案.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  $("import").onclick = () => $("file").click();
+  $("file").onchange = async () => {
+    const f = $("file").files[0];
+    if (!f) return;
+    try {
+      if (f.size > 2000000) throw new Error("文件超过 2 MB");
+      const next = M.validate(JSON.parse(await f.text()));
+      mutate(() => {
+        state = next;
+      });
+      message("方案已导入，可撤销恢复原方案。");
+    } catch (e) {
+      message(`导入失败：${e.message}`);
+    } finally {
+      $("file").value = "";
+    }
+  };
+  render();
+})();
+
+    </script>
+  </body>
+</html>
