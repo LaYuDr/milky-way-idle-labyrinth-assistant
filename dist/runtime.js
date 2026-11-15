@@ -12607,7 +12607,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 }
 .${ctx.PREVIEW_TOOLTIP_CLASS} {
   position: fixed;
-  z-index: 2147483646;
+  /* The standalone clear-rate calculator uses 2147483646 for its preview. */
+  z-index: 2147483647;
   min-width: 140px;
   max-width: 220px;
   padding: 6px 8px;
@@ -21710,7 +21711,13 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         take([text("经验效率判断", "EXP efficiency"), ctx.t("actionDuration")]).forEach((row) => row.remove());
         section(
           "",
-          take([text("期望通关时长", "Expected clear time"), text("目标经验", "EXP goal")], true),
+          take(
+            [
+              text("期望通关时长", "Expected clear time"),
+              Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+            ],
+            true
+          ),
           `${prefix}-goals`
         );
         section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
@@ -23138,7 +23145,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.11",
+    version: "0.12.12",
     status: "ready",
     plan: core?.plan,
     destroy() {

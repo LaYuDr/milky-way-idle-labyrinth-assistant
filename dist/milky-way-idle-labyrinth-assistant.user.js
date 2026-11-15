@@ -2,7 +2,7 @@
 // @name         迷宫助手
 // @description  银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级与重开建议。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.11
+// @version      0.12.12
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -509,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.11","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.12","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -13126,7 +13126,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 }
 .${ctx.PREVIEW_TOOLTIP_CLASS} {
   position: fixed;
-  z-index: 2147483646;
+  /* The standalone clear-rate calculator uses 2147483646 for its preview. */
+  z-index: 2147483647;
   min-width: 140px;
   max-width: 220px;
   padding: 6px 8px;
@@ -22229,7 +22230,13 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         take([text("经验效率判断", "EXP efficiency"), ctx.t("actionDuration")]).forEach((row) => row.remove());
         section(
           "",
-          take([text("期望通关时长", "Expected clear time"), text("目标经验", "EXP goal")], true),
+          take(
+            [
+              text("期望通关时长", "Expected clear time"),
+              Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+            ],
+            true
+          ),
           `${prefix}-goals`
         );
         section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
@@ -23657,7 +23664,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.11",
+    version: "0.12.12",
     status: "ready",
     plan: core?.plan,
     destroy() {

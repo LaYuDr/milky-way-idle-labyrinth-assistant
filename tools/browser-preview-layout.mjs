@@ -113,6 +113,31 @@ try {
     await page.locator("#cell").hover();
     const tip = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
     await tip.waitFor({ state: "visible" });
+    if (width === 1440) {
+      const stacking = await tip.evaluate((el) => {
+        const reference = document.createElement("div");
+        reference.id = "mwi-lab-clear-rate-preview";
+        const { left, top } = el.getBoundingClientRect();
+        // Match the standalone calculator v1.6.0 layer. Enable hit testing for both previews to inspect their order.
+        reference.style.cssText = `position:fixed;z-index:2147483646;left:${left}px;top:${top}px;width:140px;height:80px;`;
+        const pointerEvents = el.style.pointerEvents;
+        el.style.pointerEvents = "auto";
+        try {
+          const layersAtOverlap = () =>
+            document.elementsFromPoint(left + 12, top + 12).filter((node) => node === el || node === reference);
+          el.before(reference);
+          const insertedBefore = layersAtOverlap();
+          el.after(reference);
+          const insertedAfter = layersAtOverlap();
+          return [insertedBefore, insertedAfter].map((layers) => layers.map((node) => node.id));
+        } finally {
+          el.style.pointerEvents = pointerEvents;
+          reference.remove();
+        }
+      });
+      const expectedLayers = ["mwi-labyrinth-calc-clear-rate-preview", "mwi-lab-clear-rate-preview"];
+      assert.deepEqual(stacking, [expectedLayers, expectedLayers], "两种插入顺序下，迷宫助手的预览都应显示在上层");
+    }
     const actual = await tip.evaluate((el) => window.previewRows(el));
     const sharedStructure = await tip.evaluate((el) => ({
       width: el.getBoundingClientRect().width,
@@ -395,6 +420,31 @@ try {
     });
     assert.deepEqual(cases.counts, [5, 0, 0, 0, 5]);
     assert.deepEqual(cases.missing, ["—", "—", "—", "—", "—"]);
+    const withoutGoal = await tip.evaluate((el) => {
+      const ctx = window.testApi.context;
+      const getTargets = ctx.getExperienceTargets;
+      ctx.getExperienceTargets = () => ({});
+      try {
+        ctx.renderSkillingPreviewTooltip(window.previewData);
+        const goals = el.querySelector(".mwi-labyrinth-calc-preview-goals");
+        const [time, experience] = [...goals.children].map((row) => row.getBoundingClientRect());
+        return {
+          rows: window.previewRows(goals),
+          separateYield: Boolean(el.querySelector(".mwi-labyrinth-calc-preview-life-yield")),
+          aligned: Boolean(experience && experience.top === time.top && experience.left >= time.right)
+        };
+      } finally {
+        ctx.getExperienceTargets = getTargets;
+      }
+    });
+    assert.deepEqual(withoutGoal, {
+      rows: [
+        [language === "zh" ? "期望通关时长" : "Expected clear time", "264s"],
+        [language === "zh" ? "每场经验" : "EXP / Room", "13132"]
+      ],
+      separateYield: false,
+      aligned: true
+    });
     // Optional/missing/zero values and enhancing retain the original fields.
     const checks = await page.evaluate(() => {
       const ctx = window.testApi.context;
@@ -493,10 +543,17 @@ try {
       tip.scrollTop = 0;
       return { baseline, actual: window.previewRows(tip) };
     });
-    assert.equal(combat.actual.length, 12);
+    assert.equal(combat.actual.length, 13);
+    assert.ok(
+      combat.actual.some(([label, value]) =>
+        language === "zh"
+          ? label === "失败原因" && value === "防御不足"
+          : label === "Failure Reason" && value === "Insufficient Defense"
+      )
+    );
     assert.doesNotMatch(
       await tip.innerText(),
-      /攻击间隔|施法速度|最大HP|护甲|失败原因|Lv\.\d|Attack Interval|Cast Speed|Max HP|Failure Reason/
+      /攻击间隔|施法速度|最大HP|护甲|Lv\.\d|Attack Interval|Cast Speed|Max HP/
     );
     assert.equal((await tip.boundingBox()).width, sharedStructure.width, "生活与战斗详情使用相同宽度");
     assert.deepEqual(

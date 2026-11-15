@@ -51,7 +51,13 @@
         take([text("经验效率判断", "EXP efficiency"), ctx.t("actionDuration")]).forEach((row) => row.remove());
         section(
           "",
-          take([text("期望通关时长", "Expected clear time"), text("目标经验", "EXP goal")], true),
+          take(
+            [
+              text("期望通关时长", "Expected clear time"),
+              Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+            ],
+            true
+          ),
           `${prefix}-goals`
         );
         section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);

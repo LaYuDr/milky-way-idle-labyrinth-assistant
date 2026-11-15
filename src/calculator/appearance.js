@@ -655,7 +655,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 }
 .${ctx.PREVIEW_TOOLTIP_CLASS} {
   position: fixed;
-  z-index: 2147483646;
+  /* The standalone clear-rate calculator uses 2147483646 for its preview. */
+  z-index: 2147483647;
   min-width: 140px;
   max-width: 220px;
   padding: 6px 8px;
