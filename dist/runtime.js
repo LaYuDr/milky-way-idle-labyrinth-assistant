@@ -23291,7 +23291,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.6",
+    version: "0.12.7",
     status: "ready",
     plan: core?.plan,
     destroy() {

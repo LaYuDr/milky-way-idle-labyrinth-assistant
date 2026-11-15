@@ -1,19 +1,13 @@
 # 发布流程
 
-## 当前状态与首次配置
+## 当前发布渠道
 
-首次发布准备版本为 0.12.6。`release.config.json` 的 repository、downloadURL、updateURL 故意为空。
-发布预演和正式发布会在缺少渠道时失败，不会猜测仓库名或误用公会助手条目。
+- GitHub：<https://github.com/LaYuDr/milky-way-idle-labyrinth-assistant>
+- Greasy Fork：<https://greasyfork.org/zh-CN/scripts/605612>
+- 同步入口：仓库 main 分支的 `dist/milky-way-idle-labyrinth-assistant.user.js`。
 
-首次发布前，在获得创建和发布授权后：
-
-1. 创建独立 GitHub 仓库，设置 origin 和 main。提交并推送工程基线，使本地 HEAD 与 origin/main 一致。
-2. 首次 Greasy Fork 条目需要在网站创建，不能靠 Git 推送自动创建。以明确授权的首个脚本上传创建条目，取得新条目 ID。
-3. 将独立仓库 HTTPS 地址（不带 `.git`）及同一 Greasy Fork 条目的 `.user.js`、`.meta.js` 地址填入配置；启用该条目从 GitHub 当前安装入口同步的设置。
-4. 首次上传如果已使用 0.12.6，正式同步版本必须提升到 0.12.7，避免已安装用户漏更。首次上传的历史产物也应保留并登记；不要声称此前已有自动归档。
-5. 确认该版本的功能、权限和实际游戏验证结果，再执行下面流程。
-
-首次网站建条目与配置同步仍需平台操作。仓库脚本不保存平台凭据、不替用户首次建条目。
+首次上传版本为 0.12.6，安装包已归档。0.12.7 配置独立安装与更新地址，避免首次安装用户漏更。
+`release.config.json` 保存公开发布地址，不保存平台凭据。Greasy Fork 作者管理与同步配置在网站维护。
 
 ## 日常发布
 

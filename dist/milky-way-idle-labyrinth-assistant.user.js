@@ -2,7 +2,7 @@
 // @name         迷宫助手
 // @description  银河奶牛迷宫路线规划、房间胜率、预计耗时、推荐等级与重开建议。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.6
+// @version      0.12.7
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -12,6 +12,9 @@
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @noframes
 // @run-at       document-idle
+// @homepageURL  https://github.com/LaYuDr/milky-way-idle-labyrinth-assistant
+// @downloadURL  https://update.greasyfork.org/scripts/605612/%E8%BF%B7%E5%AE%AB%E5%8A%A9%E6%89%8B.user.js
+// @updateURL    https://update.greasyfork.org/scripts/605612/%E8%BF%B7%E5%AE%AB%E5%8A%A9%E6%89%8B.meta.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addValueChangeListener
@@ -506,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.6","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.7","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -23807,7 +23810,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.6",
+    version: "0.12.7",
     status: "ready",
     plan: core?.plan,
     destroy() {
