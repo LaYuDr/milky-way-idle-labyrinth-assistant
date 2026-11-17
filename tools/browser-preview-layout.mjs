@@ -556,10 +556,15 @@ try {
       /攻击间隔|施法速度|最大HP|护甲|Lv\.\d|Attack Interval|Cast Speed|Max HP/
     );
     assert.equal((await tip.boundingBox()).width, sharedStructure.width, "生活与战斗详情使用相同宽度");
+    const firstGroups = await tip.locator(".mwi-labyrinth-calc-preview-body > section").evaluateAll((nodes) =>
+      nodes.slice(0, 4).map((node) => ({
+        group: node.firstElementChild.className,
+        warning: node.querySelector('[data-tone="warn"]')?.textContent
+      }))
+    );
+    assert.equal(firstGroups[1].warning, language === "zh" ? "失败原因防御不足" : "Failure ReasonInsufficient Defense");
     assert.deepEqual(
-      await tip
-        .locator(".mwi-labyrinth-calc-preview-body > section")
-        .evaluateAll((nodes) => nodes.slice(0, 3).map((x) => x.firstElementChild.className)),
+      [firstGroups[0], ...firstGroups.slice(2)].map(({ group }) => group),
       sharedStructure.topGroups.map((name) => name.replace(" mwi-labyrinth-calc-preview-life-yield", "")),
       "战斗保持原分区，生活每场经验移到右列"
     );

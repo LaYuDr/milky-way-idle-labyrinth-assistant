@@ -21707,6 +21707,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       // Both room types start with the same metrics in the same positions.
       section("", take([text("通关胜率", "Clear chance"), ctx.t("experiencePerHour")], true), `${prefix}-summary`);
+      if (type === "combat") {
+        const failure = take([ctx.t("failureReason")]);
+        for (const row of failure) row.dataset.tone = "warn";
+        section("", failure, `${prefix}-notes`);
+      }
       if (type === "skilling") {
         take([text("经验效率判断", "EXP efficiency"), ctx.t("actionDuration")]).forEach((row) => row.remove());
         section(
@@ -21771,9 +21776,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           take((data.rewardPreview?.rows || []).map((row) => row.label)),
           `${prefix}-pairs`
         );
-        const notes = [...remaining];
-        for (const row of notes) if (label(row) === ctx.t("failureReason")) row.dataset.tone = "warn";
-        section(text("说明", "Notes"), notes, `${prefix}-notes`);
+        section(text("说明", "Notes"), [...remaining], `${prefix}-notes`);
         finish();
         return;
       }
@@ -23145,7 +23148,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.12",
+    version: "0.12.13",
     status: "ready",
     plan: core?.plan,
     destroy() {
