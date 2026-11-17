@@ -127,7 +127,7 @@ test("重开动态规划与独立 Python 穷举/更新周期结果一致，低�
   );
 });
 test("实时估算读取当前进度；过期数据不给重开建议", async () => {
-  const { ctx } = await fixture();
+  const { ctx } = await fixture({ identity: "fixture", enableRestartAdvice: true });
   ctx.gameTravelTiming = { restart: 3, retry: 1 };
   const progress = {
     timeoutAt: new Date(Date.now() + 110000).toISOString(),
@@ -1124,7 +1124,7 @@ test("从当前游戏客户端读取移动耗时，缺失或冲突时不采用�
 });
 
 test("重开建议拒绝缺失、矛盾和已错过下一次动作的数据", async () => {
-  const { ctx, sandbox } = await fixture();
+  const { ctx, sandbox } = await fixture({ identity: "fixture", enableRestartAdvice: true });
   const now = 1700000000000;
   vm.runInContext(`Date.now = () => ${now}`, sandbox);
   ctx.gameTravelTiming = { restart: 3, retry: 1 };
@@ -1164,7 +1164,7 @@ test("重开建议拒绝缺失、矛盾和已错过下一次动作的数据", as
 });
 
 test("实时提醒覆盖最后等待、完成及统一的两秒提示阈值", async () => {
-  const { ctx, sandbox } = await fixture();
+  const { ctx, sandbox } = await fixture({ identity: "fixture", enableRestartAdvice: true });
   const now = 1700000000000;
   vm.runInContext(`Date.now = () => ${now}`, sandbox);
   ctx.gameTravelTiming = { restart: 3, retry: 1 };

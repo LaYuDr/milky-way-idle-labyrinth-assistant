@@ -1,8 +1,8 @@
 {
   "name": "milky-way-idle-labyrinth-assistant",
-  "version": "0.12.13",
+  "version": "0.12.14",
   "private": true,
-  "description": "银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级与重开建议。",
+  "description": "银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级。",
   "engines": {
     "node": ">=24"
   },

@@ -17610,7 +17610,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         roomProgressOverride || (state && typeof state === "object" ? state.labyrinthRoomProgress || null : null);
       const progressToken =
         ctx.buildLabyrinthLiveProgressToken(roomProgress) +
-        (roomProgress ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}` : "");
+        (roomProgress && ctx.restartAdviceEnabled
+          ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}`
+          : "");
       if (!progressToken) {
         ctx.clearLiveActionRateDisplay();
         return;
@@ -20239,6 +20241,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return manual(options);
     };
 
+    ctx.restartAdviceEnabled = ctx.options.enableRestartAdvice === true;
     ctx.estimateRestart = (progress, estimate) => {
       if (!progress || !estimate) return null;
       const unavailable = (message) => {
@@ -20306,7 +20309,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       )
         return null;
       const estimate = estimateLive(progress);
-      if (estimate) {
+      if (estimate && ctx.restartAdviceEnabled) {
         estimate.progressPerSuccess = ctx.getEffectiveSkillingProgressPerSuccess(progress.progressPerAction);
         estimate.restart = ctx.estimateRestart(progress, estimate);
       }
@@ -20329,6 +20332,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return liveText(estimate) + suffix;
     };
     ctx.formatLabyrinthLiveEstimateTitle = (estimate) => {
+      if (!ctx.restartAdviceEnabled) return liveTitle(estimate);
       const r = estimate?.restart;
       if (!r)
         return liveTitle(estimate) + "\n" + (estimate?.restartUnavailable || "重开建议需要完整、及时的动作数据。");
@@ -20357,7 +20361,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         dock.setAttribute("aria-label", "房间计算");
         host.append(dock);
       }
-      void ctx.loadGameTravelTiming();
+      if (ctx.restartAdviceEnabled) void ctx.loadGameTravelTiming();
       dock.hidden = false;
       const panel = ctx.createControlPanel();
       if (panel.parentElement !== dock) dock.append(panel);
@@ -23148,7 +23152,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.13",
+    version: "0.12.14",
     status: "ready",
     plan: core?.plan,
     destroy() {

@@ -17,7 +17,7 @@ const browser = await chromium.launch({
 });
 const results = [];
 try {
-  for (const width of [1440, 390, 320]) {
+  for (const [width, enableRestartAdvice] of [[390, false], ...[1440, 390, 320].map((value) => [value, true])]) {
     const page = await browser.newPage({ viewport: { width, height: 500 } });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -28,10 +28,17 @@ try {
       '<style>body{margin:20px;background:#24273b;color:#edf0fa;font:14px/1.5 system-ui}h1{font-size:16px}.Header_displayName_fixture{padding:12px 0}</style><h1>提前重开提醒 · 离线测试</h1><div class="Header_actionName_fixture"><div class="Header_displayName_fixture">挤奶</div></div>'
     );
     await page.addScriptTag({ content: scripts });
-    await page.evaluate(() => {
-      window.testApi = window.MwiLabyrinthCalculator.create({ start: false });
+    await page.evaluate((enableRestartAdvice) => {
+      window.testApi = window.MwiLabyrinthCalculator.create(
+        enableRestartAdvice ? { start: false, enableRestartAdvice } : { start: false }
+      );
       const ctx = window.testApi.context;
       ctx.gameTravelTiming = { restart: 3, retry: 1 };
+      if (!enableRestartAdvice) {
+        ctx.estimateRestart = () => {
+          throw new Error("Disabled restart advice must not run");
+        };
+      }
       ctx.ensureStyle();
       window.progress = {
         actionCounter: 1,
@@ -47,8 +54,25 @@ try {
       window.refreshLive();
       // Use the same one-second cadence as the lifecycle's panel polling.
       ctx.setInterval(window.refreshLive, ctx.PANEL_REFRESH_POLL_MS);
-    });
+    }, enableRestartAdvice);
     const notice = page.locator("#mwi-labyrinth-calc-live-action-rate");
+    if (!enableRestartAdvice) {
+      const before = await notice.innerText();
+      assert.match(before, /19\.5%.*11/);
+      assert.doesNotMatch(await notice.getAttribute("title"), /重开/);
+      await page.clock.fastForward(1000);
+      assert.equal(await notice.innerText(), before);
+      await page.evaluate(() => {
+        window.progress.actionCounter++;
+        window.refreshLive();
+      });
+      assert.match(await notice.innerText(), /10/);
+      assert.doesNotMatch(await notice.innerText(), /可考虑重开|继续本场/);
+      assert.deepEqual(errors, []);
+      await page.close();
+      console.log("默认关闭重开建议，剩余胜率随行动更新");
+      continue;
+    }
     assert.match(await notice.innerText(), /可考虑重开，预计省约/);
     assert.equal(await notice.getAttribute("data-restart-advice"), "restart");
     assert.match(await notice.getAttribute("title"), /未计点击与网络延迟/);

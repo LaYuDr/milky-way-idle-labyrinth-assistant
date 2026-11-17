@@ -98,6 +98,7 @@
       return manual(options);
     };
 
+    ctx.restartAdviceEnabled = ctx.options.enableRestartAdvice === true;
     ctx.estimateRestart = (progress, estimate) => {
       if (!progress || !estimate) return null;
       const unavailable = (message) => {
@@ -165,7 +166,7 @@
       )
         return null;
       const estimate = estimateLive(progress);
-      if (estimate) {
+      if (estimate && ctx.restartAdviceEnabled) {
         estimate.progressPerSuccess = ctx.getEffectiveSkillingProgressPerSuccess(progress.progressPerAction);
         estimate.restart = ctx.estimateRestart(progress, estimate);
       }
@@ -188,6 +189,7 @@
       return liveText(estimate) + suffix;
     };
     ctx.formatLabyrinthLiveEstimateTitle = (estimate) => {
+      if (!ctx.restartAdviceEnabled) return liveTitle(estimate);
       const r = estimate?.restart;
       if (!r)
         return liveTitle(estimate) + "\n" + (estimate?.restartUnavailable || "重开建议需要完整、及时的动作数据。");
@@ -216,7 +218,7 @@
         dock.setAttribute("aria-label", "房间计算");
         host.append(dock);
       }
-      void ctx.loadGameTravelTiming();
+      if (ctx.restartAdviceEnabled) void ctx.loadGameTravelTiming();
       dock.hidden = false;
       const panel = ctx.createControlPanel();
       if (panel.parentElement !== dock) dock.append(panel);

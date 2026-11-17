@@ -149,6 +149,7 @@ test("白名单拒绝草稿、参考插件和历史修改", async () => {
     "src/userscript.js",
     "tools/build.mjs",
     "docs/RELEASING.md",
+    "test/calculator.test.js",
     "test/fixtures/combat-engine-reference.json",
     "references/combat-engine.json"
   ])

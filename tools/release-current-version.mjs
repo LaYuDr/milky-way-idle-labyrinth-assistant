@@ -43,6 +43,7 @@ export function allowed(file) {
   return (
     fixed.has(file) ||
     /^(src|tools|test)\/[\w/-]+\.(js|mjs|html)$/.test(file) ||
+    /^test\/[\w-]+\.test\.js$/.test(file) ||
     /^test\/fixtures\/[\w-]+\.json$/.test(file) ||
     /^docs\/[A-Z_]+\.md$/.test(file) ||
     /^dist\/(milky-way-idle-labyrinth-assistant.user.js|milky-way-idle-labyrinth-dev-loader.user.js|runtime.js|test-harness.html|route-lab.html)$/.test(

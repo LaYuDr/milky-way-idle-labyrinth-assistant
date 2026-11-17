@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         迷宫助手
-// @description  银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级与重开建议。
+// @description  银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.13
+// @version      0.12.14
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -509,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.13","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.14","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -18129,7 +18129,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         roomProgressOverride || (state && typeof state === "object" ? state.labyrinthRoomProgress || null : null);
       const progressToken =
         ctx.buildLabyrinthLiveProgressToken(roomProgress) +
-        (roomProgress ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}` : "");
+        (roomProgress && ctx.restartAdviceEnabled
+          ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}`
+          : "");
       if (!progressToken) {
         ctx.clearLiveActionRateDisplay();
         return;
@@ -20758,6 +20760,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return manual(options);
     };
 
+    ctx.restartAdviceEnabled = ctx.options.enableRestartAdvice === true;
     ctx.estimateRestart = (progress, estimate) => {
       if (!progress || !estimate) return null;
       const unavailable = (message) => {
@@ -20825,7 +20828,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       )
         return null;
       const estimate = estimateLive(progress);
-      if (estimate) {
+      if (estimate && ctx.restartAdviceEnabled) {
         estimate.progressPerSuccess = ctx.getEffectiveSkillingProgressPerSuccess(progress.progressPerAction);
         estimate.restart = ctx.estimateRestart(progress, estimate);
       }
@@ -20848,6 +20851,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return liveText(estimate) + suffix;
     };
     ctx.formatLabyrinthLiveEstimateTitle = (estimate) => {
+      if (!ctx.restartAdviceEnabled) return liveTitle(estimate);
       const r = estimate?.restart;
       if (!r)
         return liveTitle(estimate) + "\n" + (estimate?.restartUnavailable || "重开建议需要完整、及时的动作数据。");
@@ -20876,7 +20880,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         dock.setAttribute("aria-label", "房间计算");
         host.append(dock);
       }
-      void ctx.loadGameTravelTiming();
+      if (ctx.restartAdviceEnabled) void ctx.loadGameTravelTiming();
       dock.hidden = false;
       const panel = ctx.createControlPanel();
       if (panel.parentElement !== dock) dock.append(panel);
@@ -23667,7 +23671,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.13",
+    version: "0.12.14",
     status: "ready",
     plan: core?.plan,
     destroy() {

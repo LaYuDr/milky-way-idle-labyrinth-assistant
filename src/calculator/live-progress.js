@@ -296,7 +296,9 @@
         roomProgressOverride || (state && typeof state === "object" ? state.labyrinthRoomProgress || null : null);
       const progressToken =
         ctx.buildLabyrinthLiveProgressToken(roomProgress) +
-        (roomProgress ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}` : "");
+        (roomProgress && ctx.restartAdviceEnabled
+          ? `|${Math.floor(Date.now() / 1000)}|${JSON.stringify(ctx.gameTravelTiming)}`
+          : "");
       if (!progressToken) {
         ctx.clearLiveActionRateDisplay();
         return;
