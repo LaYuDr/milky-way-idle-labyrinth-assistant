@@ -537,13 +537,15 @@ try {
         failureReason: ctx.t("failureDefense")
       };
       window.combatPreviewData = data;
-      const baseline = window.previewRows(window.legacyPreviewContext.renderCombatPreviewTooltip(data));
+      const baseline = window
+        .previewRows(window.legacyPreviewContext.renderCombatPreviewTooltip(data))
+        .filter(([label]) => label !== (ctx.isChineseUi() ? "经验效率判断" : "EXP efficiency"));
       const tip = ctx.renderCombatPreviewTooltip(data);
       ctx.positionPreviewTooltip(tip, 80, 100);
       tip.scrollTop = 0;
       return { baseline, actual: window.previewRows(tip) };
     });
-    assert.equal(combat.actual.length, 13);
+    assert.equal(combat.actual.length, 12);
     assert.ok(
       combat.actual.some(([label, value]) =>
         language === "zh"
@@ -553,7 +555,7 @@ try {
     );
     assert.doesNotMatch(
       await tip.innerText(),
-      /攻击间隔|施法速度|最大HP|护甲|Lv\.\d|Attack Interval|Cast Speed|Max HP/
+      /经验效率判断|EXP efficiency|攻击间隔|施法速度|最大HP|护甲|Lv\.\d|Attack Interval|Cast Speed|Max HP/
     );
     assert.equal((await tip.boundingBox()).width, sharedStructure.width, "生活与战斗详情使用相同宽度");
     const firstGroups = await tip.locator(".mwi-labyrinth-calc-preview-body > section").evaluateAll((nodes) =>
@@ -565,8 +567,8 @@ try {
     assert.equal(firstGroups[1].warning, language === "zh" ? "失败原因防御不足" : "Failure ReasonInsufficient Defense");
     assert.deepEqual(
       [firstGroups[0], ...firstGroups.slice(2)].map(({ group }) => group),
-      sharedStructure.topGroups.map((name) => name.replace(" mwi-labyrinth-calc-preview-life-yield", "")),
-      "战斗保持原分区，生活每场经验移到右列"
+      sharedStructure.topGroups,
+      "战斗与生活使用相同的耗时、目标经验和每场经验布局"
     );
     assert.deepEqual(
       combat.actual.toSorted((a, b) => a[0].localeCompare(b[0])),
@@ -615,6 +617,31 @@ try {
     assert.ok((await tip.boundingBox()).width <= width - 24);
     await page.screenshot({ path: path.join(directory, `combat-${language}-${width}-${height}.png`) });
     if (width === 1440) assert.ok((await tip.boundingBox()).height < 520, "完整战斗数据保持紧凑高度");
+    const combatWithoutGoal = await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      const getTargets = ctx.getExperienceTargets;
+      ctx.getExperienceTargets = () => ({});
+      try {
+        const tooltip = ctx.renderCombatPreviewTooltip(window.combatPreviewData);
+        const group = tooltip.querySelector(".mwi-labyrinth-calc-preview-goals");
+        const [time, experience] = [...group.children].map((row) => row.getBoundingClientRect());
+        return {
+          rows: window.previewRows(group),
+          separateYield: Boolean(tooltip.querySelector(".mwi-labyrinth-calc-preview-life-yield")),
+          aligned: Boolean(experience && experience.top === time.top && experience.left >= time.right)
+        };
+      } finally {
+        ctx.getExperienceTargets = getTargets;
+      }
+    });
+    assert.deepEqual(combatWithoutGoal, {
+      rows: [
+        [language === "zh" ? "预计耗时" : "Expected time", "85s"],
+        [language === "zh" ? "每场经验" : "EXP / Room", "7629"]
+      ],
+      separateYield: false,
+      aligned: true
+    });
     const longCombat = await page.evaluate(() => {
       const ctx = window.testApi.context;
       const data = {
@@ -624,7 +651,9 @@ try {
         abilities: [{ level: 123, name: "A long ability name that stays on one line without losing any text" }],
         failureReason: ""
       };
-      const baseline = window.previewRows(window.legacyPreviewContext.renderCombatPreviewTooltip(data));
+      const baseline = window
+        .previewRows(window.legacyPreviewContext.renderCombatPreviewTooltip(data))
+        .filter(([label]) => label !== (ctx.isChineseUi() ? "经验效率判断" : "EXP efficiency"));
       const tip = ctx.renderCombatPreviewTooltip(data);
       ctx.positionPreviewTooltip(tip, 80, 100);
       const singleLine = [...tip.querySelectorAll('span,[class$="__title"]')].every((node) => {

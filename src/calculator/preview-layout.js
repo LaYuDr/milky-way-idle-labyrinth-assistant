@@ -52,38 +52,20 @@
         for (const row of failure) row.dataset.tone = "warn";
         section("", failure, `${prefix}-notes`);
       }
-      if (type === "skilling") {
-        take([text("经验效率判断", "EXP efficiency"), ctx.t("actionDuration")]).forEach((row) => row.remove());
-        section(
-          "",
-          take(
-            [
-              text("期望通关时长", "Expected clear time"),
-              Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
-            ],
-            true
-          ),
-          `${prefix}-goals`
-        );
-        section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
-      } else {
-        section(
-          "",
-          take([text("目标经验", "EXP goal"), text("经验效率判断", "EXP efficiency")], true),
-          `${prefix}-goals`
-        );
-        section(
-          "",
-          take(
-            [
-              ctx.t("experiencePerRoom"),
-              type === "combat" ? text("预计耗时", "Expected time") : ctx.t("actionDuration")
-            ],
-            true
-          ),
-          `${prefix}-pairs ${prefix}-yield`
-        );
-      }
+      take([text("经验效率判断", "EXP efficiency")]).forEach((row) => row.remove());
+      if (type === "skilling") take([ctx.t("actionDuration")]).forEach((row) => row.remove());
+      section(
+        "",
+        take(
+          [
+            type === "combat" ? text("预计耗时", "Expected time") : text("期望通关时长", "Expected clear time"),
+            Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+          ],
+          true
+        ),
+        `${prefix}-goals`
+      );
+      section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
       if (type === "combat") {
         section(
           text("技能经验 · K/h", "Skill EXP · K/h"),

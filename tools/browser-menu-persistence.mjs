@@ -136,6 +136,46 @@ try {
     await prepare();
     assert.equal(await page.getByLabel("规划使用数量", { exact: true }).inputValue(), "1");
     assert.equal(await page.getByRole("checkbox", { name: "自动路线", exact: true }).isChecked(), true);
+    // Consume from a larger inventory so stock clamping alone cannot satisfy the assertion.
+    await page.evaluate(() => {
+      window.fixtureState.characterLabyrinth.beaconCount = 8;
+      window.draw();
+    });
+    await page.waitForFunction(() => document.querySelector("#mwi-lab-beacon-quantity").max === "8");
+    await change("规划使用数量", "4");
+    for (const [remaining, expected] of [
+      [7, "3"],
+      [7, "3"],
+      [5, "1"],
+      [4, "0"],
+      [8, "0"]
+    ]) {
+      await page.evaluate((remaining) => {
+        window.fixtureState.characterLabyrinth.beaconCount = remaining;
+        window.draw();
+      }, remaining);
+      await page.waitForFunction(
+        ({ remaining, expected }) =>
+          document.querySelector("#mwi-lab-beacon-quantity").value === expected &&
+          document.querySelector(".mwi-lab-beacons header small").textContent.endsWith(`/${remaining}`),
+        { remaining, expected }
+      );
+    }
+    await page.reload();
+    await prepare();
+    assert.equal(await page.getByLabel("规划使用数量", { exact: true }).inputValue(), "0");
+    await change("规划使用数量", "4");
+    await page.evaluate(() => {
+      window.fixtureState.characterLabyrinth.currentFloor = 2;
+      window.fixtureState.characterLabyrinth.beaconCount = 3;
+      window.draw();
+    });
+    await page.waitForFunction(() => document.querySelector("#mwi-lab-beacon-quantity").value === "3");
+    assert.equal(
+      await page.evaluate(() => JSON.parse(localStorage.getItem("mwi-labyrinth:beacon-quantity:v1")).quantity),
+      4,
+      "换层时只限制可用数量，不把不同楼层的余量变化当作使用"
+    );
     await page.evaluate(() => {
       Storage.prototype.setItem = () => {
         throw new Error("blocked");

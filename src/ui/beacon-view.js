@@ -387,6 +387,19 @@
       map = nextMap;
       container.hidden = false;
       const nextScope = JSON.stringify([map.floorKey, map.size, map.beaconAdvice?.item]);
+      const remaining = map.beaconAdvice?.remaining;
+      const used =
+        map.floorKey && nextScope === scopeKey && knownInventory() && Number.isInteger(lastRemaining)
+          ? Math.max(0, lastRemaining - remaining)
+          : 0;
+      if (used > 0) {
+        preferredQuantity = Math.max(0, quantity - used);
+        if (preferredQuantity <= remaining) unlocked = false;
+        unlockPending = false;
+        error.hidden = true;
+        input.removeAttribute("aria-invalid");
+        saveQuantity();
+      }
       if (nextScope !== scopeKey || !knownInventory()) {
         unlocked = Boolean(map.floorKey && knownInventory() && savedUnlockScope === nextScope);
         unlockPending = false;
