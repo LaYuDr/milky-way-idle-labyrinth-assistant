@@ -60,57 +60,35 @@
       return n;
     };
 
-    ctx.loadCombatSimTrialsSetting = function loadCombatSimTrialsSetting() {
+    function saveTrialsSetting(key, value) {
+      const normalized = ctx.normalizeCombatSimTrials(value);
       try {
-        const raw = ctx.storage.getItem(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY);
-        if (raw === null || raw === undefined) {
-          return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-        }
-        const trimmed = String(raw).trim();
-        if (!trimmed) {
-          return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-        }
-        return ctx.normalizeCombatSimTrials(trimmed);
+        ctx.storage.setItem(key, String(normalized));
       } catch (_error) {
-        return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-      }
-    };
-
-    ctx.saveCombatSimTrialsSetting = function saveCombatSimTrialsSetting(value) {
-      const normalized = ctx.normalizeCombatSimTrials(Number(value));
-      try {
-        ctx.storage.setItem(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, String(normalized));
-      } catch (_error) {
-        // Ignore storage errors and keep runtime value.
+        // The current calculation can still use the normalized value.
       }
       return normalized;
-    };
+    }
 
-    ctx.loadAutomationCombatSimTrialsSetting = function loadAutomationCombatSimTrialsSetting() {
+    function loadTrialsSetting(key, fallback) {
       try {
-        const raw = ctx.storage.getItem(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY);
-        if (raw === null || raw === undefined) {
-          return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
-        }
-        const trimmed = String(raw).trim();
-        if (!trimmed) {
-          return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
-        }
-        return ctx.normalizeCombatSimTrials(trimmed);
+        const raw = ctx.storage.getItem(key)?.trim();
+        if (!raw) return fallback;
+        // Earlier versions accepted up to 5000, beyond the embedded engine's limit.
+        if (Number(raw) > ctx.MAX_COMBAT_SIM_TRIALS) return saveTrialsSetting(key, ctx.MAX_COMBAT_SIM_TRIALS);
+        return ctx.normalizeCombatSimTrials(raw);
       } catch (_error) {
-        return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
+        return fallback;
       }
-    };
+    }
 
-    ctx.saveAutomationCombatSimTrialsSetting = function saveAutomationCombatSimTrialsSetting(value) {
-      const normalized = ctx.normalizeCombatSimTrials(Number(value));
-      try {
-        ctx.storage.setItem(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, String(normalized));
-      } catch (_error) {
-        // Ignore storage errors and keep runtime value.
-      }
-      return normalized;
-    };
+    ctx.loadCombatSimTrialsSetting = () =>
+      loadTrialsSetting(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, ctx.DEFAULT_COMBAT_SIM_TRIALS);
+    ctx.saveCombatSimTrialsSetting = (value) => saveTrialsSetting(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, value);
+    ctx.loadAutomationCombatSimTrialsSetting = () =>
+      loadTrialsSetting(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS);
+    ctx.saveAutomationCombatSimTrialsSetting = (value) =>
+      saveTrialsSetting(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, value);
 
     ctx.normalizeAutomationTargetWinRate = function normalizeAutomationTargetWinRate(value) {
       let n = Number(value);
@@ -213,7 +191,7 @@
 
     ctx.MIN_COMBAT_SIM_TRIALS = 1;
 
-    ctx.MAX_COMBAT_SIM_TRIALS = 5000;
+    ctx.MAX_COMBAT_SIM_TRIALS = 3000;
 
     ctx.COMBAT_SIM_TRIALS_STORAGE_KEY = "mwi-labyrinth:calculator:clear_rate_combat_trials";
 
@@ -505,7 +483,7 @@
 
     ctx.LABYRINTH_UPGRADE_LEVELS_STORAGE_KEY = "mwi-labyrinth:calculator:upgrades:v1";
 
-    ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL = 12;
+    ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL = 12;
 
     ctx.LABYRINTH_UPGRADE_STEP_RATIO = 0.01;
 
@@ -528,6 +506,33 @@
     ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE = "/labyrinth_upgrades/critical_rate";
 
     ctx.LABYRINTH_UPGRADE_KEY_LABYRINTH_EXPERIENCE = "/labyrinth_upgrades/labyrinth_experience";
+
+    ctx.COMBAT_STAT_UPGRADES = [
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_COMBAT_DAMAGE,
+        buff: "/buff_uniques/labyrinth_upgrade_combat_damage",
+        zh: "战斗伤害",
+        en: "Combat damage"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_ATTACK_SPEED,
+        buff: "/buff_uniques/labyrinth_upgrade_attack_speed",
+        zh: "攻击速度",
+        en: "Attack speed"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED,
+        buff: "/buff_uniques/labyrinth_upgrade_cast_speed",
+        zh: "施法速度",
+        en: "Cast speed"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE,
+        buff: "/buff_uniques/labyrinth_upgrade_critical_rate",
+        zh: "暴击率",
+        en: "Critical rate"
+      }
+    ];
 
     ctx.LABYRINTH_UPGRADE_KEYS = [
       ctx.LABYRINTH_UPGRADE_KEY_SKILL_ACTION_SPEED,
@@ -754,7 +759,6 @@
         exportableCombatRoomNotFound: "Could not identify an exportable combat room.",
         skippedCannotExport: "This room is skipped and cannot be exported.",
         simulatorExportNoLoadout: "Simulator export failed: missing usable loadout.",
-        combatFlowFailedFmt: "Labyrinth combat full-flow calculation failed: {message}",
         liveEnhFmt: " [Clear {chance}% | +{current}/+{target} | {left} left]",
         liveBasicFmt: " [Clear {chance}% | {left} left]",
         liveSuccessFmt: "Success {chance}%",
@@ -893,7 +897,6 @@
         exportableCombatRoomNotFound: "未识别到可导出的战斗房间。",
         skippedCannotExport: "该房间当前设置会跳过，无法导出模拟器。",
         simulatorExportNoLoadout: "导出模拟器数据失败：缺少可用配装。",
-        combatFlowFailedFmt: "迷宫战斗全流程计算失败：{message}",
         liveEnhFmt: "胜率 {chance}% · +{current}/+{target} · 剩 {left} 次",
         liveBasicFmt: "胜率 {chance}% · 剩 {left} 次",
         liveSuccessFmt: "成功率 {chance}%",

@@ -10,6 +10,18 @@
       nextSkillingSuccessClearChance: "nextSkillingSuccessClearChance",
       nextSkillingDoubleProgressClearChance: "nextSkillingDoubleProgressClearChance"
     };
+    function appendDelta(row, current, next) {
+      const delta = document.createElement("span");
+      delta.className = `${prefix}-delta`;
+      delta.textContent = "—";
+      if (Number.isFinite(next) && Number.isFinite(current)) {
+        // Compare the same rounded probabilities displayed in the original rows.
+        const change = (Math.round(ctx.clamp01(next) * 1000) - Math.round(ctx.clamp01(current) * 1000)) / 10;
+        delta.textContent = `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
+        delta.dataset.direction = change > 0 ? "up" : change < 0 ? "down" : "same";
+      }
+      row.append(delta);
+    }
     function organize(tooltip, data, type = "skilling") {
       tooltip.dataset.layout = type;
       const rows = [...tooltip.querySelectorAll(`.${ctx.PREVIEW_TOOLTIP_CLASS}__row`)];
@@ -21,6 +33,18 @@
               .split("/")
               .pop();
       const target = ctx.getExperienceTargets()[targetKey];
+      const showUpgradeExperience =
+        Number.isFinite(target) && Number.isFinite(data?.experiencePerHour) && data.experiencePerHour <= target;
+      tooltip.dataset.upgradeExperience = String(showUpgradeExperience);
+      function appendUpgradeExperience(row, hourly) {
+        if (!showUpgradeExperience) return;
+        const experience = document.createElement("span");
+        experience.className = `${prefix}-upgrade-experience`;
+        experience.textContent =
+          Number.isFinite(hourly) && hourly >= 0 ? ctx.formatPreviewExperiencePerHourK(hourly) : "—";
+        if (Number.isFinite(hourly) && hourly > target) experience.dataset.tone = "good";
+        row.append(experience);
+      }
       const chanceTones = {
         "#1fbf60": "excellent",
         "#77b82a": "good",
@@ -45,27 +69,60 @@
         selected.forEach((row) => remaining.delete(row));
         return selected;
       }
+      function showUpgrades(upgrades) {
+        const header = document.createElement("div");
+        header.className = `${prefix}-upgrade-head`;
+        for (const title of [
+          text("项目", "Upgrade"),
+          type === "combat" ? text("花费", "Cost") : text("门槛/花费", "Cost"),
+          text("胜率", "Chance"),
+          text("百分点", "Δ pp"),
+          ...(showUpgradeExperience ? [text("经验/h", "EXP/h")] : [])
+        ]) {
+          const span = document.createElement("span");
+          span.textContent = title;
+          header.append(span);
+        }
+        header.children[1].title = text(
+          "升级耗时、属性门槛或代币花费",
+          "Level-up time, stat requirement or token cost"
+        );
+        header.children[3].title =
+          type === "combat"
+            ? text(
+                "与当前模拟胜率相差的百分点，结果有抽样波动",
+                "Difference from the current simulated chance in percentage points, subject to sampling variation"
+              )
+            : text("通关胜率变化（百分点）", "Clear chance change in percentage points");
+        if (showUpgradeExperience)
+          header.children[4].title = text("升级后每小时经验", "Experience per hour after upgrade");
+        section(text("升级收益", "Upgrade impact"), [header, ...upgrades], `${prefix}-upgrades`);
+        tooltip.querySelector(`.${prefix}-upgrades`).tabIndex = 0;
+      }
       // Both room types start with the same metrics in the same positions.
       section("", take([text("通关胜率", "Clear chance"), ctx.t("experiencePerHour")], true), `${prefix}-summary`);
-      if (type === "combat") {
-        const failure = take([ctx.t("failureReason")]);
-        for (const row of failure) row.dataset.tone = "warn";
-        section("", failure, `${prefix}-notes`);
-      }
       take([text("经验效率判断", "EXP efficiency")]).forEach((row) => row.remove());
       if (type === "skilling") take([ctx.t("actionDuration")]).forEach((row) => row.remove());
-      section(
-        "",
-        take(
-          [
-            type === "combat" ? text("预计耗时", "Expected time") : text("期望通关时长", "Expected clear time"),
-            Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
-          ],
-          true
-        ),
-        `${prefix}-goals`
+      const goals = take(
+        [
+          type === "combat" ? text("预计耗时", "Expected time") : text("期望通关时长", "Expected clear time"),
+          Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+        ],
+        true
       );
-      section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
+      const failure = type === "combat" ? take([ctx.t("failureReason")]) : [];
+      for (const row of failure) {
+        row.dataset.tone = "warn";
+        row.classList.add(`${prefix}-failure`);
+      }
+      const roomExperience = take([ctx.t("experiencePerRoom")]);
+      if (type === "combat") {
+        for (const row of roomExperience) row.classList.add(`${prefix}-room-experience`);
+        section("", [...goals, ...failure, ...roomExperience], `${prefix}-goals ${prefix}-combat-metrics`);
+      } else {
+        section("", goals, `${prefix}-goals`);
+        section("", roomExperience, `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
+      }
       if (type === "combat") {
         section(
           text("技能经验 · K/h", "Skill EXP · K/h"),
@@ -93,12 +150,35 @@
           take(rows.filter((row) => /^Lv\.\d+$/.test(label(row))).map(label)),
           `${prefix}-pairs ${prefix}-abilities`
         );
+        if (data.upgradeImpact) {
+          const upgrades = [];
+          for (const { key, zh, en } of ctx.COMBAT_STAT_UPGRADES) {
+            const impact = data.upgradeImpact[key];
+            if (!impact) continue;
+            const { cost, clearChance } = impact;
+            ctx.appendPreviewRow(
+              tooltip,
+              text(zh, en),
+              Number.isFinite(clearChance) ? ctx.formatPreviewPercent(clearChance) : "—"
+            );
+            const row = tooltip.lastElementChild;
+            row.classList.add(`${prefix}-upgrade`);
+            const requirement = document.createElement("span");
+            requirement.className = `${prefix}-requirement`;
+            requirement.textContent = cost === null ? text("已满级", "Max level") : `${cost} ${text("代币", "tokens")}`;
+            row.insertBefore(requirement, row.lastElementChild);
+            appendDelta(row, data.clearChance, clearChance);
+            appendUpgradeExperience(row, impact.experiencePerHour);
+            upgrades.push(row);
+          }
+          if (upgrades.length) showUpgrades(upgrades);
+        }
         section(
           text("奖励期望", "Expected rewards"),
           take((data.rewardPreview?.rows || []).map((row) => row.label)),
           `${prefix}-pairs`
         );
-        section(text("说明", "Notes"), [...remaining], `${prefix}-notes`);
+        section("", [...remaining], `${prefix}-notes ${prefix}-footer`);
         finish();
         return;
       }
@@ -130,24 +210,8 @@
         thresholdRows.map((row) => [label(row), row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`)?.textContent])
       );
       thresholdRows.forEach((row) => row.remove());
-      const showUpgradeExperience =
-        Number.isFinite(target) && Number.isFinite(data?.experiencePerHour) && data.experiencePerHour <= target;
-      tooltip.dataset.upgradeExperience = String(showUpgradeExperience);
       const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key)));
       if (upgrades.length) {
-        const header = document.createElement("div");
-        header.className = `${prefix}-upgrade-head`;
-        for (const title of [
-          text("项目", "Upgrade"),
-          text("门槛/花费", "Cost"),
-          text("胜率", "Chance"),
-          text("百分点", "Δ pp"),
-          ...(showUpgradeExperience ? [text("经验/h", "EXP/h")] : [])
-        ]) {
-          const span = document.createElement("span");
-          span.textContent = title;
-          header.append(span);
-        }
         for (const row of upgrades) {
           row.classList.add(`${prefix}-upgrade`);
           const field = Object.keys(upgradeFields).find((key) => ctx.t(key) === label(row));
@@ -188,36 +252,10 @@
               requirement.title = text(`升一档需 ${cost} 迷宫代币`, `Next upgrade costs ${cost} labyrinth tokens`);
           }
           row.insertBefore(requirement, row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`));
-          const delta = document.createElement("span");
-          delta.className = `${prefix}-delta`;
-          delta.textContent = "—";
-          if (Number.isFinite(next) && Number.isFinite(data.clearChance)) {
-            // Compare the same rounded probabilities displayed in the original rows.
-            const change =
-              (Math.round(ctx.clamp01(next) * 1000) - Math.round(ctx.clamp01(data.clearChance) * 1000)) / 10;
-            delta.textContent = `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
-            delta.dataset.direction = change > 0 ? "up" : change < 0 ? "down" : "same";
-          }
-          row.append(delta);
-          if (showUpgradeExperience) {
-            const hourly = data[field.replace("ClearChance", "ExperiencePerHour")];
-            const experience = document.createElement("span");
-            experience.className = `${prefix}-upgrade-experience`;
-            experience.textContent =
-              Number.isFinite(hourly) && hourly >= 0 ? ctx.formatPreviewExperiencePerHourK(hourly) : "—";
-            if (Number.isFinite(hourly) && hourly > target) experience.dataset.tone = "good";
-            row.append(experience);
-          }
+          appendDelta(row, data.clearChance, next);
+          appendUpgradeExperience(row, data[field.replace("ClearChance", "ExperiencePerHour")]);
         }
-        header.children[1].title = text(
-          "升级耗时、属性门槛或代币花费",
-          "Level-up time, stat requirement or token cost"
-        );
-        header.children[3].title = text("通关胜率变化（百分点）", "Clear chance change in percentage points");
-        if (showUpgradeExperience)
-          header.children[4].title = text("升级后每小时经验", "Experience per hour after upgrade");
-        section(text("升级收益", "Upgrade impact"), [header, ...upgrades], `${prefix}-upgrades`);
-        tooltip.querySelector(`.${prefix}-upgrades`).tabIndex = 0;
+        showUpgrades(upgrades);
       }
       section(
         text("奖励期望", "Expected rewards"),

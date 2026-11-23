@@ -148,17 +148,23 @@
       return Math.max(0, Math.floor(ctx.finiteNumber(levels?.[upgradeKey], 0)));
     };
 
-    // Local game client getUpgradeCost: skilling success/double progress use labyrinth tokens.
+    // Local game client getUpgradeCost: skilling and combat stat upgrades use labyrinth tokens.
     // Each next level costs 40 × its level; maxed upgrades have no next purchase.
-    ctx.getSkillingUpgradeTokenCost = function getSkillingUpgradeTokenCost(currentLevel) {
+    ctx.getLabyrinthStatUpgradeTokenCost = function getLabyrinthStatUpgradeTokenCost(currentLevel) {
       if (
         !Number.isSafeInteger(currentLevel) ||
         currentLevel < 0 ||
-        currentLevel >= ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+        currentLevel >= ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
       )
         return null;
       return 40 * (currentLevel + 1);
     };
+
+    ctx.getCombatUpgradeOptions = (labyrinthUpgradeLevels) =>
+      ctx.COMBAT_STAT_UPGRADES.map(({ key, buff }) => {
+        const level = ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, key);
+        return { key, buff, level, cost: ctx.getLabyrinthStatUpgradeTokenCost(level) };
+      });
 
     ctx.resolveLabyrinthUpgradeLevels = function resolveLabyrinthUpgradeLevels(options = null) {
       if (options?.labyrinthUpgradeLevels && typeof options.labyrinthUpgradeLevels === "object") {
@@ -696,21 +702,8 @@
 
     ctx.buildSimulatorLabyrinthUpgrades = function buildSimulatorLabyrinthUpgrades(levels) {
       return {
-        "/buff_uniques/labyrinth_upgrade_combat_damage": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_COMBAT_DAMAGE
-        ),
-        "/buff_uniques/labyrinth_upgrade_attack_speed": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_ATTACK_SPEED
-        ),
-        "/buff_uniques/labyrinth_upgrade_cast_speed": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED
-        ),
-        "/buff_uniques/labyrinth_upgrade_critical_rate": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE
+        ...Object.fromEntries(
+          ctx.COMBAT_STAT_UPGRADES.map(({ key, buff }) => [buff, ctx.getLabyrinthUpgradeLevel(levels, key)])
         ),
         "/buff_uniques/labyrinth_upgrade_experience": ctx.getLabyrinthUpgradeLevel(
           levels,

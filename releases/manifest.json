@@ -60,6 +60,12 @@
       "path": "releases/v0.12/迷宫助手-v0.12.15.user.js",
       "sizeBytes": 1735266,
       "sha256": "2e966d790bf32d3fded67effbb1c06d3c423e9b7a9b9c22ee469532044076cef"
+    },
+    {
+      "version": "0.12.16",
+      "path": "releases/v0.12/迷宫助手-v0.12.16.user.js",
+      "sizeBytes": 1741894,
+      "sha256": "30ae9474f56904da11fda2b0f433b40d592c0b28455d7034cccc8f56f7640512"
     }
   ]
 }

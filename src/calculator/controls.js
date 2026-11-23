@@ -284,7 +284,6 @@
       const distributionCheckbox = root.querySelector(
         `.${ctx.CONTROL_DISTRIBUTION_TOGGLE_CLASS} input[type="checkbox"]`
       );
-      const trialsInput = root.querySelector(`.${ctx.CONTROL_CLASS}__settings-input`);
       const bar = root.querySelector(`.${ctx.CONTROL_CLASS}__bar`);
       const text = root.querySelector(`.${ctx.CONTROL_CLASS}__text`);
       if (button && Object.prototype.hasOwnProperty.call(status, "running")) {
@@ -297,9 +296,6 @@
         if (distributionCheckbox) {
           distributionCheckbox.disabled = running;
         }
-        if (trialsInput) {
-          trialsInput.disabled = running;
-        }
       }
       if (bar && Object.prototype.hasOwnProperty.call(status, "ratio")) {
         const ratio = ctx.clamp01(ctx.finiteNumber(status.ratio, 0));
@@ -307,6 +303,7 @@
       }
       if (text && typeof status.message === "string") {
         text.textContent = status.message;
+        text.style.display = status.error ? "block" : "";
       }
     };
 

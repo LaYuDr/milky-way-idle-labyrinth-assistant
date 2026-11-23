@@ -305,7 +305,7 @@
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS
         );
         const nextSkillingSuccessClearStats =
-          skillingSuccessUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingSuccessUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeEnhancingClearStats({
                 attempts,
                 successChance: ctx.skillingSuccessChance(
@@ -321,7 +321,7 @@
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS
         );
         const nextSkillingDoubleProgressClearStats =
-          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeEnhancingClearStats({
                 attempts,
                 successChance,
@@ -417,7 +417,7 @@
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS
         );
         const nextSkillingSuccessClearStats =
-          skillingSuccessUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingSuccessUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeNonEnhancingClearStats({
                 attempts,
                 successChance: ctx.skillingSuccessChance(
@@ -433,7 +433,7 @@
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS
         );
         const nextSkillingDoubleProgressClearStats =
-          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeNonEnhancingClearStats({
                 attempts,
                 successChance,
@@ -493,10 +493,10 @@
       const experiencePerHour = summary().experiencePerHour;
       if (preview && typeof preview === "object") {
         preview.upgradePreviewVersion = 1;
-        preview.nextSkillingSuccessCost = ctx.getSkillingUpgradeTokenCost(
+        preview.nextSkillingSuccessCost = ctx.getLabyrinthStatUpgradeTokenCost(
           ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS)
         );
-        preview.nextSkillingDoubleProgressCost = ctx.getSkillingUpgradeTokenCost(
+        preview.nextSkillingDoubleProgressCost = ctx.getLabyrinthStatUpgradeTokenCost(
           ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS)
         );
         preview.experiencePerHour = experiencePerHour;

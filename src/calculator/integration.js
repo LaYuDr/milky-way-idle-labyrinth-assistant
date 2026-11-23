@@ -3,7 +3,6 @@
   root.MwiLabyrinthCalculatorModules.integration = function (ctx) {
     ctx.skillingSuccessChance = (value) => Math.max(0.05, Math.min(1, Number(value) || 0));
     ctx.inputRevision = 0;
-    ctx.inputInvalidated = false;
     ctx.UI_TEXT.zh.targetNotMet = "未找到达到目标的等级";
     ctx.UI_TEXT.en.targetNotMet = "No level meets the target";
     ctx.wilsonLower = (wins, trials) => {
@@ -58,46 +57,39 @@
     ctx.refreshControlPanelPlacement = () => {
       if (ctx.destroyed) return null;
       const identity = ctx.storageIdentity();
-      if (identity !== previousIdentity) {
+      const identityChanged = identity !== previousIdentity;
+      if (identityChanged) {
         previousIdentity = identity;
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;
         ctx.latestLabyrinthUpgradeLevels = null;
         ctx.initializeRoomLogState();
+        ctx.resetAutoRecalcState();
+        ctx.clearRoomDistributionSnapshot();
         document.getElementById("mwi-labyrinth-calc-dock")?.remove();
       }
       const signature = ctx.calculationSignature(ctx.getGameState());
-      // Every automation calculation uses its captured data until completion. Defer same-character
-      // invalidation; changing characters must still cancel and isolate the old calculation.
       const preserveAutomationRun = ctx.automationRunSnapshot?.identity === identity;
-      if (previousSignature !== null && signature !== previousSignature && !preserveAutomationRun) {
+      if (
+        identityChanged ||
+        (previousSignature !== null && signature !== previousSignature && !preserveAutomationRun)
+      ) {
         ctx.inputRevision++;
-        ctx.inputInvalidated = true;
-        ctx.resetCombatSimulatorWorker(new Error("角色或房间数据已变化，请重新计算"));
-        // Keep the last room simulation visible until a manual recalculation or floor change.
-        // Completed automation results are manual snapshots; character changes do not invalidate them.
-        ctx.clearRoomDistributionSnapshot();
-        ctx.roomDistributionRunToken++;
-        ctx.resetAutoRecalcState();
-        ctx.setControlStatus({ running: false, ratio: 0, message: "数据已更新，请重新计算" });
       }
-      if (!preserveAutomationRun) previousSignature = signature;
+      if (!preserveAutomationRun || identityChanged) previousSignature = signature;
+
+      // A floor run owns a copy of the character inputs. Only losing its scope cancels it.
+      const floorRun = ctx.activeFloorRun;
+      const leftFloor = floorRun && !floorRun.cancelled && floorRun.isStale();
+      if (leftFloor) floorRun.cancelled = true;
+      if (identityChanged || (leftFloor && !preserveAutomationRun)) {
+        ctx.resetCombatSimulatorWorker(new Error("角色或迷宫楼层已切换"));
+      }
       const panel = refresh();
       const dock = document.getElementById("mwi-labyrinth-calc-dock");
       if (dock) dock.hidden = !panel;
       return panel;
     };
-    const signature = ctx.getLabyrinthDisplaySignature;
-    ctx.getLabyrinthDisplaySignature = (state) => {
-      const value = signature(state);
-      return value ? `${value}:${ctx.inputRevision}` : "";
-    };
-    const manual = ctx.runManualUpdate;
-    ctx.runManualUpdate = async (options) => {
-      ctx.inputInvalidated = false;
-      return manual(options);
-    };
-
     ctx.restartAdviceEnabled = ctx.options.enableRestartAdvice === true;
     ctx.estimateRestart = (progress, estimate) => {
       if (!progress || !estimate) return null;

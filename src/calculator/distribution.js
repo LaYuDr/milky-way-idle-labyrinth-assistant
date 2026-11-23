@@ -438,18 +438,22 @@
       ];
     };
 
-    ctx.calculateCurrentFloorRoomDistribution = async function calculateCurrentFloorRoomDistribution(_options = {}) {
+    ctx.calculateCurrentFloorRoomDistribution = async function calculateCurrentFloorRoomDistribution(options = {}) {
       if (!ctx.roomDistributionEnabled || ctx.isRoomDistributionUnsupportedDevice() || ctx.roomDistributionRunning) {
         return false;
       }
-      const state = ctx.getGameState();
+      const state = options.snapshot?.state || ctx.getGameState();
       const context = ctx.getRoomDistributionContext(state);
       const initClientData = ctx.getInitClientData();
       if (!state || !context || !initClientData) {
         ctx.renderRoomDistributionPanel();
         return false;
       }
-      if (ctx.roomDistributionSnapshot?.labyrinthSignature === context.labyrinthSignature) {
+      const inputSignature = options.snapshot?.inputSignature ?? ctx.calculationSignature(state);
+      if (
+        ctx.roomDistributionSnapshot?.labyrinthSignature === context.labyrinthSignature &&
+        ctx.roomDistributionSnapshot.inputSignature === inputSignature
+      ) {
         ctx.renderRoomDistributionPanel();
         return true;
       }
@@ -461,7 +465,7 @@
       }
       const totalCount = entries.length * levels.length;
       const maxEnhancementByItem = ctx.buildMaxEnhancementByItem(state);
-      const labyrinthUpgradeLevels = ctx.getLabyrinthUpgradeLevels(true);
+      const labyrinthUpgradeLevels = options.snapshot?.labyrinthUpgradeLevels || ctx.getLabyrinthUpgradeLevels(true);
       const combatTrials = ctx.normalizeCombatSimTrials(ctx.AUTOMATION_RECOMMEND_COMBAT_TRIALS);
       const chances = [];
       let failedCount = 0;
@@ -477,6 +481,7 @@
 
       const isRunStale = () =>
         ctx.destroyed ||
+        options.snapshot?.isStale() ||
         runToken !== ctx.roomDistributionRunToken ||
         !ctx.roomDistributionEnabled ||
         ctx.isRoomDistributionUnsupportedDevice() ||
@@ -537,6 +542,7 @@
           return false;
         }
         ctx.roomDistributionSnapshot = {
+          inputSignature,
           labyrinthSignature: context.labyrinthSignature,
           floor: context.floor,
           minLevel: context.minLevel,

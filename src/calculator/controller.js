@@ -7,33 +7,6 @@
       return room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE || room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE;
     };
 
-    ctx.getTotalProgressUnits = function getTotalProgressUnits(rooms, combatTrials) {
-      const trials = ctx.normalizeCombatSimTrials(combatTrials);
-      let total = 0;
-      for (const room of rooms) {
-        if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
-          total += trials;
-        } else if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) {
-          total += 1;
-        }
-      }
-      return total;
-    };
-
-    ctx.getTotalProgressUnitsForIndexes = function getTotalProgressUnitsForIndexes(rooms, indexes, combatTrials) {
-      const trials = ctx.normalizeCombatSimTrials(combatTrials);
-      let total = 0;
-      for (const index of indexes) {
-        const room = rooms[index];
-        if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
-          total += trials;
-        } else if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) {
-          total += 1;
-        }
-      }
-      return total;
-    };
-
     ctx.parseRoomKeyToIndex = function parseRoomKeyToIndex(roomKey, colCount, totalCount) {
       if (!roomKey || !Number.isInteger(colCount) || colCount <= 0) {
         return -1;
@@ -152,7 +125,7 @@
       ctx.hidePreviewTooltip();
       ctx.lastLabyrinthCalcDoneMessage = ctx.t("calcDone");
 
-      const state = ctx.getGameState();
+      const state = options.snapshot?.state || ctx.getGameState();
       if (!state || !state.characterLabyrinth || !Array.isArray(state.characterLabyrinth.roomData)) {
         ctx.markLabyrinthTransition("");
         ctx.setControlStatus({
@@ -177,10 +150,13 @@
         });
         return false;
       }
-      const runSignature = ctx.getLabyrinthDisplaySignature(state);
+      const runSignature = options.snapshot?.floorSignature ?? ctx.getLabyrinthDisplaySignature(state);
       ctx.lastLabyrinthDisplaySignature = runSignature;
 
+      let runError = null;
       function isRunStale() {
+        if (runError) return true;
+        if (options.snapshot) return options.snapshot.isStale();
         const latestSignature = ctx.getLabyrinthDisplaySignature(ctx.getGameState());
         return ctx.destroyed || Boolean(runSignature && latestSignature !== runSignature);
       }
@@ -206,27 +182,21 @@
         });
         return true;
       }
-      const progressTracker = ctx.createProgressTracker(
-        hasTargetRoomFilter
-          ? ctx.getTotalProgressUnitsForIndexes(flatRooms, targetIndexes, combatTrials)
-          : ctx.getTotalProgressUnits(flatRooms, combatTrials)
-      );
       const initClientData = ctx.getInitClientData();
       const maxEnhancementByItem = ctx.buildMaxEnhancementByItem(state);
-      const labyrinthUpgradeLevels = ctx.getLabyrinthUpgradeLevels(true);
+      const labyrinthUpgradeLevels = options.snapshot?.labyrinthUpgradeLevels || ctx.getLabyrinthUpgradeLevels(true);
+      const combatUpgrades = ctx.getCombatUpgradeOptions(labyrinthUpgradeLevels);
+      const combatUnits = combatTrials * (1 + combatUpgrades.filter(({ cost }) => cost !== null).length);
+      let totalUnits = 0;
+      for (const i of targetIndexes) {
+        if (flatRooms[i]?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) totalUnits += combatUnits;
+        if (flatRooms[i]?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) totalUnits++;
+      }
+      const progressTracker = ctx.createProgressTracker(totalUnits);
       const targetCount = targetIndexes.length;
 
-      for (let targetPos = 0; targetPos < targetCount; targetPos += 1) {
-        if (ctx.destroyed) return false;
-        if (isRunStale()) {
-          ctx.markLabyrinthTransition(ctx.getLabyrinthDisplaySignature(ctx.getGameState()));
-          ctx.setControlStatus({
-            running: false,
-            ratio: 0,
-            message: ctx.t("pending")
-          });
-          return false;
-        }
+      async function calculateRoom(targetPos) {
+        if (isRunStale()) return;
 
         const i = targetIndexes[targetPos];
         const room = flatRooms[i];
@@ -234,9 +204,7 @@
         const roomX = colCount > 0 ? i % colCount : -1;
         const roomY = colCount > 0 ? Math.floor(i / colCount) : -1;
         const roomKey = roomX >= 0 && roomY >= 0 ? `${roomX},${roomY}` : "";
-        if (!cell) {
-          continue;
-        }
+        if (!cell) return;
 
         const roomProgressMessage = hasTargetRoomFilter
           ? ctx.t("roomFmt", { current: targetPos + 1, total: targetCount })
@@ -264,20 +232,17 @@
             progressTracker,
             combatTrials,
             roomKey,
-            { labyrinthUpgradeLevels }
+            {
+              labyrinthUpgradeLevels,
+              combatUpgrades,
+              parallel: true,
+              isRunStale,
+              seed: ctx.window.crypto.getRandomValues(new Uint32Array(1))[0]
+            }
           );
         }
 
-        if (ctx.destroyed) return false;
-        if (isRunStale()) {
-          ctx.markLabyrinthTransition(ctx.getLabyrinthDisplaySignature(ctx.getGameState()));
-          ctx.setControlStatus({
-            running: false,
-            ratio: 0,
-            message: ctx.t("pending")
-          });
-          return false;
-        }
+        if (isRunStale()) return false;
 
         if (!result) {
           ctx.removeBadge(cell);
@@ -321,6 +286,24 @@
         }
       }
 
+      // Keep the shared Worker pool fed without preparing every room at once.
+      // Drain all active lanes before finishing or reporting an error, so late
+      // results cannot leak into a subsequent run.
+      let nextTarget = 0;
+      const lanes = Math.min(targetCount, ctx.getCombatParallelism());
+      await Promise.all(
+        Array.from({ length: lanes }, async () => {
+          try {
+            while (nextTarget < targetCount && !isRunStale()) {
+              await calculateRoom(nextTarget++);
+            }
+          } catch (error) {
+            runError ||= error;
+          }
+        })
+      );
+      if (runError) throw runError;
+      if (isRunStale()) return false;
       const doneMessage = ctx.buildLabyrinthCalcDoneMessage(state, flatRooms, targetIndexes);
       ctx.lastLabyrinthCalcDoneMessage = doneMessage;
       progressTracker.finish(doneMessage);
@@ -348,10 +331,25 @@
         message: trigger === "auto-new-tiles" ? ctx.t("autoNewTiles") : ctx.t("preparing")
       });
 
+      let snapshot;
       try {
+        const live = ctx.getGameState();
+        if (live?.characterLabyrinth) {
+          snapshot = ctx.createCalculationRunSnapshot(live);
+          snapshot.floorSignature = ctx.getLabyrinthDisplaySignature(live);
+          if (ctx.roomDistributionEnabled && trigger !== "auto-new-tiles")
+            snapshot.inputSignature = ctx.calculationSignature(live);
+          snapshot.isStale = () =>
+            ctx.destroyed ||
+            snapshot.cancelled ||
+            ctx.storageIdentity() !== snapshot.identity ||
+            ctx.getLabyrinthDisplaySignature(ctx.getGameState()) !== snapshot.floorSignature;
+          runOptions.snapshot = snapshot;
+          ctx.activeFloorRun = snapshot;
+        }
         const ok = await ctx.updateRoomBadges(runOptions);
         if (ctx.destroyed) return;
-        if (ok) {
+        if (ok && !snapshot?.isStale()) {
           if (
             trigger !== "auto-new-tiles" &&
             ctx.roomDistributionEnabled &&
@@ -360,13 +358,13 @@
             try {
               await ctx.calculateCurrentFloorRoomDistribution(runOptions);
             } catch (distributionError) {
+              if (ctx.destroyed || snapshot?.isStale()) return;
               console.error("[Lab Clear Rate] room distribution calculation failed:", distributionError);
             }
           }
-          const latestState = ctx.getGameState();
-          if (latestState?.characterLabyrinth) {
-            ctx.updateAutoRecalcBaseline(latestState);
-          }
+          if (snapshot?.isStale()) return;
+          // A tile revealed mid-run was not part of this calculation and still needs its own pass.
+          if (snapshot) ctx.updateAutoRecalcBaseline(snapshot.state);
           ctx.setControlStatus({
             running: false,
             ratio: 1,
@@ -374,20 +372,25 @@
           });
         }
       } catch (error) {
-        if (ctx.destroyed) return;
+        if (ctx.destroyed || snapshot?.isStale()) return;
         console.error("[Lab Clear Rate] manual update failed:", error);
         if (trigger === "auto-new-tiles") {
-          const latestState = ctx.getGameState();
+          const latestState = snapshot?.state || ctx.getGameState();
           if (latestState?.characterLabyrinth) {
             ctx.updateAutoRecalcBaseline(latestState);
           }
         }
         ctx.setControlStatus({
           running: false,
-          message: ctx.t("calcFailed")
+          error: true,
+          message: [ctx.t("calcFailed"), error?.message || String(error)].join(" · ")
         });
       } finally {
+        ctx.releaseIdleCombatWorkers();
+        ctx.activeFloorRun = null;
         ctx.manualUpdateRunning = false;
+        if (!ctx.destroyed && snapshot?.isStale())
+          ctx.setControlStatus({ running: false, ratio: 0, message: ctx.t("pending") });
       }
     };
 

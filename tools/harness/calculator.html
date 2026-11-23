@@ -110,8 +110,9 @@
   </main>
   <script>
     localStorage.setItem("i18nextLng", "zh-CN");
-    localStorage.setItem("mwi-labyrinth:calculator:clear_rate_combat_trials:character:1001", "5");
-    localStorage.setItem("mwi-labyrinth:calculator:auto_combat_trials:character:1001", "5");
+    const fixtureTrials = location.hash === "#legacy-trials" ? "5000" : "5";
+    localStorage.setItem("mwi-labyrinth:calculator:clear_rate_combat_trials:character:1001", fixtureTrials);
+    localStorage.setItem("mwi-labyrinth:calculator:auto_combat_trials:character:1001", fixtureTrials);
     const roomData = Array.from({ length: 6 }, () => Array.from({ length: 6 }, () => ({})));
     roomData[0][0] = { roomType: "/labyrinth_room_types/start", isCleared: true, entryCount: 1 };
     roomData[0][1] = {

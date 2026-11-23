@@ -117,11 +117,26 @@ try {
         });
         window.gameClicks = 0;
         document.querySelector("#native-buy").addEventListener("click", () => window.gameClicks++);
+        const createView = window.MwiLabyrinthTokenView.create;
+        window.MwiLabyrinthTokenView.create = (...args) => {
+          const view = createView(...args);
+          return {
+            ...view,
+            update(data) {
+              window.tokenSaving = !data.loaded || data.saving;
+              view.update(data);
+              if (data.loaded && data.saving && !data.saveError && !document.querySelector(".mt-save").hidden)
+                throw new Error("保存过程中应隐藏保存进度文字");
+            }
+          };
+        };
         window.ctx.startTokens();
       });
       await page.getByRole("tab", { name: "迷宫助手", exact: true }).click();
       await page.getByRole("tab", { name: "代币规划", exact: true }).click();
-      await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+      await page.waitForFunction(
+        () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+      );
     }
     await boot();
     assert.equal(
@@ -213,7 +228,9 @@ try {
     await target(id("skill_action_speed")).selectOption("3");
     // Real pointer drag moves a group; keyboard alternative moves it back.
     const handle = page.getByRole("button", { name: "拖动入场冷却排序", exact: true });
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     await handle.scrollIntoViewIfNeeded();
     const a = await handle.boundingBox(),
       b = await row(id("skill_action_speed")).boundingBox();
@@ -235,7 +252,9 @@ try {
       await budget.press("Tab");
       assert.equal(await remaining.textContent(), expected);
     }
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     assert.equal((await stored()).plan.budget, null);
     await page.evaluate(() => {
       window.state.characterItemMap.get("tokens").count = 700;
@@ -250,7 +269,9 @@ try {
       window.ctx.refreshTokens();
     });
     assert.equal(await remaining.textContent(), "360");
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     assert.equal((await stored()).plan.budget, 1500);
     // Copy/export only use the active budget and plan.
     await page.evaluate(() =>
@@ -279,7 +300,9 @@ try {
     await page.getByRole("button", { name: "撤销清空", exact: true }).click();
     assert.equal(await page.locator(".mt-group").count(), 3);
     assert.equal(await income(), 120);
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     await page.evaluate(() => {
       document.activeElement?.blur();
       window.scrollTo(0, 0);
@@ -296,7 +319,9 @@ try {
     await page.evaluate(() =>
       window.emit({ ...window.state.characterLabyrinth, lootedItemsData: '{"/items/labyrinth_token":9999}' }, 999)
     );
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     await page.evaluate(() => window.stop());
     await boot();
     assert.equal(await page.locator(".mt-group").count(), 3);
@@ -338,7 +363,9 @@ try {
       window.failWrites = false;
     });
     await page.getByRole("button", { name: "重试保存", exact: true }).click();
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     assert.equal(await page.locator(".mt-error").isVisible(), false);
     await budget.fill("-1");
     await budget.press("Tab");
@@ -365,7 +392,9 @@ try {
     });
     await page.getByRole("tab", { name: "迷宫助手", exact: true }).click();
     await page.getByRole("tab", { name: "代币规划", exact: true }).click();
-    await page.waitForFunction(() => document.querySelector(".mt-save")?.hidden === true);
+    await page.waitForFunction(
+      () => window.tokenSaving === false && document.querySelector(".mt-save")?.hidden === true
+    );
     assert.equal(await page.locator(".mt-group").count(), 0);
     assert.equal(await page.getByRole("button", { name: "加入入场冷却", exact: true }).isDisabled(), true);
     await add("迷宫精炼碎片");

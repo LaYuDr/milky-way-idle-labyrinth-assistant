@@ -212,8 +212,105 @@ try {
       window.__originalProgressGetter = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data").get;
     }, gameData);
     const page = await context.newPage();
-    await page.goto("https://mwi-fixture.invalid/");
+    const trialRecovery = process.argv.includes("--combat-trials-only");
+    await page.goto(trialRecovery ? "https://mwi-fixture.invalid/#legacy-trials" : "https://mwi-fixture.invalid/");
     await page.locator("#mwi-labyrinth-calc-dock").waitFor({ state: "attached" });
+    if (process.argv.includes("--floor-snapshot-only")) {
+      const button = page.getByRole("button", { name: "计算迷宫", exact: true });
+      await page.waitForFunction(() => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3);
+      await page.evaluate(() => {
+        const rooms = window.fixtureState.characterLabyrinth.roomData;
+        rooms[1][0] = { ...rooms[0][3], recommendedLevel: 21 };
+        window.battleInputs = [];
+        const post = window.Worker.prototype.postMessage;
+        window.Worker.prototype.postMessage = function (message, ...args) {
+          if (message.type === "run") {
+            const p = message.params;
+            window.battleInputs.push([p.mazeDifficulty, p.playerDto.meleeLevel]);
+            if (window.battleInputs.length === 1) {
+              window.resumeFirstBattle = () => post.call(this, message, ...args);
+              return;
+            }
+          }
+          return post.call(this, message, ...args);
+        };
+      });
+      await button.click();
+      await page.waitForFunction(() => typeof window.resumeFirstBattle === "function");
+      await page.evaluate(() => {
+        const state = window.fixtureState;
+        state.characterSkillMap["/skills/melee"].level++;
+        state.characterLabyrinth.roomData[1][1] = { ...state.characterLabyrinth.roomData[0][3], recommendedLevel: 22 };
+      });
+      // Let the normal poll observe both changes while the first worker request is still pending.
+      await page.waitForTimeout(1400);
+      await page.evaluate(() => window.resumeFirstBattle());
+      await page.waitForFunction(() => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 5);
+      const inputs = await page.evaluate(() => window.battleInputs);
+      assert.deepEqual(
+        inputs,
+        [
+          [20, 100],
+          [21, 100],
+          [22, 101]
+        ].flatMap((row) => Array(5).fill(row))
+      );
+      await button.click();
+      await page.waitForFunction(
+        () =>
+          window.battleInputs.length >= 30 &&
+          !document.querySelector(".mwi-labyrinth-calc-clear-rate-control__button").disabled
+      );
+      assert.deepEqual(
+        await page.evaluate(() => window.battleInputs.slice(15)),
+        [20, 21, 22].flatMap((level) => Array(5).fill([level, 101]))
+      );
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`通过 ${width}px：属性升级后本轮继续，新房间补算及下次手动计算使用新属性。`);
+      continue;
+    }
+    if (trialRecovery) {
+      const button = page.getByRole("button", { name: "计算迷宫", exact: true });
+      const trials = page.getByRole("spinbutton", { name: "战斗场数", exact: true });
+      const storedTrials = () =>
+        page.evaluate(() => localStorage.getItem("mwi-labyrinth:calculator:clear_rate_combat_trials:character:1001"));
+      await page.waitForFunction(() => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3);
+      assert.equal(await trials.inputValue(), "3000");
+      assert.equal(await storedTrials(), "3000");
+      await trials.fill("3001");
+      await trials.blur();
+      assert.equal(await trials.inputValue(), "3000");
+      // Hold the first combat request until the input has been edited, then exercise the error path.
+      await page.evaluate(() => {
+        const proto = window.Worker.prototype;
+        const post = proto.postMessage;
+        proto.postMessage = function (message, ...args) {
+          if (message.type !== "run") return post.call(this, message, ...args);
+          proto.postMessage = post;
+          window.fixtureFailBattle = () =>
+            this.dispatchEvent(
+              new window.MessageEvent("message", { data: { type: "error", id: message.id, error: "模拟中断测试" } })
+            );
+        };
+      });
+      await button.click();
+      await page.waitForFunction(() => typeof window.fixtureFailBattle === "function");
+      await trials.fill("25");
+      await trials.blur();
+      await page.evaluate(() => window.fixtureFailBattle());
+      await page.getByText(/计算失败.*模拟中断测试/).waitFor({ state: "visible" });
+      assert.equal(await storedTrials(), "25");
+      await button.click();
+      await page.waitForFunction(() => {
+        const raw = localStorage.getItem("mwi-labyrinth:calculator:room-results:v1:character:1001");
+        return raw && JSON.parse(raw).rooms.some((entry) => entry.result?.debug?.includes("trials=25 |"));
+      });
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`通过 ${width}px：旧值恢复、超限输入、计算中改数和失败后重试，全程无弹窗。`);
+      continue;
+    }
     if (process.argv.includes("--combat-preview-only")) {
       await page.waitForFunction(
         () => document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge").length === 3,
@@ -224,6 +321,18 @@ try {
       const preview = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
       await preview.waitFor({ state: "visible" });
       assert.match(await preview.innerText(), /失败原因\s+(防御不足|伤害不足)/);
+      const upgradeRows = preview.locator(".mwi-labyrinth-calc-preview-upgrade");
+      assert.equal(await upgradeRows.count(), 4);
+      const baseChance = Number.parseFloat(
+        await preview.locator(".mwi-labyrinth-calc-preview-summary [class$='__value']").first().innerText()
+      );
+      for (const [index, name] of ["战斗伤害", "攻击速度", "施法速度", "暴击率"].entries()) {
+        const [label, cost, chance, delta] = await upgradeRows.nth(index).locator("span").allTextContents();
+        assert.equal(label, name);
+        assert.equal(cost, "40 代币");
+        assert.match(chance, /^\d+\.\d%$/);
+        assert.equal(Number(delta), Number((Number.parseFloat(chance) - baseChance).toFixed(1)));
+      }
       await preview.screenshot({ path: path.join(directory, `failure-reason-${width}.png`) });
       const failurePreviews = await page.evaluate(() => {
         const ctx = window.MwiLabyrinthCalculator.create({ start: false }).context;

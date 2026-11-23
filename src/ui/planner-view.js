@@ -26,7 +26,6 @@
 .mwi-lab-route[data-treasure="true"] b { color:#efc778; }
 .mwi-lab-route[data-force="true"] { border-color:#ffad66; border-bottom-style:double; border-bottom-width:4px; }
 .mwi-lab-route[data-force="true"] b { color:#ffad66; }
-#mwi-labyrinth-planner .mwi-lab-force-hint { color:#ffbd85; }
 #mwi-labyrinth-planner .mwi-lab-beacon-advice { color:#efc778; }
 `;
   function create(document) {
@@ -82,10 +81,7 @@
     const routeCard = document.createElement("div");
     routeCard.className = "mwi-lab-card mwi-lab-route-card";
     routeCard.append(routeSegment, floorLabel);
-    const forceHint = document.createElement("p"),
-      note = document.createElement("p");
-    forceHint.className = "mwi-lab-force-hint";
-    forceHint.hidden = true;
+    const note = document.createElement("p");
     note.className = "mwi-lab-muted mwi-lab-route-notice";
     const content = document.createElement("div"),
       launcher = document.createElement("header");
@@ -95,7 +91,7 @@
       calculationSlot = document.createElement("div"),
       launcherTitle = document.createElement("strong");
     routeSection.className = "mwi-lab-route-section";
-    routeSection.append(routeCard, floorHelp, displayError, forceHint, note);
+    routeSection.append(routeCard, floorHelp, displayError, note);
     const zoomKey = "mwi-labyrinth:map-zoom:v1";
     let zoomPercent = 100,
       zoomGrid = null,
@@ -369,7 +365,6 @@
       draw();
       position();
     });
-    const coordinate = (id, size) => `${Math.floor(id / size) + 1}行${(id % size) + 1}列`;
     function clearBeacons() {
       beaconView.hide();
     }
@@ -405,9 +400,6 @@
         updateReveal(map);
         const m = result.main,
           forced = result.breakthrough;
-        forceHint.hidden = !forced;
-        if (forced)
-          forceHint.textContent = `${m ? "" : "参考路线 · "}道具至少 ${forced.forceCount} 次。道具位置：${forced.forcedRooms.map((id) => `${coordinate(id, map.size)}${map.cells[id].forceChance < 1 ? `（成功率 ${Math.round(map.cells[id].forceChance * 100)}%）` : ""}`).join(" → ")}。剩余 ${forced.availableShrouds ?? "未识别"} 次。`;
         const notices = [];
         if (!m && !forced) notices.push("暂无可行路线");
         if (forced?.forceSuccess < 1) notices.push("道具可能失败，失败后重新规划");
@@ -436,7 +428,6 @@
         note.textContent = `${message}。地图恢复后自动重试`;
         note.hidden = false;
         routeSection.removeAttribute("title");
-        forceHint.hidden = true;
         lastMap = lastResult = null;
         floorOverride = null;
         updateDisplayControls();

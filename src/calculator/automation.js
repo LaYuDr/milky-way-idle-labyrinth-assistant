@@ -1720,7 +1720,7 @@
         return;
       }
 
-      ctx.automationRunSnapshot = ctx.createAutomationRunSnapshot(state);
+      ctx.automationRunSnapshot = ctx.createCalculationRunSnapshot(state);
       state = ctx.automationRunSnapshot.state;
       ctx.automationStopRequested = false;
       const calculationRevision = ctx.inputRevision;
@@ -1902,7 +1902,7 @@
         return;
       }
 
-      ctx.automationRunSnapshot = ctx.createAutomationRunSnapshot(state);
+      ctx.automationRunSnapshot = ctx.createCalculationRunSnapshot(state);
       state = ctx.automationRunSnapshot.state;
       ctx.automationStopRequested = false;
       const calculationRevision = ctx.inputRevision;

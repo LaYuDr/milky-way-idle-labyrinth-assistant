@@ -110,8 +110,28 @@ try {
       },
       { language }
     );
+    await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      document.querySelector("#cell").addEventListener("mouseenter", () => {
+        window.previewEnteredAt = window.performance.now();
+      });
+      const position = ctx.positionPreviewTooltip;
+      ctx.positionPreviewTooltip = (...args) => {
+        window.previewShownAfter ??= window.performance.now() - window.previewEnteredAt;
+        return position(...args);
+      };
+    });
     await page.locator("#cell").hover();
     const tip = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
+    await tip.waitFor({ state: "visible" });
+    assert.ok(await page.evaluate(() => window.previewShownAfter >= 490), "悬停约 500ms 后才显示");
+    const leavesImmediately = await page.evaluate(() => {
+      document.querySelector("#cell").dispatchEvent(new window.MouseEvent("mouseleave"));
+      return window.testApi.context.getPreviewTooltip().style.display === "none";
+    });
+    assert.equal(leavesImmediately, true);
+    await page.mouse.move(1, 1);
+    await page.locator("#cell").hover();
     await tip.waitFor({ state: "visible" });
     if (width === 1440) {
       const stacking = await tip.evaluate((el) => {
@@ -202,10 +222,11 @@ try {
     const scrollable = (await tip.getAttribute("data-scrollable")) === "true";
     if (height === 320) assert.equal(scrollable, true);
     if (scrollable) {
-      await tip.hover();
-      await page.waitForTimeout(220);
-      assert.equal(await tip.isVisible(), true);
-      await page.mouse.wheel(0, 1200);
+      // Leaving the room now closes the preview immediately. Check overflow
+      // and keyboard scrolling without moving the pointer off the room.
+      await tip.evaluate((el) => {
+        el.scrollTop = 1200;
+      });
       await page.waitForFunction(() => document.querySelector("#mwi-labyrinth-calc-clear-rate-preview").scrollTop > 0);
       await tip.focus();
       await page.keyboard.press("End");
@@ -565,11 +586,17 @@ try {
       }))
     );
     assert.equal(firstGroups[1].warning, language === "zh" ? "失败原因防御不足" : "Failure ReasonInsufficient Defense");
-    assert.deepEqual(
-      [firstGroups[0], ...firstGroups.slice(2)].map(({ group }) => group),
-      sharedStructure.topGroups,
-      "战斗与生活使用相同的耗时、目标经验和每场经验布局"
-    );
+    const metrics = await tip.locator(".mwi-labyrinth-calc-preview-combat-metrics").evaluate((group) => {
+      const [time, target, failure, experience] = [...group.children].map((row) => row.getBoundingClientRect());
+      return {
+        failureBelowTime: failure.left === time.left && failure.top >= time.bottom,
+        experienceBelowTarget: experience.left === target.left && experience.top >= target.bottom,
+        smaller:
+          Number.parseFloat(window.getComputedStyle(group.querySelector('[data-tone="warn"]')).fontSize) <
+          Number.parseFloat(window.getComputedStyle(group.firstElementChild).fontSize)
+      };
+    });
+    assert.deepEqual(metrics, { failureBelowTime: true, experienceBelowTarget: true, smaller: true });
     assert.deepEqual(
       combat.actual.toSorted((a, b) => a[0].localeCompare(b[0])),
       combat.baseline.toSorted((a, b) => a[0].localeCompare(b[0]))
@@ -617,6 +644,55 @@ try {
     assert.ok((await tip.boundingBox()).width <= width - 24);
     await page.screenshot({ path: path.join(directory, `combat-${language}-${width}-${height}.png`) });
     if (width === 1440) assert.ok((await tip.boundingBox()).height < 520, "完整战斗数据保持紧凑高度");
+    const upgradeRows = await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      const upgradeImpact = Object.fromEntries(
+        ctx.COMBAT_STAT_UPGRADES.map(({ key }, i) => [
+          key,
+          {
+            level: [2, 1, 1, 12][i],
+            cost: [120, 80, 80, null][i],
+            clearChance: [0.52, 0.488, 0.5, null][i],
+            experiencePerHour: [120000, 110000, 0, null][i]
+          }
+        ])
+      );
+      window.combatUpgradeData = { ...window.combatPreviewData, clearChance: 0.5, upgradeImpact };
+      const tooltip = ctx.renderCombatPreviewTooltip(window.combatUpgradeData);
+      ctx.positionPreviewTooltip(tooltip, 80, 100);
+      const table = tooltip.querySelector(".mwi-labyrinth-calc-preview-upgrades");
+      return [...table.querySelectorAll(".mwi-labyrinth-calc-preview-upgrade")].map((row) =>
+        [...row.children].map((cell) => cell.textContent)
+      );
+    });
+    const names =
+      language === "zh"
+        ? ["战斗伤害", "攻击速度", "施法速度", "暴击率"]
+        : ["Combat damage", "Attack speed", "Cast speed", "Critical rate"];
+    const tokens = language === "zh" ? "代币" : "tokens";
+    assert.deepEqual(upgradeRows, [
+      [names[0], "120 " + tokens, "52.0%", "+2.0", "120.0 K/h"],
+      [names[1], "80 " + tokens, "48.8%", "-1.2", "110.0 K/h"],
+      [names[2], "80 " + tokens, "50.0%", "0.0", "0.0 K/h"],
+      [names[3], language === "zh" ? "已满级" : "Max level", "—", "—", "—"]
+    ]);
+    await tip.screenshot({ path: path.join(directory, `combat-upgrades-${language}-${width}-${height}.png`) });
+    assert.equal(await tip.locator('.mwi-labyrinth-calc-preview-upgrade-experience[data-tone="good"]').count(), 1);
+    const columns = await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      const getTargets = ctx.getExperienceTargets;
+      try {
+        return [{}, { siren: 79999 }, { siren: 80000 }].map((targets) => {
+          ctx.getExperienceTargets = () => targets;
+          return ctx
+            .renderCombatPreviewTooltip(window.combatUpgradeData)
+            .querySelectorAll(".mwi-labyrinth-calc-preview-upgrade-experience").length;
+        });
+      } finally {
+        ctx.getExperienceTargets = getTargets;
+      }
+    });
+    assert.deepEqual(columns, [0, 0, 4]);
     const combatWithoutGoal = await page.evaluate(() => {
       const ctx = window.testApi.context;
       const getTargets = ctx.getExperienceTargets;
@@ -626,8 +702,10 @@ try {
         const group = tooltip.querySelector(".mwi-labyrinth-calc-preview-goals");
         const [time, experience] = [...group.children].map((row) => row.getBoundingClientRect());
         return {
-          rows: window.previewRows(group),
-          separateYield: Boolean(tooltip.querySelector(".mwi-labyrinth-calc-preview-life-yield")),
+          rows: window.previewRows(group).slice(0, 2),
+          separateYield: Boolean(
+            tooltip.querySelector(".mwi-labyrinth-calc-preview-life-yield > :not(.mwi-labyrinth-calc-preview-failure)")
+          ),
           aligned: Boolean(experience && experience.top === time.top && experience.left >= time.right)
         };
       } finally {

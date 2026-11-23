@@ -133,7 +133,14 @@
     ctx.hasSavedRoomResult = (state, roomKey) => {
       if (ctx.roomResultScope(state) !== scope || !records.has(roomKey)) return false;
       const record = records.get(roomKey);
-      if (record.combatPreview && record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE)
+      if (
+        record.combatPreview &&
+        (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE ||
+          !record.combatPreview.upgradeImpact ||
+          Object.values(record.combatPreview.upgradeImpact).some(
+            (impact) => impact?.cost !== null && !Number.isFinite(impact?.experiencePerHour)
+          ))
+      )
         return false;
       const preview = record.skillingPreview;
       // Keep older badges visible while the normal incremental calculation fills new preview fields.

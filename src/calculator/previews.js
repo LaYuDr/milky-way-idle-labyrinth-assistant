@@ -3,7 +3,9 @@
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["previews"] = function (ctx) {
-    let hideTimer = null;
+    let showTimer = null;
+    let pendingCell = null;
+    let pendingPointer = null;
     let hoveredCell = null;
     let renderedPreview = null;
     let moveFrame = null;
@@ -13,6 +15,11 @@
       moveFrame = null;
     }
     function queueMove(cell, event) {
+      if (pendingCell === cell) {
+        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
+        return;
+      }
+      if (hoveredCell !== cell) return;
       pointer = { clientX: event.clientX, clientY: event.clientY };
       if (moveFrame !== null) return;
       moveFrame = ctx.window.requestAnimationFrame(() => {
@@ -37,17 +44,11 @@
       if (typeof hrid !== "string" || !hrid.startsWith("/monsters/")) return null;
       return weaknesses[hrid.slice("/monsters/".length)]?.[ctx.isChineseUi() ? 0 : 1] || null;
     };
-    function cancelHide() {
-      if (hideTimer !== null) ctx.window.clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-    function scheduleHide() {
-      cancelMove();
-      cancelHide();
-      hideTimer = ctx.window.setTimeout(() => {
-        const tooltip = ctx.getPreviewTooltip();
-        if (!tooltip?.contains(document.activeElement)) ctx.hidePreviewTooltip();
-      }, 160);
+    function cancelShow() {
+      if (showTimer !== null) ctx.window.clearTimeout(showTimer);
+      showTimer = null;
+      pendingCell = null;
+      pendingPointer = null;
     }
     ctx.getPreviewTooltip = function getPreviewTooltip() {
       return document.getElementById(ctx.PREVIEW_TOOLTIP_ID);
@@ -61,16 +62,14 @@
       tooltip = document.createElement("div");
       tooltip.id = ctx.PREVIEW_TOOLTIP_ID;
       tooltip.className = ctx.PREVIEW_TOOLTIP_CLASS;
-      ctx.listen(tooltip, "mouseenter", cancelHide);
-      ctx.listen(tooltip, "mouseleave", scheduleHide);
-      ctx.listen(tooltip, "focusin", cancelHide);
-      ctx.listen(tooltip, "focusout", scheduleHide);
+      ctx.listen(tooltip, "mouseleave", () => ctx.hidePreviewTooltip());
+      ctx.listen(tooltip, "focusout", () => ctx.hidePreviewTooltip());
       document.body.appendChild(tooltip);
       return tooltip;
     };
 
     ctx.hidePreviewTooltip = function hidePreviewTooltip() {
-      cancelHide();
+      cancelShow();
       hoveredCell = null;
       renderedPreview = null;
       pointer = null;
@@ -678,6 +677,7 @@
         type: "combat",
         monsterHrid: room.monsterHrid,
         combatExperience: result?.combatExperience,
+        upgradeImpact: result?.upgradeImpact,
         experiencePerHour: result?.experiencePerHour,
         experiencePerRoom: result?.experiencePerRoom,
         clearChance: result?.clearChance,
@@ -815,7 +815,7 @@
     };
 
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
-      cancelHide();
+      cancelShow();
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
@@ -838,14 +838,20 @@
       }
       cell[ctx.PREVIEW_CELL_BOUND_FLAG] = true;
       ctx.listen(cell, "mouseenter", (event) => {
-        cancelMove();
-        renderedPreview = null;
-        ctx.showSkillingPreviewTooltip(cell, event);
+        ctx.hidePreviewTooltip();
+        pendingCell = cell;
+        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
+        showTimer = ctx.window.setTimeout(() => {
+          const position = pendingPointer;
+          const stillHovered = pendingCell === cell;
+          cancelShow();
+          if (!ctx.destroyed && stillHovered && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, position);
+        }, 500);
       });
       ctx.listen(cell, "mousemove", (event) => {
         queueMove(cell, event);
       });
-      ctx.listen(cell, "mouseleave", scheduleHide);
+      ctx.listen(cell, "mouseleave", () => ctx.hidePreviewTooltip());
       ctx.listen(cell, "contextmenu", (event) => {
         const preview = ctx.getCellPreview(cell);
         const room = preview?.type === "combat" ? null : ctx.getRoomFromCell(ctx.getGameState(), cell);

@@ -333,7 +333,7 @@
         data.balance,
         []
       );
-      $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : data.saving ? "正在保存" : "";
+      $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : "";
       $(".mt-save").hidden = !$(".mt-save").textContent;
       $("[data-action=retry]").hidden = !data.saveError;
       $("[data-action=retry]").textContent = data.loaded ? "重试保存" : "重试读取";

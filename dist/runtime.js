@@ -4804,7 +4804,7 @@ DEALINGS IN THE SOFTWARE.
         data.balance,
         []
       );
-      $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : data.saving ? "正在保存" : "";
+      $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : "";
       $(".mt-save").hidden = !$(".mt-save").textContent;
       $("[data-action=retry]").hidden = !data.saveError;
       $("[data-action=retry]").textContent = data.loaded ? "重试保存" : "重试读取";
@@ -5914,7 +5914,6 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-planner .mwi-lab-floor-setting input{appearance:textfield;width:40px;height:24px;text-align:center;font-size:13px;font-weight:700;background:#24283f;border:1px solid #383d5d;border-radius:4px;padding:0;}
 #mwi-labyrinth-planner input::-webkit-inner-spin-button{appearance:none;}
 #mwi-labyrinth-planner .mwi-lab-display-error{color:var(--ml-danger);font-size:11px;margin:0;}
-#mwi-labyrinth-planner .mwi-lab-force-hint{color:var(--ml-warn);font-size:11px;margin:0;}
 #mwi-labyrinth-planner .mwi-lab-muted{color:var(--ml-muted);font-size:11px;margin:0;}
 #mwi-labyrinth-planner .mwi-lab-route-section p:empty{display:none;}
 #mwi-labyrinth-planner .mwi-lab-map-zoom{display:flex;align-items:center;background:#171928;border:1px solid #343852;border-radius:20px;padding:1px 3px;height:23px;gap:0;margin:0;}
@@ -6055,6 +6054,9 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-summary .mwi-labyrinth-calc-clear-rate-preview__row{display:flex;flex-direction:column;align-items:flex-start;gap:0;}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-summary .mwi-labyrinth-calc-clear-rate-preview__value{max-width:100%;font-size:17px;font-weight:650;color:var(--ml-text);}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-life-yield>div{grid-column:2;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-combat-metrics>.mwi-labyrinth-calc-preview-failure{grid-column:1;grid-row:2;font-size:11px;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-combat-metrics>.mwi-labyrinth-calc-preview-room-experience{grid-column:2;grid-row:2;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-footer{font-size:11px;}
 #mwi-labyrinth-calc-clear-rate-preview :is(.mwi-labyrinth-calc-preview-pairs,.mwi-labyrinth-calc-preview-goals){display:grid;grid-template-columns:1fr 1fr;column-gap:12px;}
 #mwi-labyrinth-calc-clear-rate-preview :is(.mwi-labyrinth-calc-preview-upgrade,.mwi-labyrinth-calc-preview-upgrade-head){display:grid;grid-column:1/-1;grid-template-columns:subgrid;column-gap:8px;align-items:baseline;}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-upgrade .mwi-labyrinth-calc-clear-rate-preview__value{max-width:none;}
@@ -6622,7 +6624,6 @@ DEALINGS IN THE SOFTWARE.
 .mwi-lab-route[data-treasure="true"] b { color:#efc778; }
 .mwi-lab-route[data-force="true"] { border-color:#ffad66; border-bottom-style:double; border-bottom-width:4px; }
 .mwi-lab-route[data-force="true"] b { color:#ffad66; }
-#mwi-labyrinth-planner .mwi-lab-force-hint { color:#ffbd85; }
 #mwi-labyrinth-planner .mwi-lab-beacon-advice { color:#efc778; }
 `;
   function create(document) {
@@ -6678,10 +6679,7 @@ DEALINGS IN THE SOFTWARE.
     const routeCard = document.createElement("div");
     routeCard.className = "mwi-lab-card mwi-lab-route-card";
     routeCard.append(routeSegment, floorLabel);
-    const forceHint = document.createElement("p"),
-      note = document.createElement("p");
-    forceHint.className = "mwi-lab-force-hint";
-    forceHint.hidden = true;
+    const note = document.createElement("p");
     note.className = "mwi-lab-muted mwi-lab-route-notice";
     const content = document.createElement("div"),
       launcher = document.createElement("header");
@@ -6691,7 +6689,7 @@ DEALINGS IN THE SOFTWARE.
       calculationSlot = document.createElement("div"),
       launcherTitle = document.createElement("strong");
     routeSection.className = "mwi-lab-route-section";
-    routeSection.append(routeCard, floorHelp, displayError, forceHint, note);
+    routeSection.append(routeCard, floorHelp, displayError, note);
     const zoomKey = "mwi-labyrinth:map-zoom:v1";
     let zoomPercent = 100,
       zoomGrid = null,
@@ -6965,7 +6963,6 @@ DEALINGS IN THE SOFTWARE.
       draw();
       position();
     });
-    const coordinate = (id, size) => `${Math.floor(id / size) + 1}行${(id % size) + 1}列`;
     function clearBeacons() {
       beaconView.hide();
     }
@@ -7001,9 +6998,6 @@ DEALINGS IN THE SOFTWARE.
         updateReveal(map);
         const m = result.main,
           forced = result.breakthrough;
-        forceHint.hidden = !forced;
-        if (forced)
-          forceHint.textContent = `${m ? "" : "参考路线 · "}道具至少 ${forced.forceCount} 次。道具位置：${forced.forcedRooms.map((id) => `${coordinate(id, map.size)}${map.cells[id].forceChance < 1 ? `（成功率 ${Math.round(map.cells[id].forceChance * 100)}%）` : ""}`).join(" → ")}。剩余 ${forced.availableShrouds ?? "未识别"} 次。`;
         const notices = [];
         if (!m && !forced) notices.push("暂无可行路线");
         if (forced?.forceSuccess < 1) notices.push("道具可能失败，失败后重新规划");
@@ -7032,7 +7026,6 @@ DEALINGS IN THE SOFTWARE.
         note.textContent = `${message}。地图恢复后自动重试`;
         note.hidden = false;
         routeSection.removeAttribute("title");
-        forceHint.hidden = true;
         lastMap = lastResult = null;
         floorOverride = null;
         updateDisplayControls();
@@ -7839,57 +7832,35 @@ SOFTWARE.
       return n;
     };
 
-    ctx.loadCombatSimTrialsSetting = function loadCombatSimTrialsSetting() {
+    function saveTrialsSetting(key, value) {
+      const normalized = ctx.normalizeCombatSimTrials(value);
       try {
-        const raw = ctx.storage.getItem(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY);
-        if (raw === null || raw === undefined) {
-          return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-        }
-        const trimmed = String(raw).trim();
-        if (!trimmed) {
-          return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-        }
-        return ctx.normalizeCombatSimTrials(trimmed);
+        ctx.storage.setItem(key, String(normalized));
       } catch (_error) {
-        return ctx.DEFAULT_COMBAT_SIM_TRIALS;
-      }
-    };
-
-    ctx.saveCombatSimTrialsSetting = function saveCombatSimTrialsSetting(value) {
-      const normalized = ctx.normalizeCombatSimTrials(Number(value));
-      try {
-        ctx.storage.setItem(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, String(normalized));
-      } catch (_error) {
-        // Ignore storage errors and keep runtime value.
+        // The current calculation can still use the normalized value.
       }
       return normalized;
-    };
+    }
 
-    ctx.loadAutomationCombatSimTrialsSetting = function loadAutomationCombatSimTrialsSetting() {
+    function loadTrialsSetting(key, fallback) {
       try {
-        const raw = ctx.storage.getItem(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY);
-        if (raw === null || raw === undefined) {
-          return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
-        }
-        const trimmed = String(raw).trim();
-        if (!trimmed) {
-          return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
-        }
-        return ctx.normalizeCombatSimTrials(trimmed);
+        const raw = ctx.storage.getItem(key)?.trim();
+        if (!raw) return fallback;
+        // Earlier versions accepted up to 5000, beyond the embedded engine's limit.
+        if (Number(raw) > ctx.MAX_COMBAT_SIM_TRIALS) return saveTrialsSetting(key, ctx.MAX_COMBAT_SIM_TRIALS);
+        return ctx.normalizeCombatSimTrials(raw);
       } catch (_error) {
-        return ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS;
+        return fallback;
       }
-    };
+    }
 
-    ctx.saveAutomationCombatSimTrialsSetting = function saveAutomationCombatSimTrialsSetting(value) {
-      const normalized = ctx.normalizeCombatSimTrials(Number(value));
-      try {
-        ctx.storage.setItem(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, String(normalized));
-      } catch (_error) {
-        // Ignore storage errors and keep runtime value.
-      }
-      return normalized;
-    };
+    ctx.loadCombatSimTrialsSetting = () =>
+      loadTrialsSetting(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, ctx.DEFAULT_COMBAT_SIM_TRIALS);
+    ctx.saveCombatSimTrialsSetting = (value) => saveTrialsSetting(ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, value);
+    ctx.loadAutomationCombatSimTrialsSetting = () =>
+      loadTrialsSetting(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, ctx.DEFAULT_AUTOMATION_COMBAT_SIM_TRIALS);
+    ctx.saveAutomationCombatSimTrialsSetting = (value) =>
+      saveTrialsSetting(ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY, value);
 
     ctx.normalizeAutomationTargetWinRate = function normalizeAutomationTargetWinRate(value) {
       let n = Number(value);
@@ -7992,7 +7963,7 @@ SOFTWARE.
 
     ctx.MIN_COMBAT_SIM_TRIALS = 1;
 
-    ctx.MAX_COMBAT_SIM_TRIALS = 5000;
+    ctx.MAX_COMBAT_SIM_TRIALS = 3000;
 
     ctx.COMBAT_SIM_TRIALS_STORAGE_KEY = "mwi-labyrinth:calculator:clear_rate_combat_trials";
 
@@ -8284,7 +8255,7 @@ SOFTWARE.
 
     ctx.LABYRINTH_UPGRADE_LEVELS_STORAGE_KEY = "mwi-labyrinth:calculator:upgrades:v1";
 
-    ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL = 12;
+    ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL = 12;
 
     ctx.LABYRINTH_UPGRADE_STEP_RATIO = 0.01;
 
@@ -8307,6 +8278,33 @@ SOFTWARE.
     ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE = "/labyrinth_upgrades/critical_rate";
 
     ctx.LABYRINTH_UPGRADE_KEY_LABYRINTH_EXPERIENCE = "/labyrinth_upgrades/labyrinth_experience";
+
+    ctx.COMBAT_STAT_UPGRADES = [
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_COMBAT_DAMAGE,
+        buff: "/buff_uniques/labyrinth_upgrade_combat_damage",
+        zh: "战斗伤害",
+        en: "Combat damage"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_ATTACK_SPEED,
+        buff: "/buff_uniques/labyrinth_upgrade_attack_speed",
+        zh: "攻击速度",
+        en: "Attack speed"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED,
+        buff: "/buff_uniques/labyrinth_upgrade_cast_speed",
+        zh: "施法速度",
+        en: "Cast speed"
+      },
+      {
+        key: ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE,
+        buff: "/buff_uniques/labyrinth_upgrade_critical_rate",
+        zh: "暴击率",
+        en: "Critical rate"
+      }
+    ];
 
     ctx.LABYRINTH_UPGRADE_KEYS = [
       ctx.LABYRINTH_UPGRADE_KEY_SKILL_ACTION_SPEED,
@@ -8533,7 +8531,6 @@ SOFTWARE.
         exportableCombatRoomNotFound: "Could not identify an exportable combat room.",
         skippedCannotExport: "This room is skipped and cannot be exported.",
         simulatorExportNoLoadout: "Simulator export failed: missing usable loadout.",
-        combatFlowFailedFmt: "Labyrinth combat full-flow calculation failed: {message}",
         liveEnhFmt: " [Clear {chance}% | +{current}/+{target} | {left} left]",
         liveBasicFmt: " [Clear {chance}% | {left} left]",
         liveSuccessFmt: "Success {chance}%",
@@ -8672,7 +8669,6 @@ SOFTWARE.
         exportableCombatRoomNotFound: "未识别到可导出的战斗房间。",
         skippedCannotExport: "该房间当前设置会跳过，无法导出模拟器。",
         simulatorExportNoLoadout: "导出模拟器数据失败：缺少可用配装。",
-        combatFlowFailedFmt: "迷宫战斗全流程计算失败：{message}",
         liveEnhFmt: "胜率 {chance}% · +{current}/+{target} · 剩 {left} 次",
         liveBasicFmt: "胜率 {chance}% · 剩 {left} 次",
         liveSuccessFmt: "成功率 {chance}%",
@@ -8927,17 +8923,23 @@ SOFTWARE.
       return Math.max(0, Math.floor(ctx.finiteNumber(levels?.[upgradeKey], 0)));
     };
 
-    // Local game client getUpgradeCost: skilling success/double progress use labyrinth tokens.
+    // Local game client getUpgradeCost: skilling and combat stat upgrades use labyrinth tokens.
     // Each next level costs 40 × its level; maxed upgrades have no next purchase.
-    ctx.getSkillingUpgradeTokenCost = function getSkillingUpgradeTokenCost(currentLevel) {
+    ctx.getLabyrinthStatUpgradeTokenCost = function getLabyrinthStatUpgradeTokenCost(currentLevel) {
       if (
         !Number.isSafeInteger(currentLevel) ||
         currentLevel < 0 ||
-        currentLevel >= ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+        currentLevel >= ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
       )
         return null;
       return 40 * (currentLevel + 1);
     };
+
+    ctx.getCombatUpgradeOptions = (labyrinthUpgradeLevels) =>
+      ctx.COMBAT_STAT_UPGRADES.map(({ key, buff }) => {
+        const level = ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, key);
+        return { key, buff, level, cost: ctx.getLabyrinthStatUpgradeTokenCost(level) };
+      });
 
     ctx.resolveLabyrinthUpgradeLevels = function resolveLabyrinthUpgradeLevels(options = null) {
       if (options?.labyrinthUpgradeLevels && typeof options.labyrinthUpgradeLevels === "object") {
@@ -9475,21 +9477,8 @@ SOFTWARE.
 
     ctx.buildSimulatorLabyrinthUpgrades = function buildSimulatorLabyrinthUpgrades(levels) {
       return {
-        "/buff_uniques/labyrinth_upgrade_combat_damage": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_COMBAT_DAMAGE
-        ),
-        "/buff_uniques/labyrinth_upgrade_attack_speed": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_ATTACK_SPEED
-        ),
-        "/buff_uniques/labyrinth_upgrade_cast_speed": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED
-        ),
-        "/buff_uniques/labyrinth_upgrade_critical_rate": ctx.getLabyrinthUpgradeLevel(
-          levels,
-          ctx.LABYRINTH_UPGRADE_KEY_CRITICAL_RATE
+        ...Object.fromEntries(
+          ctx.COMBAT_STAT_UPGRADES.map(({ key, buff }) => [buff, ctx.getLabyrinthUpgradeLevel(levels, key)])
         ),
         "/buff_uniques/labyrinth_upgrade_experience": ctx.getLabyrinthUpgradeLevel(
           levels,
@@ -11714,7 +11703,7 @@ SOFTWARE.
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS
         );
         const nextSkillingSuccessClearStats =
-          skillingSuccessUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingSuccessUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeEnhancingClearStats({
                 attempts,
                 successChance: ctx.skillingSuccessChance(
@@ -11730,7 +11719,7 @@ SOFTWARE.
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS
         );
         const nextSkillingDoubleProgressClearStats =
-          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeEnhancingClearStats({
                 attempts,
                 successChance,
@@ -11826,7 +11815,7 @@ SOFTWARE.
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS
         );
         const nextSkillingSuccessClearStats =
-          skillingSuccessUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingSuccessUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeNonEnhancingClearStats({
                 attempts,
                 successChance: ctx.skillingSuccessChance(
@@ -11842,7 +11831,7 @@ SOFTWARE.
           ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS
         );
         const nextSkillingDoubleProgressClearStats =
-          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_SKILLING_UPGRADE_MAX_LEVEL
+          skillingDoubleProgressUpgradeLevel < ctx.LABYRINTH_STAT_UPGRADE_MAX_LEVEL
             ? ctx.computeNonEnhancingClearStats({
                 attempts,
                 successChance,
@@ -11902,10 +11891,10 @@ SOFTWARE.
       const experiencePerHour = summary().experiencePerHour;
       if (preview && typeof preview === "object") {
         preview.upgradePreviewVersion = 1;
-        preview.nextSkillingSuccessCost = ctx.getSkillingUpgradeTokenCost(
+        preview.nextSkillingSuccessCost = ctx.getLabyrinthStatUpgradeTokenCost(
           ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS)
         );
-        preview.nextSkillingDoubleProgressCost = ctx.getSkillingUpgradeTokenCost(
+        preview.nextSkillingDoubleProgressCost = ctx.getLabyrinthStatUpgradeTokenCost(
           ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS)
         );
         preview.experiencePerHour = experiencePerHour;
@@ -12668,7 +12657,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["previews"] = function (ctx) {
-    let hideTimer = null;
+    let showTimer = null;
+    let pendingCell = null;
+    let pendingPointer = null;
     let hoveredCell = null;
     let renderedPreview = null;
     let moveFrame = null;
@@ -12678,6 +12669,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       moveFrame = null;
     }
     function queueMove(cell, event) {
+      if (pendingCell === cell) {
+        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
+        return;
+      }
+      if (hoveredCell !== cell) return;
       pointer = { clientX: event.clientX, clientY: event.clientY };
       if (moveFrame !== null) return;
       moveFrame = ctx.window.requestAnimationFrame(() => {
@@ -12702,17 +12698,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (typeof hrid !== "string" || !hrid.startsWith("/monsters/")) return null;
       return weaknesses[hrid.slice("/monsters/".length)]?.[ctx.isChineseUi() ? 0 : 1] || null;
     };
-    function cancelHide() {
-      if (hideTimer !== null) ctx.window.clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-    function scheduleHide() {
-      cancelMove();
-      cancelHide();
-      hideTimer = ctx.window.setTimeout(() => {
-        const tooltip = ctx.getPreviewTooltip();
-        if (!tooltip?.contains(document.activeElement)) ctx.hidePreviewTooltip();
-      }, 160);
+    function cancelShow() {
+      if (showTimer !== null) ctx.window.clearTimeout(showTimer);
+      showTimer = null;
+      pendingCell = null;
+      pendingPointer = null;
     }
     ctx.getPreviewTooltip = function getPreviewTooltip() {
       return document.getElementById(ctx.PREVIEW_TOOLTIP_ID);
@@ -12726,16 +12716,14 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       tooltip = document.createElement("div");
       tooltip.id = ctx.PREVIEW_TOOLTIP_ID;
       tooltip.className = ctx.PREVIEW_TOOLTIP_CLASS;
-      ctx.listen(tooltip, "mouseenter", cancelHide);
-      ctx.listen(tooltip, "mouseleave", scheduleHide);
-      ctx.listen(tooltip, "focusin", cancelHide);
-      ctx.listen(tooltip, "focusout", scheduleHide);
+      ctx.listen(tooltip, "mouseleave", () => ctx.hidePreviewTooltip());
+      ctx.listen(tooltip, "focusout", () => ctx.hidePreviewTooltip());
       document.body.appendChild(tooltip);
       return tooltip;
     };
 
     ctx.hidePreviewTooltip = function hidePreviewTooltip() {
-      cancelHide();
+      cancelShow();
       hoveredCell = null;
       renderedPreview = null;
       pointer = null;
@@ -13343,6 +13331,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         type: "combat",
         monsterHrid: room.monsterHrid,
         combatExperience: result?.combatExperience,
+        upgradeImpact: result?.upgradeImpact,
         experiencePerHour: result?.experiencePerHour,
         experiencePerRoom: result?.experiencePerRoom,
         clearChance: result?.clearChance,
@@ -13480,7 +13469,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     };
 
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
-      cancelHide();
+      cancelShow();
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
@@ -13503,14 +13492,20 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       cell[ctx.PREVIEW_CELL_BOUND_FLAG] = true;
       ctx.listen(cell, "mouseenter", (event) => {
-        cancelMove();
-        renderedPreview = null;
-        ctx.showSkillingPreviewTooltip(cell, event);
+        ctx.hidePreviewTooltip();
+        pendingCell = cell;
+        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
+        showTimer = ctx.window.setTimeout(() => {
+          const position = pendingPointer;
+          const stillHovered = pendingCell === cell;
+          cancelShow();
+          if (!ctx.destroyed && stillHovered && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, position);
+        }, 500);
       });
       ctx.listen(cell, "mousemove", (event) => {
         queueMove(cell, event);
       });
-      ctx.listen(cell, "mouseleave", scheduleHide);
+      ctx.listen(cell, "mouseleave", () => ctx.hidePreviewTooltip());
       ctx.listen(cell, "contextmenu", (event) => {
         const preview = ctx.getCellPreview(cell);
         const room = preview?.type === "combat" ? null : ctx.getRoomFromCell(ctx.getGameState(), cell);
@@ -15280,7 +15275,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return;
       }
 
-      ctx.automationRunSnapshot = ctx.createAutomationRunSnapshot(state);
+      ctx.automationRunSnapshot = ctx.createCalculationRunSnapshot(state);
       state = ctx.automationRunSnapshot.state;
       ctx.automationStopRequested = false;
       const calculationRevision = ctx.inputRevision;
@@ -15462,7 +15457,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return;
       }
 
-      ctx.automationRunSnapshot = ctx.createAutomationRunSnapshot(state);
+      ctx.automationRunSnapshot = ctx.createCalculationRunSnapshot(state);
       state = ctx.automationRunSnapshot.state;
       ctx.automationStopRequested = false;
       const calculationRevision = ctx.inputRevision;
@@ -16495,18 +16490,22 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       ];
     };
 
-    ctx.calculateCurrentFloorRoomDistribution = async function calculateCurrentFloorRoomDistribution(_options = {}) {
+    ctx.calculateCurrentFloorRoomDistribution = async function calculateCurrentFloorRoomDistribution(options = {}) {
       if (!ctx.roomDistributionEnabled || ctx.isRoomDistributionUnsupportedDevice() || ctx.roomDistributionRunning) {
         return false;
       }
-      const state = ctx.getGameState();
+      const state = options.snapshot?.state || ctx.getGameState();
       const context = ctx.getRoomDistributionContext(state);
       const initClientData = ctx.getInitClientData();
       if (!state || !context || !initClientData) {
         ctx.renderRoomDistributionPanel();
         return false;
       }
-      if (ctx.roomDistributionSnapshot?.labyrinthSignature === context.labyrinthSignature) {
+      const inputSignature = options.snapshot?.inputSignature ?? ctx.calculationSignature(state);
+      if (
+        ctx.roomDistributionSnapshot?.labyrinthSignature === context.labyrinthSignature &&
+        ctx.roomDistributionSnapshot.inputSignature === inputSignature
+      ) {
         ctx.renderRoomDistributionPanel();
         return true;
       }
@@ -16518,7 +16517,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       const totalCount = entries.length * levels.length;
       const maxEnhancementByItem = ctx.buildMaxEnhancementByItem(state);
-      const labyrinthUpgradeLevels = ctx.getLabyrinthUpgradeLevels(true);
+      const labyrinthUpgradeLevels = options.snapshot?.labyrinthUpgradeLevels || ctx.getLabyrinthUpgradeLevels(true);
       const combatTrials = ctx.normalizeCombatSimTrials(ctx.AUTOMATION_RECOMMEND_COMBAT_TRIALS);
       const chances = [];
       let failedCount = 0;
@@ -16534,6 +16533,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
       const isRunStale = () =>
         ctx.destroyed ||
+        options.snapshot?.isStale() ||
         runToken !== ctx.roomDistributionRunToken ||
         !ctx.roomDistributionEnabled ||
         ctx.isRoomDistributionUnsupportedDevice() ||
@@ -16594,6 +16594,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           return false;
         }
         ctx.roomDistributionSnapshot = {
+          inputSignature,
           labyrinthSignature: context.labyrinthSignature,
           floor: context.floor,
           minLevel: context.minLevel,
@@ -16900,7 +16901,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const distributionCheckbox = root.querySelector(
         `.${ctx.CONTROL_DISTRIBUTION_TOGGLE_CLASS} input[type="checkbox"]`
       );
-      const trialsInput = root.querySelector(`.${ctx.CONTROL_CLASS}__settings-input`);
       const bar = root.querySelector(`.${ctx.CONTROL_CLASS}__bar`);
       const text = root.querySelector(`.${ctx.CONTROL_CLASS}__text`);
       if (button && Object.prototype.hasOwnProperty.call(status, "running")) {
@@ -16913,9 +16913,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         if (distributionCheckbox) {
           distributionCheckbox.disabled = running;
         }
-        if (trialsInput) {
-          trialsInput.disabled = running;
-        }
       }
       if (bar && Object.prototype.hasOwnProperty.call(status, "ratio")) {
         const ratio = ctx.clamp01(ctx.finiteNumber(status.ratio, 0));
@@ -16923,6 +16920,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       if (text && typeof status.message === "string") {
         text.textContent = status.message;
+        text.style.display = status.error ? "block" : "";
       }
     };
 
@@ -16979,28 +16977,60 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const cores = Number(ctx.window.navigator?.hardwareConcurrency);
       const memory = Number(ctx.window.navigator?.deviceMemory);
       const limit = Number.isFinite(cores) && cores >= 1 ? Math.max(1, Math.floor(cores) - 1) : 1;
-      return Math.min(
-        16,
-        limit,
-        memory > 0 && memory <= 2
-          ? 1
-          : memory > 0 && memory <= 4
-            ? 2
-            : memory > 0 && memory <= 8
-              ? 8
-              : memory > 8
-                ? 16
-                : 8
-      );
+      return Math.min(16, limit, memory > 0 && memory <= 2 ? 1 : memory > 0 && memory <= 4 ? 2 : 16);
     };
     let adaptiveLimit = null,
       monitor = null,
       healthyCompletions = 0,
       lastChange = 0,
-      backoffs = 0;
+      backoffs = 0,
+      healthyTicks = 0,
+      lastObservedDelay = null;
+    // Device preference: shared across characters, never uploaded or tied to identity.
+    const concurrencyKey = "mwi-labyrinth:combat-concurrency:v1";
+    let profile = "",
+      learnedLimit = null;
+    function restoreConcurrency() {
+      const navigator = ctx.window.navigator;
+      const value = (number) => (Number.isFinite(Number(number)) && Number(number) > 0 ? Number(number) : null);
+      const nextProfile = JSON.stringify([value(navigator?.hardwareConcurrency), value(navigator?.deviceMemory)]);
+      if (nextProfile === profile) return;
+      profile = nextProfile;
+      learnedLimit = null;
+      adaptiveLimit = null;
+      healthyCompletions = 0;
+      healthyTicks = 0;
+      lastObservedDelay = null;
+      try {
+        const stored = JSON.parse(ctx.window.localStorage?.getItem(concurrencyKey) || "null");
+        if (
+          stored?.schema === 1 &&
+          stored.profile === profile &&
+          Number.isInteger(stored.limit) &&
+          stored.limit >= 1 &&
+          stored.limit <= 16
+        )
+          learnedLimit = Math.min(stored.limit, ctx.getCombatParallelism());
+      } catch {
+        // Disabled/full storage or an invalid record must never block calculation.
+      }
+    }
+    function saveConcurrency(limit) {
+      restoreConcurrency();
+      limit = Math.max(1, Math.min(limit, ctx.getCombatParallelism()));
+      if (learnedLimit === limit) return;
+      learnedLimit = limit;
+      try {
+        ctx.window.localStorage?.setItem(concurrencyKey, JSON.stringify({ schema: 1, profile, limit }));
+      } catch {
+        // Keep the preference for this page even if persistence is unavailable.
+      }
+    }
     const now = () => ctx.window.performance?.now?.() ?? Date.now();
-    const currentLimit = () =>
-      Math.min(ctx.getCombatParallelism(), adaptiveLimit ?? Math.min(4, ctx.getCombatParallelism()));
+    const currentLimit = () => {
+      restoreConcurrency();
+      return Math.min(ctx.getCombatParallelism(), adaptiveLimit ?? learnedLimit ?? 4);
+    };
     ctx.getCombatConcurrencyState = () => ({
       limit: currentLimit(),
       ceiling: ctx.getCombatParallelism(),
@@ -17010,28 +17040,59 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     });
     ctx.observeCombatResponsiveness = (delay, hidden = false) => {
       if (hidden || !Number.isFinite(delay)) return;
+      restoreConcurrency();
+      lastObservedDelay = delay;
+      if (delay > 120) healthyTicks = 0;
       if (delay > 120 && currentLimit() > 1) {
         adaptiveLimit = Math.max(1, Math.floor(currentLimit() / 2));
         healthyCompletions = 0;
         lastChange = now();
         backoffs++;
+        saveConcurrency(adaptiveLimit);
       }
     };
+    function growConcurrency() {
+      // Grow proportionally instead of probing every intermediate worker count.
+      // The existing device ceiling and slower post-backoff cadence still apply.
+      adaptiveLimit = Math.min(ctx.getCombatParallelism(), Math.ceil(currentLimit() * 1.5));
+      healthyTicks = 0;
+      healthyCompletions = 0;
+      lastChange = now();
+    }
     function startMonitor() {
       if (monitor !== null) return;
       const expected = now() + 100;
       monitor = ctx.setTimeout(() => {
         monitor = null;
-        ctx.observeCombatResponsiveness(now() - expected, ctx.window.document?.hidden);
+        const delay = now() - expected;
+        const hidden = ctx.window.document?.hidden;
+        ctx.observeCombatResponsiveness(delay, hidden);
+        // Long simulations must not wait for a whole job to finish before
+        // using idle cores. Require consecutive responsive foreground ticks.
+        if (!hidden && delay <= 40 && queue.length) healthyTicks++;
+        else healthyTicks = 0;
+        if (healthyTicks >= (backoffs ? 10 : 3) && currentLimit() < ctx.getCombatParallelism()) {
+          growConcurrency();
+          pump();
+        }
         if (queue.length || slots.some((slot) => slot?.busy)) startMonitor();
       }, 100);
     }
     function completedJob() {
       healthyCompletions++;
+      // Save only a level that has completed a full wave while the page was
+      // responsive, never the next speculative level or a cancelled run's peak.
+      if (
+        !ctx.window.document?.hidden &&
+        lastObservedDelay !== null &&
+        lastObservedDelay <= 40 &&
+        healthyCompletions >= currentLimit() &&
+        slots.filter((slot) => slot?.busy).length >= currentLimit() &&
+        now() - lastChange >= 150
+      )
+        saveConcurrency(currentLimit());
       if (queue.length && healthyCompletions >= currentLimit() && now() - lastChange >= (backoffs ? 600 : 150)) {
-        adaptiveLimit = Math.min(ctx.getCombatParallelism(), currentLimit() + 1);
-        healthyCompletions = 0;
-        lastChange = now();
+        growConcurrency();
       }
     }
     let generation = 0;
@@ -17070,7 +17131,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (hash !== ctx.MWISIM_WASM_SHA256) throw new Error("内置战斗引擎校验失败");
       return { workerBuffer, wasmBuffer, data: await new Response(dataBuffer).json() };
     };
-    ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消")) {
+    ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消"), { failed = false } = {}) {
+      if (failed) saveConcurrency(Math.max(1, Math.floor(currentLimit() / 2)));
       generation++;
       if (monitor !== null) ctx.clearTimeout(monitor);
       monitor = null;
@@ -17078,6 +17140,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       healthyCompletions = 0;
       lastChange = now();
       backoffs = 0;
+      healthyTicks = 0;
+      lastObservedDelay = null;
       completed.clear();
       inFlight.clear();
       cachedBytes = 0;
@@ -17100,7 +17164,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const id = ++ctx.combatWorkerRequestId;
       return new Promise((resolve, reject) => {
         const timeout = ctx.setTimeout(
-          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试")),
+          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试"), { failed: true }),
           ctx.COMBAT_WORKER_TIMEOUT_MS
         );
         ctx.combatWorkerPendingRequests.set(id, {
@@ -17116,7 +17180,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         try {
           worker.postMessage({ type, id, ...data });
         } catch (error) {
-          ctx.resetCombatSimulatorWorker(error);
+          ctx.resetCombatSimulatorWorker(error, { failed: true });
         }
       });
     }
@@ -17167,7 +17231,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ctx.combatWorkerPendingRequests.delete(message.id);
         pending.resolve(message.result || message);
       } catch (error) {
-        ctx.resetCombatSimulatorWorker(error);
+        ctx.resetCombatSimulatorWorker(error, { failed: true });
       }
     }
     function slotAt(index) {
@@ -17194,7 +17258,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         }
         ctx.listen(worker, "message", (event) => receive(worker, event));
         ctx.listen(worker, "error", (event) => {
-          if (token === generation) ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"));
+          if (token === generation)
+            ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"), { failed: true });
         });
         await request(worker, "init", {
           wasm: assets.wasmBuffer.slice(0),
@@ -17207,7 +17272,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return worker;
       })().catch((error) => {
         if (token === generation) {
-          ctx.resetCombatSimulatorWorker(error);
+          ctx.resetCombatSimulatorWorker(error, { failed: true });
           ctx.combatWorkerScriptPromise = null;
         }
         throw error;
@@ -17216,9 +17281,14 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
     ctx.ensureCombatSimulatorWorker = () => ensureSlot(0);
     ctx.releaseIdleCombatWorkers = () => {
-      if (!queue.length && !slots.some((slot) => slot?.busy) && monitor !== null) {
-        ctx.clearTimeout(monitor);
+      if (!queue.length && !slots.some((slot) => slot?.busy)) {
+        if (monitor !== null) ctx.clearTimeout(monitor);
         monitor = null;
+        adaptiveLimit = null;
+        healthyCompletions = 0;
+        healthyTicks = 0;
+        lastObservedDelay = null;
+        lastChange = now();
       }
       for (let i = 1; i < slots.length; i++) {
         const slot = slots[i];
@@ -17825,6 +17895,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       return ctx.hashString(
         ctx.stableStringify({
+          identity: ctx.storageIdentity(),
           startedAt: String(labyrinth.startedAt || ""),
           currentFloor: Math.max(0, Math.floor(ctx.finiteNumber(labyrinth.currentFloor, 0)))
         })
@@ -19229,22 +19300,49 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         inputSnapshot.roomKey = String(roomKey || "");
       }
 
-      const workerResult = await ctx.simulateCombatRoomWithWorker(
-        {
-          playerDto: playerData.playerDto,
-          monsterHrid: room.monsterHrid,
-          mazeDifficulty: roomLevel,
-          roomDurationSeconds: ctx.ROOM_DURATION_SECONDS,
-          mazeCrateItemHrids: Array.isArray(combatCrate.combatCrateItemHrids)
-            ? combatCrate.combatCrateItemHrids.slice()
-            : [],
-          trials,
-          seed: options.seed,
-          reuseSimulation: options.reuseSimulation,
-          parallel: options.parallel
-        },
-        progressTracker
-      );
+      const params = {
+        playerDto: playerData.playerDto,
+        monsterHrid: room.monsterHrid,
+        mazeDifficulty: roomLevel,
+        roomDurationSeconds: ctx.ROOM_DURATION_SECONDS,
+        mazeCrateItemHrids: Array.isArray(combatCrate.combatCrateItemHrids)
+          ? combatCrate.combatCrateItemHrids.slice()
+          : [],
+        trials,
+        seed: options.seed,
+        reuseSimulation: options.reuseSimulation,
+        parallel: options.parallel
+      };
+      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      let upgradeImpact;
+      if (options.combatUpgrades) {
+        upgradeImpact = {};
+        const calculateUpgrade = async ({ key, buff, level, cost }) => {
+          if (options.isRunStale?.()) return null;
+          let clearChance = null;
+          let experiencePerHour = null;
+          if (cost !== null) {
+            const playerDto = {
+              ...params.playerDto,
+              labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
+            };
+            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, progressTracker);
+            clearChance = upgraded.successes / upgraded.trials;
+            experiencePerHour = root.MwiLabyrinthCombatExperience.summarize(
+              upgraded,
+              ctx.ROOM_ENTRY_SECONDS
+            ).experiencePerHour;
+          }
+          upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
+        };
+        if (options.parallel) {
+          const settled = await Promise.allSettled(options.combatUpgrades.map(calculateUpgrade));
+          const failure = settled.find((entry) => entry.status === "rejected");
+          if (failure) throw failure.reason;
+        } else {
+          for (const upgrade of options.combatUpgrades) await calculateUpgrade(upgrade);
+        }
+      }
 
       const combatExperience = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
       const executedTrials = Math.max(0, Math.floor(ctx.finiteNumber(workerResult?.trials, trials)));
@@ -19270,6 +19368,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
       return {
         clearChance,
+        upgradeImpact,
         expectedSecondsPerClear,
         combatExperience,
         experiencePerHour: combatExperience.experiencePerHour,
@@ -19359,38 +19458,23 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       const trials = ctx.normalizeCombatSimTrials(combatTrials);
 
-      let result = null;
-      try {
-        result = await ctx.computeCombatRoomClearChanceFullFlow(
-          state,
-          initClientData,
-          room,
-          maxEnhancementByItem,
-          progressTracker,
-          trials,
-          roomKey,
-          {
-            labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
-            seed: options.seed,
-            reuseSimulation: options.reuseSimulation,
-            parallel: options.parallel
-          }
-        );
-      } catch (error) {
-        const fatalError = error instanceof Error ? error : new Error(String(error));
-        console.error("[Lab Clear Rate] full combat simulation failed:", fatalError);
-        const alertMessage = ctx.t("combatFlowFailedFmt", { message: fatalError.message || String(fatalError) });
-        if (
-          !ctx.destroyed &&
-          !ctx.automationEstimateRunning &&
-          !ctx.inputInvalidated &&
-          typeof ctx.window !== "undefined" &&
-          typeof ctx.window.alert === "function"
-        ) {
-          ctx.window.alert(alertMessage);
+      const result = await ctx.computeCombatRoomClearChanceFullFlow(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        progressTracker,
+        trials,
+        roomKey,
+        {
+          labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+          combatUpgrades: options.combatUpgrades,
+          isRunStale: options.isRunStale,
+          seed: options.seed,
+          reuseSimulation: options.reuseSimulation,
+          parallel: options.parallel
         }
-        throw fatalError;
-      }
+      );
 
       if (!result) {
         return null;
@@ -19464,33 +19548,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   root.MwiLabyrinthCalculatorModules["controller"] = function (ctx) {
     ctx.isCalculableRoom = function isCalculableRoom(room) {
       return room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE || room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE;
-    };
-
-    ctx.getTotalProgressUnits = function getTotalProgressUnits(rooms, combatTrials) {
-      const trials = ctx.normalizeCombatSimTrials(combatTrials);
-      let total = 0;
-      for (const room of rooms) {
-        if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
-          total += trials;
-        } else if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) {
-          total += 1;
-        }
-      }
-      return total;
-    };
-
-    ctx.getTotalProgressUnitsForIndexes = function getTotalProgressUnitsForIndexes(rooms, indexes, combatTrials) {
-      const trials = ctx.normalizeCombatSimTrials(combatTrials);
-      let total = 0;
-      for (const index of indexes) {
-        const room = rooms[index];
-        if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
-          total += trials;
-        } else if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) {
-          total += 1;
-        }
-      }
-      return total;
     };
 
     ctx.parseRoomKeyToIndex = function parseRoomKeyToIndex(roomKey, colCount, totalCount) {
@@ -19611,7 +19668,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       ctx.hidePreviewTooltip();
       ctx.lastLabyrinthCalcDoneMessage = ctx.t("calcDone");
 
-      const state = ctx.getGameState();
+      const state = options.snapshot?.state || ctx.getGameState();
       if (!state || !state.characterLabyrinth || !Array.isArray(state.characterLabyrinth.roomData)) {
         ctx.markLabyrinthTransition("");
         ctx.setControlStatus({
@@ -19636,10 +19693,13 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         });
         return false;
       }
-      const runSignature = ctx.getLabyrinthDisplaySignature(state);
+      const runSignature = options.snapshot?.floorSignature ?? ctx.getLabyrinthDisplaySignature(state);
       ctx.lastLabyrinthDisplaySignature = runSignature;
 
+      let runError = null;
       function isRunStale() {
+        if (runError) return true;
+        if (options.snapshot) return options.snapshot.isStale();
         const latestSignature = ctx.getLabyrinthDisplaySignature(ctx.getGameState());
         return ctx.destroyed || Boolean(runSignature && latestSignature !== runSignature);
       }
@@ -19665,27 +19725,21 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         });
         return true;
       }
-      const progressTracker = ctx.createProgressTracker(
-        hasTargetRoomFilter
-          ? ctx.getTotalProgressUnitsForIndexes(flatRooms, targetIndexes, combatTrials)
-          : ctx.getTotalProgressUnits(flatRooms, combatTrials)
-      );
       const initClientData = ctx.getInitClientData();
       const maxEnhancementByItem = ctx.buildMaxEnhancementByItem(state);
-      const labyrinthUpgradeLevels = ctx.getLabyrinthUpgradeLevels(true);
+      const labyrinthUpgradeLevels = options.snapshot?.labyrinthUpgradeLevels || ctx.getLabyrinthUpgradeLevels(true);
+      const combatUpgrades = ctx.getCombatUpgradeOptions(labyrinthUpgradeLevels);
+      const combatUnits = combatTrials * (1 + combatUpgrades.filter(({ cost }) => cost !== null).length);
+      let totalUnits = 0;
+      for (const i of targetIndexes) {
+        if (flatRooms[i]?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) totalUnits += combatUnits;
+        if (flatRooms[i]?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) totalUnits++;
+      }
+      const progressTracker = ctx.createProgressTracker(totalUnits);
       const targetCount = targetIndexes.length;
 
-      for (let targetPos = 0; targetPos < targetCount; targetPos += 1) {
-        if (ctx.destroyed) return false;
-        if (isRunStale()) {
-          ctx.markLabyrinthTransition(ctx.getLabyrinthDisplaySignature(ctx.getGameState()));
-          ctx.setControlStatus({
-            running: false,
-            ratio: 0,
-            message: ctx.t("pending")
-          });
-          return false;
-        }
+      async function calculateRoom(targetPos) {
+        if (isRunStale()) return;
 
         const i = targetIndexes[targetPos];
         const room = flatRooms[i];
@@ -19693,9 +19747,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const roomX = colCount > 0 ? i % colCount : -1;
         const roomY = colCount > 0 ? Math.floor(i / colCount) : -1;
         const roomKey = roomX >= 0 && roomY >= 0 ? `${roomX},${roomY}` : "";
-        if (!cell) {
-          continue;
-        }
+        if (!cell) return;
 
         const roomProgressMessage = hasTargetRoomFilter
           ? ctx.t("roomFmt", { current: targetPos + 1, total: targetCount })
@@ -19723,20 +19775,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             progressTracker,
             combatTrials,
             roomKey,
-            { labyrinthUpgradeLevels }
+            {
+              labyrinthUpgradeLevels,
+              combatUpgrades,
+              parallel: true,
+              isRunStale,
+              seed: ctx.window.crypto.getRandomValues(new Uint32Array(1))[0]
+            }
           );
         }
 
-        if (ctx.destroyed) return false;
-        if (isRunStale()) {
-          ctx.markLabyrinthTransition(ctx.getLabyrinthDisplaySignature(ctx.getGameState()));
-          ctx.setControlStatus({
-            running: false,
-            ratio: 0,
-            message: ctx.t("pending")
-          });
-          return false;
-        }
+        if (isRunStale()) return false;
 
         if (!result) {
           ctx.removeBadge(cell);
@@ -19780,6 +19829,24 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         }
       }
 
+      // Keep the shared Worker pool fed without preparing every room at once.
+      // Drain all active lanes before finishing or reporting an error, so late
+      // results cannot leak into a subsequent run.
+      let nextTarget = 0;
+      const lanes = Math.min(targetCount, ctx.getCombatParallelism());
+      await Promise.all(
+        Array.from({ length: lanes }, async () => {
+          try {
+            while (nextTarget < targetCount && !isRunStale()) {
+              await calculateRoom(nextTarget++);
+            }
+          } catch (error) {
+            runError ||= error;
+          }
+        })
+      );
+      if (runError) throw runError;
+      if (isRunStale()) return false;
       const doneMessage = ctx.buildLabyrinthCalcDoneMessage(state, flatRooms, targetIndexes);
       ctx.lastLabyrinthCalcDoneMessage = doneMessage;
       progressTracker.finish(doneMessage);
@@ -19807,10 +19874,25 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         message: trigger === "auto-new-tiles" ? ctx.t("autoNewTiles") : ctx.t("preparing")
       });
 
+      let snapshot;
       try {
+        const live = ctx.getGameState();
+        if (live?.characterLabyrinth) {
+          snapshot = ctx.createCalculationRunSnapshot(live);
+          snapshot.floorSignature = ctx.getLabyrinthDisplaySignature(live);
+          if (ctx.roomDistributionEnabled && trigger !== "auto-new-tiles")
+            snapshot.inputSignature = ctx.calculationSignature(live);
+          snapshot.isStale = () =>
+            ctx.destroyed ||
+            snapshot.cancelled ||
+            ctx.storageIdentity() !== snapshot.identity ||
+            ctx.getLabyrinthDisplaySignature(ctx.getGameState()) !== snapshot.floorSignature;
+          runOptions.snapshot = snapshot;
+          ctx.activeFloorRun = snapshot;
+        }
         const ok = await ctx.updateRoomBadges(runOptions);
         if (ctx.destroyed) return;
-        if (ok) {
+        if (ok && !snapshot?.isStale()) {
           if (
             trigger !== "auto-new-tiles" &&
             ctx.roomDistributionEnabled &&
@@ -19819,13 +19901,13 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             try {
               await ctx.calculateCurrentFloorRoomDistribution(runOptions);
             } catch (distributionError) {
+              if (ctx.destroyed || snapshot?.isStale()) return;
               console.error("[Lab Clear Rate] room distribution calculation failed:", distributionError);
             }
           }
-          const latestState = ctx.getGameState();
-          if (latestState?.characterLabyrinth) {
-            ctx.updateAutoRecalcBaseline(latestState);
-          }
+          if (snapshot?.isStale()) return;
+          // A tile revealed mid-run was not part of this calculation and still needs its own pass.
+          if (snapshot) ctx.updateAutoRecalcBaseline(snapshot.state);
           ctx.setControlStatus({
             running: false,
             ratio: 1,
@@ -19833,20 +19915,25 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           });
         }
       } catch (error) {
-        if (ctx.destroyed) return;
+        if (ctx.destroyed || snapshot?.isStale()) return;
         console.error("[Lab Clear Rate] manual update failed:", error);
         if (trigger === "auto-new-tiles") {
-          const latestState = ctx.getGameState();
+          const latestState = snapshot?.state || ctx.getGameState();
           if (latestState?.characterLabyrinth) {
             ctx.updateAutoRecalcBaseline(latestState);
           }
         }
         ctx.setControlStatus({
           running: false,
-          message: ctx.t("calcFailed")
+          error: true,
+          message: [ctx.t("calcFailed"), error?.message || String(error)].join(" · ")
         });
       } finally {
+        ctx.releaseIdleCombatWorkers();
+        ctx.activeFloorRun = null;
         ctx.manualUpdateRunning = false;
+        if (!ctx.destroyed && snapshot?.isStale())
+          ctx.setControlStatus({ running: false, ratio: 0, message: ctx.t("pending") });
       }
     };
 
@@ -20159,7 +20246,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   root.MwiLabyrinthCalculatorModules.integration = function (ctx) {
     ctx.skillingSuccessChance = (value) => Math.max(0.05, Math.min(1, Number(value) || 0));
     ctx.inputRevision = 0;
-    ctx.inputInvalidated = false;
     ctx.UI_TEXT.zh.targetNotMet = "未找到达到目标的等级";
     ctx.UI_TEXT.en.targetNotMet = "No level meets the target";
     ctx.wilsonLower = (wins, trials) => {
@@ -20214,46 +20300,39 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.refreshControlPanelPlacement = () => {
       if (ctx.destroyed) return null;
       const identity = ctx.storageIdentity();
-      if (identity !== previousIdentity) {
+      const identityChanged = identity !== previousIdentity;
+      if (identityChanged) {
         previousIdentity = identity;
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;
         ctx.latestLabyrinthUpgradeLevels = null;
         ctx.initializeRoomLogState();
+        ctx.resetAutoRecalcState();
+        ctx.clearRoomDistributionSnapshot();
         document.getElementById("mwi-labyrinth-calc-dock")?.remove();
       }
       const signature = ctx.calculationSignature(ctx.getGameState());
-      // Every automation calculation uses its captured data until completion. Defer same-character
-      // invalidation; changing characters must still cancel and isolate the old calculation.
       const preserveAutomationRun = ctx.automationRunSnapshot?.identity === identity;
-      if (previousSignature !== null && signature !== previousSignature && !preserveAutomationRun) {
+      if (
+        identityChanged ||
+        (previousSignature !== null && signature !== previousSignature && !preserveAutomationRun)
+      ) {
         ctx.inputRevision++;
-        ctx.inputInvalidated = true;
-        ctx.resetCombatSimulatorWorker(new Error("角色或房间数据已变化，请重新计算"));
-        // Keep the last room simulation visible until a manual recalculation or floor change.
-        // Completed automation results are manual snapshots; character changes do not invalidate them.
-        ctx.clearRoomDistributionSnapshot();
-        ctx.roomDistributionRunToken++;
-        ctx.resetAutoRecalcState();
-        ctx.setControlStatus({ running: false, ratio: 0, message: "数据已更新，请重新计算" });
       }
-      if (!preserveAutomationRun) previousSignature = signature;
+      if (!preserveAutomationRun || identityChanged) previousSignature = signature;
+
+      // A floor run owns a copy of the character inputs. Only losing its scope cancels it.
+      const floorRun = ctx.activeFloorRun;
+      const leftFloor = floorRun && !floorRun.cancelled && floorRun.isStale();
+      if (leftFloor) floorRun.cancelled = true;
+      if (identityChanged || (leftFloor && !preserveAutomationRun)) {
+        ctx.resetCombatSimulatorWorker(new Error("角色或迷宫楼层已切换"));
+      }
       const panel = refresh();
       const dock = document.getElementById("mwi-labyrinth-calc-dock");
       if (dock) dock.hidden = !panel;
       return panel;
     };
-    const signature = ctx.getLabyrinthDisplaySignature;
-    ctx.getLabyrinthDisplaySignature = (state) => {
-      const value = signature(state);
-      return value ? `${value}:${ctx.inputRevision}` : "";
-    };
-    const manual = ctx.runManualUpdate;
-    ctx.runManualUpdate = async (options) => {
-      ctx.inputInvalidated = false;
-      return manual(options);
-    };
-
     ctx.restartAdviceEnabled = ctx.options.enableRestartAdvice === true;
     ctx.estimateRestart = (progress, estimate) => {
       if (!progress || !estimate) return null;
@@ -20544,7 +20623,14 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.hasSavedRoomResult = (state, roomKey) => {
       if (ctx.roomResultScope(state) !== scope || !records.has(roomKey)) return false;
       const record = records.get(roomKey);
-      if (record.combatPreview && record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE)
+      if (
+        record.combatPreview &&
+        (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE ||
+          !record.combatPreview.upgradeImpact ||
+          Object.values(record.combatPreview.upgradeImpact).some(
+            (impact) => impact?.cost !== null && !Number.isFinite(impact?.experiencePerHour)
+          ))
+      )
         return false;
       const preview = record.skillingPreview;
       // Keep older badges visible while the normal incremental calculation fills new preview fields.
@@ -20803,7 +20889,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return `${hours.toFixed(1)} ${text("小时", "h")}`;
     };
     // Copy only calculation data, not the React component state or methods.
-    ctx.createAutomationRunSnapshot = (state) => ({
+    ctx.createCalculationRunSnapshot = (state) => ({
       identity: ctx.storageIdentity(),
       labyrinthUpgradeLevels: structuredClone(ctx.resolveLabyrinthUpgradeLevels()),
       state: structuredClone(
@@ -21651,12 +21737,12 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ctx.appendPreviewRow(tooltip, text("通关胜率", "Clear chance"), ctx.formatPreviewPercent(data.clearChance));
         tooltip.children[1]?.before(tooltip.lastElementChild);
       }
-      if (Number.isFinite(data.expectedSecondsPerClear))
-        ctx.appendPreviewRow(
-          tooltip,
-          text("预计耗时", "Expected time"),
-          `${Math.round(data.expectedSecondsPerClear)}s`
-        );
+      const seconds = data.expectedSecondsPerClear;
+      ctx.appendPreviewRow(
+        tooltip,
+        text("预计耗时", "Expected time"),
+        seconds === Infinity ? "∞" : Number.isFinite(seconds) && seconds >= 0 ? `${Math.round(seconds)}s` : "—"
+      );
       return tooltip;
     };
     ctx.disposePresentation = () => {
@@ -21687,6 +21773,18 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       nextSkillingSuccessClearChance: "nextSkillingSuccessClearChance",
       nextSkillingDoubleProgressClearChance: "nextSkillingDoubleProgressClearChance"
     };
+    function appendDelta(row, current, next) {
+      const delta = document.createElement("span");
+      delta.className = `${prefix}-delta`;
+      delta.textContent = "—";
+      if (Number.isFinite(next) && Number.isFinite(current)) {
+        // Compare the same rounded probabilities displayed in the original rows.
+        const change = (Math.round(ctx.clamp01(next) * 1000) - Math.round(ctx.clamp01(current) * 1000)) / 10;
+        delta.textContent = `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
+        delta.dataset.direction = change > 0 ? "up" : change < 0 ? "down" : "same";
+      }
+      row.append(delta);
+    }
     function organize(tooltip, data, type = "skilling") {
       tooltip.dataset.layout = type;
       const rows = [...tooltip.querySelectorAll(`.${ctx.PREVIEW_TOOLTIP_CLASS}__row`)];
@@ -21698,6 +21796,18 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               .split("/")
               .pop();
       const target = ctx.getExperienceTargets()[targetKey];
+      const showUpgradeExperience =
+        Number.isFinite(target) && Number.isFinite(data?.experiencePerHour) && data.experiencePerHour <= target;
+      tooltip.dataset.upgradeExperience = String(showUpgradeExperience);
+      function appendUpgradeExperience(row, hourly) {
+        if (!showUpgradeExperience) return;
+        const experience = document.createElement("span");
+        experience.className = `${prefix}-upgrade-experience`;
+        experience.textContent =
+          Number.isFinite(hourly) && hourly >= 0 ? ctx.formatPreviewExperiencePerHourK(hourly) : "—";
+        if (Number.isFinite(hourly) && hourly > target) experience.dataset.tone = "good";
+        row.append(experience);
+      }
       const chanceTones = {
         "#1fbf60": "excellent",
         "#77b82a": "good",
@@ -21722,27 +21832,60 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         selected.forEach((row) => remaining.delete(row));
         return selected;
       }
+      function showUpgrades(upgrades) {
+        const header = document.createElement("div");
+        header.className = `${prefix}-upgrade-head`;
+        for (const title of [
+          text("项目", "Upgrade"),
+          type === "combat" ? text("花费", "Cost") : text("门槛/花费", "Cost"),
+          text("胜率", "Chance"),
+          text("百分点", "Δ pp"),
+          ...(showUpgradeExperience ? [text("经验/h", "EXP/h")] : [])
+        ]) {
+          const span = document.createElement("span");
+          span.textContent = title;
+          header.append(span);
+        }
+        header.children[1].title = text(
+          "升级耗时、属性门槛或代币花费",
+          "Level-up time, stat requirement or token cost"
+        );
+        header.children[3].title =
+          type === "combat"
+            ? text(
+                "与当前模拟胜率相差的百分点，结果有抽样波动",
+                "Difference from the current simulated chance in percentage points, subject to sampling variation"
+              )
+            : text("通关胜率变化（百分点）", "Clear chance change in percentage points");
+        if (showUpgradeExperience)
+          header.children[4].title = text("升级后每小时经验", "Experience per hour after upgrade");
+        section(text("升级收益", "Upgrade impact"), [header, ...upgrades], `${prefix}-upgrades`);
+        tooltip.querySelector(`.${prefix}-upgrades`).tabIndex = 0;
+      }
       // Both room types start with the same metrics in the same positions.
       section("", take([text("通关胜率", "Clear chance"), ctx.t("experiencePerHour")], true), `${prefix}-summary`);
-      if (type === "combat") {
-        const failure = take([ctx.t("failureReason")]);
-        for (const row of failure) row.dataset.tone = "warn";
-        section("", failure, `${prefix}-notes`);
-      }
       take([text("经验效率判断", "EXP efficiency")]).forEach((row) => row.remove());
       if (type === "skilling") take([ctx.t("actionDuration")]).forEach((row) => row.remove());
-      section(
-        "",
-        take(
-          [
-            type === "combat" ? text("预计耗时", "Expected time") : text("期望通关时长", "Expected clear time"),
-            Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
-          ],
-          true
-        ),
-        `${prefix}-goals`
+      const goals = take(
+        [
+          type === "combat" ? text("预计耗时", "Expected time") : text("期望通关时长", "Expected clear time"),
+          Number.isFinite(target) ? text("目标经验", "EXP goal") : ctx.t("experiencePerRoom")
+        ],
+        true
       );
-      section("", take([ctx.t("experiencePerRoom")]), `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
+      const failure = type === "combat" ? take([ctx.t("failureReason")]) : [];
+      for (const row of failure) {
+        row.dataset.tone = "warn";
+        row.classList.add(`${prefix}-failure`);
+      }
+      const roomExperience = take([ctx.t("experiencePerRoom")]);
+      if (type === "combat") {
+        for (const row of roomExperience) row.classList.add(`${prefix}-room-experience`);
+        section("", [...goals, ...failure, ...roomExperience], `${prefix}-goals ${prefix}-combat-metrics`);
+      } else {
+        section("", goals, `${prefix}-goals`);
+        section("", roomExperience, `${prefix}-pairs ${prefix}-yield ${prefix}-life-yield`);
+      }
       if (type === "combat") {
         section(
           text("技能经验 · K/h", "Skill EXP · K/h"),
@@ -21770,12 +21913,35 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           take(rows.filter((row) => /^Lv\.\d+$/.test(label(row))).map(label)),
           `${prefix}-pairs ${prefix}-abilities`
         );
+        if (data.upgradeImpact) {
+          const upgrades = [];
+          for (const { key, zh, en } of ctx.COMBAT_STAT_UPGRADES) {
+            const impact = data.upgradeImpact[key];
+            if (!impact) continue;
+            const { cost, clearChance } = impact;
+            ctx.appendPreviewRow(
+              tooltip,
+              text(zh, en),
+              Number.isFinite(clearChance) ? ctx.formatPreviewPercent(clearChance) : "—"
+            );
+            const row = tooltip.lastElementChild;
+            row.classList.add(`${prefix}-upgrade`);
+            const requirement = document.createElement("span");
+            requirement.className = `${prefix}-requirement`;
+            requirement.textContent = cost === null ? text("已满级", "Max level") : `${cost} ${text("代币", "tokens")}`;
+            row.insertBefore(requirement, row.lastElementChild);
+            appendDelta(row, data.clearChance, clearChance);
+            appendUpgradeExperience(row, impact.experiencePerHour);
+            upgrades.push(row);
+          }
+          if (upgrades.length) showUpgrades(upgrades);
+        }
         section(
           text("奖励期望", "Expected rewards"),
           take((data.rewardPreview?.rows || []).map((row) => row.label)),
           `${prefix}-pairs`
         );
-        section(text("说明", "Notes"), [...remaining], `${prefix}-notes`);
+        section("", [...remaining], `${prefix}-notes ${prefix}-footer`);
         finish();
         return;
       }
@@ -21807,24 +21973,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         thresholdRows.map((row) => [label(row), row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`)?.textContent])
       );
       thresholdRows.forEach((row) => row.remove());
-      const showUpgradeExperience =
-        Number.isFinite(target) && Number.isFinite(data?.experiencePerHour) && data.experiencePerHour <= target;
-      tooltip.dataset.upgradeExperience = String(showUpgradeExperience);
       const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key)));
       if (upgrades.length) {
-        const header = document.createElement("div");
-        header.className = `${prefix}-upgrade-head`;
-        for (const title of [
-          text("项目", "Upgrade"),
-          text("门槛/花费", "Cost"),
-          text("胜率", "Chance"),
-          text("百分点", "Δ pp"),
-          ...(showUpgradeExperience ? [text("经验/h", "EXP/h")] : [])
-        ]) {
-          const span = document.createElement("span");
-          span.textContent = title;
-          header.append(span);
-        }
         for (const row of upgrades) {
           row.classList.add(`${prefix}-upgrade`);
           const field = Object.keys(upgradeFields).find((key) => ctx.t(key) === label(row));
@@ -21865,36 +22015,10 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               requirement.title = text(`升一档需 ${cost} 迷宫代币`, `Next upgrade costs ${cost} labyrinth tokens`);
           }
           row.insertBefore(requirement, row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`));
-          const delta = document.createElement("span");
-          delta.className = `${prefix}-delta`;
-          delta.textContent = "—";
-          if (Number.isFinite(next) && Number.isFinite(data.clearChance)) {
-            // Compare the same rounded probabilities displayed in the original rows.
-            const change =
-              (Math.round(ctx.clamp01(next) * 1000) - Math.round(ctx.clamp01(data.clearChance) * 1000)) / 10;
-            delta.textContent = `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
-            delta.dataset.direction = change > 0 ? "up" : change < 0 ? "down" : "same";
-          }
-          row.append(delta);
-          if (showUpgradeExperience) {
-            const hourly = data[field.replace("ClearChance", "ExperiencePerHour")];
-            const experience = document.createElement("span");
-            experience.className = `${prefix}-upgrade-experience`;
-            experience.textContent =
-              Number.isFinite(hourly) && hourly >= 0 ? ctx.formatPreviewExperiencePerHourK(hourly) : "—";
-            if (Number.isFinite(hourly) && hourly > target) experience.dataset.tone = "good";
-            row.append(experience);
-          }
+          appendDelta(row, data.clearChance, next);
+          appendUpgradeExperience(row, data[field.replace("ClearChance", "ExperiencePerHour")]);
         }
-        header.children[1].title = text(
-          "升级耗时、属性门槛或代币花费",
-          "Level-up time, stat requirement or token cost"
-        );
-        header.children[3].title = text("通关胜率变化（百分点）", "Clear chance change in percentage points");
-        if (showUpgradeExperience)
-          header.children[4].title = text("升级后每小时经验", "Experience per hour after upgrade");
-        section(text("升级收益", "Upgrade impact"), [header, ...upgrades], `${prefix}-upgrades`);
-        tooltip.querySelector(`.${prefix}-upgrades`).tabIndex = 0;
+        showUpgrades(upgrades);
       }
       section(
         text("奖励期望", "Expected rewards"),
@@ -23147,7 +23271,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.15",
+    version: "0.12.16",
     status: "ready",
     plan: core?.plan,
     destroy() {

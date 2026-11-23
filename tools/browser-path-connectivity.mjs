@@ -29,6 +29,8 @@ try {
     );
     for (const file of [
       "src/core.js",
+      "src/ui/sidebar.js",
+      "src/runtime/beacons.js",
       "src/runtime/map-reader.js",
       "src/runtime/shrouds.js",
       "src/ui/theme.js",
@@ -69,20 +71,20 @@ try {
       window.gameClicks = 0;
       document.querySelector(".LabyrinthPanel_roomGrid_fixture").addEventListener("click", () => window.gameClicks++);
     });
-    const before = await page.locator(".LabyrinthPanel_roomGrid_fixture").boundingBox();
     await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, "src/userscript.js"), "utf8") });
     await page.waitForFunction(() => window.lastPlan?.main?.forceCount === 1);
     assert.deepEqual(await page.evaluate(() => window.lastPlan.main.forcedRooms), [61]);
     assert.deepEqual(await page.locator(".mwi-lab-route b").allTextContents(), ["1·道", "2", "3"]);
     assert.equal(await page.locator('[data-room-x="5"][data-room-y="3"] .mwi-lab-route').count(), 0);
     if (width < 700) await page.locator(".mwi-lab-launcher").click();
+    const before = await page.locator(".LabyrinthPanel_roomGrid_fixture").boundingBox();
     await page.screenshot({ path: path.join(output, `screenshot-corrected-${width}.png`) });
     await page.evaluate(() => {
       window.fixtureState.characterLabyrinth.shroudCount = 0;
     });
     await page.waitForFunction(() => window.lastPlan?.forceStatus === "insufficient");
     assert.equal(await page.evaluate(() => window.lastPlan.main), null);
-    assert.match(await page.locator(".mwi-lab-force-hint").innerText(), /参考路线/);
+    assert.match(await page.locator(".mwi-lab-route-notice").innerText(), /参考路线/);
     await page.evaluate(() => {
       window.fixtureState.characterLabyrinth.shroudItemHrid = "/items/missing";
     });

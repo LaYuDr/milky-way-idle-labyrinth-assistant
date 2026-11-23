@@ -157,7 +157,7 @@
       return `${hours.toFixed(1)} ${text("小时", "h")}`;
     };
     // Copy only calculation data, not the React component state or methods.
-    ctx.createAutomationRunSnapshot = (state) => ({
+    ctx.createCalculationRunSnapshot = (state) => ({
       identity: ctx.storageIdentity(),
       labyrinthUpgradeLevels: structuredClone(ctx.resolveLabyrinthUpgradeLevels()),
       state: structuredClone(

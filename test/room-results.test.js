@@ -263,6 +263,20 @@ test("战斗内核升级后旧缓存继续显示并补算，新签名缓存正�
   assert.equal(f.ctx.combatPreviewByCell.get(f.cells[0]).combatModelSignature, "old-engine");
   f.ctx.setCellCombatPreview(f.cells[0], { type: "combat", combatModelSignature: f.ctx.COMBAT_MODEL_SIGNATURE });
   f.ctx.saveRoomResult(f.state, "0,0", { clearChance: 0.8, expectedSecondsPerClear: 20 }, f.cells[0]);
+  assert.equal(f.ctx.hasSavedRoomResult(f.state, "0,0"), false);
+  const upgradeImpact = { "/labyrinth_upgrades/critical_rate": { level: 1, cost: 80, clearChance: 0.82 } };
+  f.ctx.setCellCombatPreview(f.cells[0], {
+    type: "combat",
+    combatModelSignature: f.ctx.COMBAT_MODEL_SIGNATURE,
+    upgradeImpact
+  });
+  f.ctx.saveRoomResult(f.state, "0,0", { clearChance: 0.8, expectedSecondsPerClear: 20 }, f.cells[0]);
+  assert.equal(f.ctx.hasSavedRoomResult(f.state, "0,0"), false);
+  upgradeImpact["/labyrinth_upgrades/critical_rate"].experiencePerHour = 0;
+  f.ctx.saveRoomResult(f.state, "0,0", { clearChance: 0.8, expectedSecondsPerClear: 20 }, f.cells[0]);
+  f.redraw();
+  f.ctx.restoreSavedRoomResults(f.state);
+  assert.deepEqual(structuredClone(f.ctx.combatPreviewByCell.get(f.cells[0]).upgradeImpact), upgradeImpact);
   assert.equal(f.ctx.hasSavedRoomResult(f.state, "0,0"), true);
 });
 

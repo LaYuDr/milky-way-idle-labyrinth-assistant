@@ -498,6 +498,7 @@
       }
       return ctx.hashString(
         ctx.stableStringify({
+          identity: ctx.storageIdentity(),
           startedAt: String(labyrinth.startedAt || ""),
           currentFloor: Math.max(0, Math.floor(ctx.finiteNumber(labyrinth.currentFloor, 0)))
         })

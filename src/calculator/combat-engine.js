@@ -11,28 +11,60 @@
       const cores = Number(ctx.window.navigator?.hardwareConcurrency);
       const memory = Number(ctx.window.navigator?.deviceMemory);
       const limit = Number.isFinite(cores) && cores >= 1 ? Math.max(1, Math.floor(cores) - 1) : 1;
-      return Math.min(
-        16,
-        limit,
-        memory > 0 && memory <= 2
-          ? 1
-          : memory > 0 && memory <= 4
-            ? 2
-            : memory > 0 && memory <= 8
-              ? 8
-              : memory > 8
-                ? 16
-                : 8
-      );
+      return Math.min(16, limit, memory > 0 && memory <= 2 ? 1 : memory > 0 && memory <= 4 ? 2 : 16);
     };
     let adaptiveLimit = null,
       monitor = null,
       healthyCompletions = 0,
       lastChange = 0,
-      backoffs = 0;
+      backoffs = 0,
+      healthyTicks = 0,
+      lastObservedDelay = null;
+    // Device preference: shared across characters, never uploaded or tied to identity.
+    const concurrencyKey = "mwi-labyrinth:combat-concurrency:v1";
+    let profile = "",
+      learnedLimit = null;
+    function restoreConcurrency() {
+      const navigator = ctx.window.navigator;
+      const value = (number) => (Number.isFinite(Number(number)) && Number(number) > 0 ? Number(number) : null);
+      const nextProfile = JSON.stringify([value(navigator?.hardwareConcurrency), value(navigator?.deviceMemory)]);
+      if (nextProfile === profile) return;
+      profile = nextProfile;
+      learnedLimit = null;
+      adaptiveLimit = null;
+      healthyCompletions = 0;
+      healthyTicks = 0;
+      lastObservedDelay = null;
+      try {
+        const stored = JSON.parse(ctx.window.localStorage?.getItem(concurrencyKey) || "null");
+        if (
+          stored?.schema === 1 &&
+          stored.profile === profile &&
+          Number.isInteger(stored.limit) &&
+          stored.limit >= 1 &&
+          stored.limit <= 16
+        )
+          learnedLimit = Math.min(stored.limit, ctx.getCombatParallelism());
+      } catch {
+        // Disabled/full storage or an invalid record must never block calculation.
+      }
+    }
+    function saveConcurrency(limit) {
+      restoreConcurrency();
+      limit = Math.max(1, Math.min(limit, ctx.getCombatParallelism()));
+      if (learnedLimit === limit) return;
+      learnedLimit = limit;
+      try {
+        ctx.window.localStorage?.setItem(concurrencyKey, JSON.stringify({ schema: 1, profile, limit }));
+      } catch {
+        // Keep the preference for this page even if persistence is unavailable.
+      }
+    }
     const now = () => ctx.window.performance?.now?.() ?? Date.now();
-    const currentLimit = () =>
-      Math.min(ctx.getCombatParallelism(), adaptiveLimit ?? Math.min(4, ctx.getCombatParallelism()));
+    const currentLimit = () => {
+      restoreConcurrency();
+      return Math.min(ctx.getCombatParallelism(), adaptiveLimit ?? learnedLimit ?? 4);
+    };
     ctx.getCombatConcurrencyState = () => ({
       limit: currentLimit(),
       ceiling: ctx.getCombatParallelism(),
@@ -42,28 +74,59 @@
     });
     ctx.observeCombatResponsiveness = (delay, hidden = false) => {
       if (hidden || !Number.isFinite(delay)) return;
+      restoreConcurrency();
+      lastObservedDelay = delay;
+      if (delay > 120) healthyTicks = 0;
       if (delay > 120 && currentLimit() > 1) {
         adaptiveLimit = Math.max(1, Math.floor(currentLimit() / 2));
         healthyCompletions = 0;
         lastChange = now();
         backoffs++;
+        saveConcurrency(adaptiveLimit);
       }
     };
+    function growConcurrency() {
+      // Grow proportionally instead of probing every intermediate worker count.
+      // The existing device ceiling and slower post-backoff cadence still apply.
+      adaptiveLimit = Math.min(ctx.getCombatParallelism(), Math.ceil(currentLimit() * 1.5));
+      healthyTicks = 0;
+      healthyCompletions = 0;
+      lastChange = now();
+    }
     function startMonitor() {
       if (monitor !== null) return;
       const expected = now() + 100;
       monitor = ctx.setTimeout(() => {
         monitor = null;
-        ctx.observeCombatResponsiveness(now() - expected, ctx.window.document?.hidden);
+        const delay = now() - expected;
+        const hidden = ctx.window.document?.hidden;
+        ctx.observeCombatResponsiveness(delay, hidden);
+        // Long simulations must not wait for a whole job to finish before
+        // using idle cores. Require consecutive responsive foreground ticks.
+        if (!hidden && delay <= 40 && queue.length) healthyTicks++;
+        else healthyTicks = 0;
+        if (healthyTicks >= (backoffs ? 10 : 3) && currentLimit() < ctx.getCombatParallelism()) {
+          growConcurrency();
+          pump();
+        }
         if (queue.length || slots.some((slot) => slot?.busy)) startMonitor();
       }, 100);
     }
     function completedJob() {
       healthyCompletions++;
+      // Save only a level that has completed a full wave while the page was
+      // responsive, never the next speculative level or a cancelled run's peak.
+      if (
+        !ctx.window.document?.hidden &&
+        lastObservedDelay !== null &&
+        lastObservedDelay <= 40 &&
+        healthyCompletions >= currentLimit() &&
+        slots.filter((slot) => slot?.busy).length >= currentLimit() &&
+        now() - lastChange >= 150
+      )
+        saveConcurrency(currentLimit());
       if (queue.length && healthyCompletions >= currentLimit() && now() - lastChange >= (backoffs ? 600 : 150)) {
-        adaptiveLimit = Math.min(ctx.getCombatParallelism(), currentLimit() + 1);
-        healthyCompletions = 0;
-        lastChange = now();
+        growConcurrency();
       }
     }
     let generation = 0;
@@ -102,7 +165,8 @@
       if (hash !== ctx.MWISIM_WASM_SHA256) throw new Error("内置战斗引擎校验失败");
       return { workerBuffer, wasmBuffer, data: await new Response(dataBuffer).json() };
     };
-    ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消")) {
+    ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消"), { failed = false } = {}) {
+      if (failed) saveConcurrency(Math.max(1, Math.floor(currentLimit() / 2)));
       generation++;
       if (monitor !== null) ctx.clearTimeout(monitor);
       monitor = null;
@@ -110,6 +174,8 @@
       healthyCompletions = 0;
       lastChange = now();
       backoffs = 0;
+      healthyTicks = 0;
+      lastObservedDelay = null;
       completed.clear();
       inFlight.clear();
       cachedBytes = 0;
@@ -132,7 +198,7 @@
       const id = ++ctx.combatWorkerRequestId;
       return new Promise((resolve, reject) => {
         const timeout = ctx.setTimeout(
-          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试")),
+          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试"), { failed: true }),
           ctx.COMBAT_WORKER_TIMEOUT_MS
         );
         ctx.combatWorkerPendingRequests.set(id, {
@@ -148,7 +214,7 @@
         try {
           worker.postMessage({ type, id, ...data });
         } catch (error) {
-          ctx.resetCombatSimulatorWorker(error);
+          ctx.resetCombatSimulatorWorker(error, { failed: true });
         }
       });
     }
@@ -199,7 +265,7 @@
         ctx.combatWorkerPendingRequests.delete(message.id);
         pending.resolve(message.result || message);
       } catch (error) {
-        ctx.resetCombatSimulatorWorker(error);
+        ctx.resetCombatSimulatorWorker(error, { failed: true });
       }
     }
     function slotAt(index) {
@@ -226,7 +292,8 @@
         }
         ctx.listen(worker, "message", (event) => receive(worker, event));
         ctx.listen(worker, "error", (event) => {
-          if (token === generation) ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"));
+          if (token === generation)
+            ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"), { failed: true });
         });
         await request(worker, "init", {
           wasm: assets.wasmBuffer.slice(0),
@@ -239,7 +306,7 @@
         return worker;
       })().catch((error) => {
         if (token === generation) {
-          ctx.resetCombatSimulatorWorker(error);
+          ctx.resetCombatSimulatorWorker(error, { failed: true });
           ctx.combatWorkerScriptPromise = null;
         }
         throw error;
@@ -248,9 +315,14 @@
     }
     ctx.ensureCombatSimulatorWorker = () => ensureSlot(0);
     ctx.releaseIdleCombatWorkers = () => {
-      if (!queue.length && !slots.some((slot) => slot?.busy) && monitor !== null) {
-        ctx.clearTimeout(monitor);
+      if (!queue.length && !slots.some((slot) => slot?.busy)) {
+        if (monitor !== null) ctx.clearTimeout(monitor);
         monitor = null;
+        adaptiveLimit = null;
+        healthyCompletions = 0;
+        healthyTicks = 0;
+        lastObservedDelay = null;
+        lastChange = now();
       }
       for (let i = 1; i < slots.length; i++) {
         const slot = slots[i];

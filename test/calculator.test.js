@@ -55,6 +55,97 @@ function enumerate({ attempts, p, d, goal, start = 0, enhancing = false }) {
   visit(attempts, start, 1);
   return { win, mean: win ? moment / win : null };
 }
+test("战斗房的四种升级共用基准场景，独立升一级且跳过已满级项", async () => {
+  const { ctx } = await fixture();
+  const levels = {
+    [ctx.LABYRINTH_UPGRADE_KEY_COMBAT_DAMAGE]: 2,
+    [ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED]: 11,
+    [ctx.LABYRINTH_UPGRADE_KEY_LABYRINTH_EXPERIENCE]: 4
+  };
+  const room = {
+    roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+    monsterHrid: "/monsters/shadow_archer",
+    recommendedLevel: 91
+  };
+  const calls = [];
+  ctx.getCombatCrateBuffs = () => ({ combatCrateItemHrids: ["/items/expert_food_crate"] });
+  ctx.buildCombatPlayerDtoForRoom = () => ({
+    playerDto: {
+      equipment: { main_hand: { hrid: "/items/cheese_sword" } },
+      labyrinthUpgrades: ctx.buildSimulatorLabyrinthUpgrades(levels)
+    },
+    loadoutInfo: {}
+  });
+  ctx.simulateCombatRoomWithWorker = async (params) => {
+    calls.push(structuredClone(params));
+    const { trials } = params;
+    const successes = calls.length;
+    return {
+      trials,
+      successes,
+      totalSpentSeconds: trials * 70,
+      experienceGained: {
+        player1: { stamina: successes * 100, intelligence: 0, attack: 0, melee: 5, defense: 0, ranged: 0, magic: 0 }
+      }
+    };
+  };
+  const run = (options) =>
+    ctx.computeCombatRoomClearChance({}, {}, room, {}, null, 100, "0,0", {
+      labyrinthUpgradeLevels: levels,
+      seed: 173,
+      ...options
+    });
+  const result = await run({ combatUpgrades: ctx.getCombatUpgradeOptions(levels) });
+  assert.equal(calls.length, 5);
+  assert.equal(result.clearChance, 0.01);
+  for (const [i, suffix] of ["combat_damage", "attack_speed", "cast_speed", "critical_rate"].entries()) {
+    const key = "/labyrinth_upgrades/" + suffix;
+    const buff = "/buff_uniques/labyrinth_upgrade_" + suffix;
+    const expected = structuredClone(calls[0]);
+    const level = levels[key] || 0;
+    expected.playerDto.labyrinthUpgrades[buff] = level + 1;
+    assert.deepEqual(calls[i + 1], expected);
+    assert.deepEqual(structuredClone(result.upgradeImpact[key]), {
+      level,
+      cost: 40 * (level + 1),
+      clearChance: (i + 2) / 100,
+      experiencePerHour: (((i + 2) * 100 + 5) / 7100) * 3600
+    });
+  }
+  const originalSimulate = ctx.simulateCombatRoomWithWorker;
+  let active = 0,
+    peak = 0;
+  ctx.simulateCombatRoomWithWorker = async (params) => {
+    active++;
+    peak = Math.max(peak, active);
+    const value = await originalSimulate(params);
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+    active--;
+    return value;
+  };
+  calls.length = 0;
+  const concurrent = await run({ combatUpgrades: ctx.getCombatUpgradeOptions(levels), parallel: true });
+  assert.equal(peak, 4);
+  assert.deepEqual(concurrent, result);
+  assert.ok(calls.every((params) => params.parallel === true));
+  ctx.simulateCombatRoomWithWorker = originalSimulate;
+  calls.length = 0;
+  levels[ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED] = 12;
+  const capped = await run({ combatUpgrades: ctx.getCombatUpgradeOptions(levels) });
+  assert.equal(calls.length, 4);
+  assert.deepEqual(structuredClone(capped.upgradeImpact[ctx.LABYRINTH_UPGRADE_KEY_CAST_SPEED]), {
+    level: 12,
+    cost: null,
+    clearChance: null,
+    experiencePerHour: null
+  });
+  calls.length = 0;
+  assert.equal((await run({})).upgradeImpact, undefined);
+  assert.equal(calls.length, 1);
+});
+
 test("普通生活和强化的概率、条件耗时与独立路径枚举一致", async () => {
   const { ctx } = await fixture();
   for (const enhancing of [false, true])
@@ -275,6 +366,25 @@ test("同帧并发只创建一个战斗 Worker；销毁拒绝未完成请求并�
   assert.equal(ctx.combatWorkerPendingRequests.size, 0);
 });
 
+test("房间和自动化的超限旧场数均修正保存，仍可继续调低", async () => {
+  const { ctx } = await fixture();
+  for (const [key, load, save] of [
+    [ctx.COMBAT_SIM_TRIALS_STORAGE_KEY, ctx.loadCombatSimTrialsSetting, ctx.saveCombatSimTrialsSetting],
+    [
+      ctx.AUTOMATION_COMBAT_SIM_TRIALS_STORAGE_KEY,
+      ctx.loadAutomationCombatSimTrialsSetting,
+      ctx.saveAutomationCombatSimTrialsSetting
+    ]
+  ]) {
+    ctx.storage.setItem(key, "5000");
+    assert.equal(load(), 3000);
+    assert.equal(ctx.storage.getItem(key), "3000");
+    assert.equal(save(3001), 3000);
+    assert.equal(save(250), 250);
+    assert.equal(load(), 250);
+  }
+});
+
 test("角色切换与未识别角色不会读写其他角色设置", async () => {
   const { ctx, store } = await fixture({});
   let id = 1001;
@@ -480,7 +590,7 @@ test("专业升级的下一档代币花费与预览使用同一等级快照", as
     [1.5, null],
     [undefined, null]
   ])
-    assert.equal(ctx.getSkillingUpgradeTokenCost(level), cost);
+    assert.equal(ctx.getLabyrinthStatUpgradeTokenCost(level), cost);
   const state = { characterSkillMap: { "/skills/milking": { level: 100 }, "/skills/enhancing": { level: 100 } } };
   for (const skill of ["milking", "enhancing"]) {
     const room = { roomType: ctx.LABYRINTH_SKILLING_ROOM_TYPE, skillHrid: `/skills/${skill}`, recommendedLevel: 100 };
@@ -715,7 +825,7 @@ test("经验推荐快照隔离实时角色与升级变化，扫描使用固定�
     characterLoadoutDict: { 1: { name: "old" } }
   };
   ctx.resolveLabyrinthUpgradeLevels = (options) => options?.labyrinthUpgradeLevels || { experience: 2 };
-  const snapshot = ctx.createAutomationRunSnapshot(live);
+  const snapshot = ctx.createCalculationRunSnapshot(live);
   live.characterSkillMap.get("/skills/milking").level = 11;
   live.characterLoadoutDict[1].name = "new";
   assert.equal(snapshot.state.characterSkillMap.get("/skills/milking").level, 10);
@@ -726,7 +836,7 @@ test("经验推荐快照隔离实时角色与升级变化，扫描使用固定�
     { combatUnit: { combatDetails: { combatLevel: 85.2 } } }
   ]) {
     assert.equal(
-      ctx.getAutomationCombatBaseLevel(ctx.createAutomationRunSnapshot(data).state),
+      ctx.getAutomationCombatBaseLevel(ctx.createCalculationRunSnapshot(data).state),
       ctx.getAutomationCombatBaseLevel(data)
     );
   }
@@ -771,13 +881,128 @@ test("经验扫描中同角色数据更新不重置内核，结束后生效，�
   assert.equal(ctx.inputRevision, 0);
   ctx.automationRunSnapshot = null;
   ctx.refreshControlPanelPlacement();
-  assert.equal(resets, 1);
+  assert.equal(resets, 0);
   assert.equal(ctx.inputRevision, 1);
   ctx.automationRunSnapshot = { identity };
   identity = "two";
   ctx.refreshControlPanelPlacement();
-  assert.equal(resets, 2);
+  assert.equal(resets, 1);
   assert.equal(ctx.inputRevision, 2);
+});
+
+test("胜率分布与本轮地图共享属性，换层或换角色后丢弃在途结果", async () => {
+  const { ctx } = await fixture();
+  const live = {
+    character: { id: 1 },
+    characterLabyrinth: { startedAt: "run", currentFloor: 1, roomData: [[{}]] },
+    characterSkillMap: { "/skills/melee": { level: 80 } }
+  };
+  ctx.getGameState = () => live;
+  ctx.storageIdentity = () => String(live.character.id);
+  ctx.getInitClientData = () => ({});
+  ctx.syncRoomResultScope = () => {};
+  ctx.resetSavedRoomResults = () => {};
+  ctx.setControlStatus = () => {};
+  ctx.updateAutoRecalcBaseline = () => {};
+  ctx.roomDistributionEnabled = true;
+  ctx.isRoomDistributionUnsupportedDevice = () => false;
+  ctx.renderRoomDistributionPanel = () => {};
+  ctx.ROOM_DISTRIBUTION_LEVEL_SPAN = 1;
+  ctx.getRoomDistributionEntries = () => [{ key: "shadow_archer", isCombat: true }];
+  let changeScope;
+  const levels = [];
+  ctx.updateRoomBadges = async () => {
+    live.characterSkillMap["/skills/melee"].level++;
+    return true;
+  };
+  ctx.computeCombatRoomClearChance = async (state) => {
+    levels.push(state.characterSkillMap["/skills/melee"].level);
+    changeScope?.();
+    return { clearChance: 0.5 };
+  };
+  await ctx.runManualUpdate();
+  assert.deepEqual(levels, [80, 80]);
+  assert.equal(ctx.roomDistributionSnapshot.chances.length, 2);
+  await ctx.runManualUpdate();
+  assert.deepEqual(levels, [80, 80, 81, 81]);
+  for (changeScope of [() => live.characterLabyrinth.currentFloor++, () => live.character.id++]) {
+    ctx.clearRoomDistributionSnapshot();
+    const count = levels.length;
+    await ctx.runManualUpdate();
+    assert.equal(levels.length, count + 1);
+    assert.equal(ctx.roomDistributionSnapshot, null);
+    assert.equal(ctx.manualUpdateRunning, false);
+    assert.equal(ctx.activeFloorRun, null);
+  }
+});
+
+test("地图与分布取消不报错，真实战斗故障只记录一次并允许重算", async () => {
+  for (const stage of ["rooms", "distribution"]) {
+    for (const reason of ["floor", "character", "exit", "destroy", "failure"]) {
+      const { ctx, sandbox } = await fixture();
+      const live = {
+        character: { id: 1 },
+        characterLabyrinth: { startedAt: "run", currentFloor: 1, roomData: [[{}]] }
+      };
+      const logs = [],
+        statuses = [];
+      sandbox.console = { ...console, error: (...args) => logs.push(args) };
+      ctx.getGameState = () => live;
+      ctx.storageIdentity = () => String(live.character.id);
+      ctx.syncRoomResultScope = () => {};
+      ctx.resetSavedRoomResults = () => {};
+      ctx.setControlStatus = (status) => statuses.push(status);
+      ctx.updateAutoRecalcBaseline = () => {};
+      ctx.roomDistributionEnabled = stage === "distribution";
+      ctx.isRoomDistributionUnsupportedDevice = () => false;
+      const failure = new Error("模拟线程失败");
+      // Exercise the real combat error propagation, then change scope while it is pending.
+      let rejectCalculation, entered;
+      const ready = new Promise((resolve) => {
+        entered = resolve;
+      });
+      ctx.computeCombatRoomClearChanceFullFlow = () =>
+        new Promise((_resolve, reject) => {
+          rejectCalculation = reject;
+          entered();
+        });
+      const calculate = () =>
+        ctx.computeCombatRoomClearChance(
+          {},
+          {},
+          {
+            roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+            monsterHrid: "/monsters/shadow_archer"
+          },
+          {},
+          null,
+          100
+        );
+      ctx.updateRoomBadges = stage === "rooms" ? calculate : async () => true;
+      ctx.calculateCurrentFloorRoomDistribution = calculate;
+      const pending = ctx.runManualUpdate();
+      await ready;
+      if (reason === "floor") live.characterLabyrinth.currentFloor++;
+      if (reason === "character") live.character.id++;
+      if (reason === "exit") live.characterLabyrinth = null;
+      if (reason === "destroy") ctx.destroyed = true;
+      rejectCalculation(failure);
+      await pending;
+      assert.equal(logs.length, reason === "failure" ? 1 : 0, `${stage}: ${reason}`);
+      if (reason === "failure") assert.equal(logs[0][1], failure);
+      else assert.ok(statuses.every((status) => !status.error && status.ratio !== 1));
+      assert.equal(ctx.manualUpdateRunning, false);
+      assert.equal(ctx.activeFloorRun, null);
+      if (reason !== "destroy") {
+        live.characterLabyrinth ||= { startedAt: "next", currentFloor: 1, roomData: [[{}]] };
+        ctx.updateRoomBadges = async () => true;
+        ctx.calculateCurrentFloorRoomDistribution = async () => true;
+        await ctx.runManualUpdate();
+        assert.equal(statuses.at(-1).ratio, 1);
+        assert.equal(ctx.manualUpdateRunning, false);
+      }
+    }
+  }
 });
 
 test("从项目基础等级起算，未达标后追加五级；反弹重置观察窗口", async () => {
@@ -1033,7 +1258,8 @@ test("胜率、耗时和估算均用冻结输入，升级时不中断，并发�
     assert.match(ctx.automationEstimateStatusText, /7\/7/);
     assert.equal(ctx.automationRunSnapshot, null);
     ctx.refreshControlPanelPlacement();
-    assert.equal(resets, 1);
+    assert.equal(resets, 0);
+    assert.equal(ctx.inputRevision, 1);
   }
 });
 

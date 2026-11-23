@@ -7,7 +7,7 @@ const zlib = require("node:zlib");
 const { webcrypto, createHash } = require("node:crypto");
 const source = fs.readFileSync(path.join(__dirname, "../src/calculator/combat-engine.js"), "utf8");
 const reference = require("./fixtures/combat-engine-reference.json");
-function fixture() {
+function fixture({ storage, navigator } = {}) {
   const blobs = new Map();
   const state = { created: 0, runs: 0, stopped: 0, silent: false, transform: (m) => m };
   const packed = (name) => Buffer.from(source.match(new RegExp(`ctx\\.${name}\\s*=\\s*"([^"]+)"`))[1], "base64");
@@ -73,7 +73,7 @@ function fixture() {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/calculator/combat-experience.js"), "utf8"), sandbox);
   vm.runInNewContext(source, sandbox);
   const ctx = {
-    window: { crypto: webcrypto },
+    window: { crypto: webcrypto, localStorage: storage, navigator },
     combatWorkerPendingRequests: new Map(),
     combatWorkerRequestId: 0,
     setTimeout,
@@ -451,10 +451,10 @@ test("并发上限为核心数减一且最多十六路，低内存降级；取�
     [1, 8, 1],
     [2, 8, 1],
     [4, 8, 3],
-    [16, 8, 8],
+    [16, 8, 15],
     [32, 32, 16],
     [18, 32, 16],
-    [32, undefined, 8],
+    [32, undefined, 16],
     [16, 4, 2],
     [16, 2, 1]
   ]) {
@@ -549,4 +549,177 @@ test("降低并发后不继续补位；取消时在途任务和队列全部落�
   ctx.resetCombatSimulatorWorker(new Error("stop test"));
   assert.ok((await settled).every((r) => r.status === "rejected"));
   assert.equal((await extraSettled)[0].status, "rejected");
+});
+
+test("长任务按 4→6→9→14→16 扩容，卡顿降档后仍保存并放慢恢复", async () => {
+  const storage = concurrencyStorage();
+  const { ctx, state } = fixture({ storage });
+  const timers = new Map();
+  let id = 0;
+  let clock = 1000;
+  ctx.setTimeout = (fn, delay) => {
+    timers.set(++id, { fn, delay });
+    return id;
+  };
+  ctx.clearTimeout = (key) => timers.delete(key);
+  ctx.window.performance = { now: () => clock };
+  ctx.window.navigator = { hardwareConcurrency: 20, deviceMemory: 8 };
+  await ctx.ensureCombatSimulatorWorker();
+  state.silent = true;
+  const pending = Promise.allSettled(
+    Array.from({ length: 20 }, () => ctx.simulateCombatRoomWithWorker({ ...reference.cases[0].params, parallel: true }))
+  );
+  function tick(delay = 0) {
+    const [key, timer] = [...timers].find(([, value]) => value.delay === 100);
+    timers.delete(key);
+    clock += 100 + delay;
+    timer.fn();
+  }
+  try {
+    assert.equal(ctx.getCombatConcurrencyState().active, 4);
+    for (const expected of [6, 9, 14, 16]) {
+      tick();
+      tick();
+      assert.ok(ctx.getCombatConcurrencyState().limit < expected);
+      tick();
+      assert.equal(ctx.getCombatConcurrencyState().limit, expected);
+      assert.equal(ctx.getCombatConcurrencyState().active, expected);
+    }
+    assert.equal(ctx.getCombatConcurrencyState().ceiling, 16);
+    assert.equal(storage.getItem(concurrencyStorageKey), null);
+    tick(200);
+    assert.equal(ctx.getCombatConcurrencyState().limit, 8);
+    assert.equal(ctx.getCombatConcurrencyState().active, 16);
+    assert.equal(JSON.parse(storage.getItem(concurrencyStorageKey)).limit, 8);
+    // No replacement tasks after backoff until running jobs drain.
+    for (let i = 0; i < 9; i++) tick();
+    assert.equal(ctx.getCombatConcurrencyState().limit, 8);
+    ctx.window.document = { hidden: true };
+    for (let i = 0; i < 20; i++) tick();
+    assert.equal(ctx.getCombatConcurrencyState().limit, 8);
+    ctx.window.document.hidden = false;
+    for (let i = 0; i < 10; i++) tick();
+    assert.equal(ctx.getCombatConcurrencyState().limit, 12);
+    // Recovery is still tentative until successful work validates it.
+    assert.equal(JSON.parse(storage.getItem(concurrencyStorageKey)).limit, 8);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+    assert.ok((await pending).every((item) => item.status === "rejected"));
+    assert.equal(timers.size, 0);
+  }
+});
+
+const concurrencyStorageKey = "mwi-labyrinth:combat-concurrency:v1";
+function concurrencyStorage(initial) {
+  const values = new Map(initial ? [[concurrencyStorageKey, initial]] : []);
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value)
+  };
+}
+function savedConcurrency(limit, cores = 20, memory = 8) {
+  return JSON.stringify({ schema: 1, profile: JSON.stringify([cores, memory]), limit });
+}
+
+test("并发偏好跨实例恢复，按设备配置隔离，坏记录回退且始终遵守硬上限", () => {
+  const navigator = { hardwareConcurrency: 20, deviceMemory: 8 };
+  const storage = concurrencyStorage(savedConcurrency(12));
+  const { ctx } = fixture({ storage, navigator });
+  assert.equal(ctx.getCombatConcurrencyState().limit, 12);
+  ctx.resetCombatSimulatorWorker();
+  assert.equal(ctx.getCombatConcurrencyState().limit, 12);
+  ctx.window.navigator = { hardwareConcurrency: 8, deviceMemory: 8 };
+  assert.equal(ctx.getCombatConcurrencyState().limit, 4);
+  ctx.window.navigator = navigator;
+  assert.equal(ctx.getCombatConcurrencyState().limit, 12);
+  for (const invalid of [
+    "{",
+    "null",
+    savedConcurrency(0),
+    savedConcurrency(17),
+    savedConcurrency(1.5),
+    JSON.stringify({ schema: 2, profile: "[20,8]", limit: 12 }),
+    savedConcurrency(12, 24)
+  ]) {
+    const next = fixture({ storage: concurrencyStorage(invalid), navigator }).ctx;
+    assert.equal(next.getCombatConcurrencyState().limit, 4);
+  }
+  const low = fixture({
+    storage: concurrencyStorage(savedConcurrency(16, 20, 4)),
+    navigator: { hardwareConcurrency: 20, deviceMemory: 4 }
+  }).ctx;
+  assert.equal(low.getCombatConcurrencyState().limit, 2);
+});
+
+test("只记住已稳定完成的并发数，取消和释放线程不抹掉偏好", async () => {
+  const storage = concurrencyStorage();
+  const navigator = { hardwareConcurrency: 20, deviceMemory: 8 };
+  const { ctx, state } = fixture({ storage, navigator });
+  let clock = 1000;
+  ctx.window.performance = { now: () => clock };
+  ctx.window.document = { hidden: false };
+  ctx.observeCombatResponsiveness(0);
+  state.transform = (message) => {
+    if (message.type === "result") clock += 200;
+    return message;
+  };
+  try {
+    await Promise.all(
+      Array.from({ length: 80 }, (_, i) =>
+        ctx.simulateCombatRoomWithWorker({
+          ...reference.cases[i % reference.cases.length].params,
+          trials: 1,
+          parallel: true
+        })
+      )
+    );
+    const saved = JSON.parse(storage.getItem(concurrencyStorageKey));
+    assert.ok(saved.limit >= 4 && saved.limit <= ctx.getCombatConcurrencyState().limit);
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+    ctx.releaseIdleCombatWorkers();
+    assert.equal(ctx.getCombatConcurrencyState().limit, saved.limit);
+    ctx.resetCombatSimulatorWorker();
+    assert.equal(ctx.getCombatConcurrencyState().limit, saved.limit);
+    assert.equal(fixture({ storage, navigator }).ctx.getCombatConcurrencyState().limit, saved.limit);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});
+
+test("卡顿降档立即保存，后台不误降，Worker 故障后的下次启动采用较低并发", () => {
+  const navigator = { hardwareConcurrency: 20, deviceMemory: 8 };
+  const storage = concurrencyStorage(savedConcurrency(12));
+  const { ctx } = fixture({ storage, navigator });
+  ctx.observeCombatResponsiveness(500, true);
+  assert.equal(JSON.parse(storage.getItem(concurrencyStorageKey)).limit, 12);
+  ctx.observeCombatResponsiveness(500);
+  assert.equal(JSON.parse(storage.getItem(concurrencyStorageKey)).limit, 6);
+  ctx.resetCombatSimulatorWorker(new Error("worker failure"), { failed: true });
+  assert.equal(JSON.parse(storage.getItem(concurrencyStorageKey)).limit, 3);
+  assert.equal(ctx.getCombatConcurrencyState().limit, 3);
+  ctx.resetCombatSimulatorWorker();
+  assert.equal(fixture({ storage, navigator }).ctx.getCombatConcurrencyState().limit, 3);
+});
+
+test("浏览器禁止存储时计算仍可完成，当前页面仍记住降低后的并发", async () => {
+  const storage = {
+    getItem() {
+      throw new Error("denied");
+    },
+    setItem() {
+      throw new Error("full");
+    }
+  };
+  const { ctx } = fixture({ storage, navigator: { hardwareConcurrency: 20, deviceMemory: 8 } });
+  assert.equal(ctx.getCombatConcurrencyState().limit, 4);
+  ctx.observeCombatResponsiveness(500);
+  ctx.resetCombatSimulatorWorker();
+  assert.equal(ctx.getCombatConcurrencyState().limit, 2);
+  try {
+    assert.equal((await ctx.simulateCombatRoomWithWorker(reference.cases[0].params)).trials, 17);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
 });

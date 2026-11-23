@@ -357,22 +357,49 @@
         inputSnapshot.roomKey = String(roomKey || "");
       }
 
-      const workerResult = await ctx.simulateCombatRoomWithWorker(
-        {
-          playerDto: playerData.playerDto,
-          monsterHrid: room.monsterHrid,
-          mazeDifficulty: roomLevel,
-          roomDurationSeconds: ctx.ROOM_DURATION_SECONDS,
-          mazeCrateItemHrids: Array.isArray(combatCrate.combatCrateItemHrids)
-            ? combatCrate.combatCrateItemHrids.slice()
-            : [],
-          trials,
-          seed: options.seed,
-          reuseSimulation: options.reuseSimulation,
-          parallel: options.parallel
-        },
-        progressTracker
-      );
+      const params = {
+        playerDto: playerData.playerDto,
+        monsterHrid: room.monsterHrid,
+        mazeDifficulty: roomLevel,
+        roomDurationSeconds: ctx.ROOM_DURATION_SECONDS,
+        mazeCrateItemHrids: Array.isArray(combatCrate.combatCrateItemHrids)
+          ? combatCrate.combatCrateItemHrids.slice()
+          : [],
+        trials,
+        seed: options.seed,
+        reuseSimulation: options.reuseSimulation,
+        parallel: options.parallel
+      };
+      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      let upgradeImpact;
+      if (options.combatUpgrades) {
+        upgradeImpact = {};
+        const calculateUpgrade = async ({ key, buff, level, cost }) => {
+          if (options.isRunStale?.()) return null;
+          let clearChance = null;
+          let experiencePerHour = null;
+          if (cost !== null) {
+            const playerDto = {
+              ...params.playerDto,
+              labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
+            };
+            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, progressTracker);
+            clearChance = upgraded.successes / upgraded.trials;
+            experiencePerHour = root.MwiLabyrinthCombatExperience.summarize(
+              upgraded,
+              ctx.ROOM_ENTRY_SECONDS
+            ).experiencePerHour;
+          }
+          upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
+        };
+        if (options.parallel) {
+          const settled = await Promise.allSettled(options.combatUpgrades.map(calculateUpgrade));
+          const failure = settled.find((entry) => entry.status === "rejected");
+          if (failure) throw failure.reason;
+        } else {
+          for (const upgrade of options.combatUpgrades) await calculateUpgrade(upgrade);
+        }
+      }
 
       const combatExperience = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
       const executedTrials = Math.max(0, Math.floor(ctx.finiteNumber(workerResult?.trials, trials)));
@@ -398,6 +425,7 @@
 
       return {
         clearChance,
+        upgradeImpact,
         expectedSecondsPerClear,
         combatExperience,
         experiencePerHour: combatExperience.experiencePerHour,
@@ -487,38 +515,23 @@
       }
       const trials = ctx.normalizeCombatSimTrials(combatTrials);
 
-      let result = null;
-      try {
-        result = await ctx.computeCombatRoomClearChanceFullFlow(
-          state,
-          initClientData,
-          room,
-          maxEnhancementByItem,
-          progressTracker,
-          trials,
-          roomKey,
-          {
-            labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
-            seed: options.seed,
-            reuseSimulation: options.reuseSimulation,
-            parallel: options.parallel
-          }
-        );
-      } catch (error) {
-        const fatalError = error instanceof Error ? error : new Error(String(error));
-        console.error("[Lab Clear Rate] full combat simulation failed:", fatalError);
-        const alertMessage = ctx.t("combatFlowFailedFmt", { message: fatalError.message || String(fatalError) });
-        if (
-          !ctx.destroyed &&
-          !ctx.automationEstimateRunning &&
-          !ctx.inputInvalidated &&
-          typeof ctx.window !== "undefined" &&
-          typeof ctx.window.alert === "function"
-        ) {
-          ctx.window.alert(alertMessage);
+      const result = await ctx.computeCombatRoomClearChanceFullFlow(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        progressTracker,
+        trials,
+        roomKey,
+        {
+          labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+          combatUpgrades: options.combatUpgrades,
+          isRunStale: options.isRunStale,
+          seed: options.seed,
+          reuseSimulation: options.reuseSimulation,
+          parallel: options.parallel
         }
-        throw fatalError;
-      }
+      );
 
       if (!result) {
         return null;

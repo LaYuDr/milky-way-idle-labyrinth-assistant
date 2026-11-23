@@ -49,7 +49,6 @@
 #mwi-labyrinth-planner .mwi-lab-floor-setting input{appearance:textfield;width:40px;height:24px;text-align:center;font-size:13px;font-weight:700;background:#24283f;border:1px solid #383d5d;border-radius:4px;padding:0;}
 #mwi-labyrinth-planner input::-webkit-inner-spin-button{appearance:none;}
 #mwi-labyrinth-planner .mwi-lab-display-error{color:var(--ml-danger);font-size:11px;margin:0;}
-#mwi-labyrinth-planner .mwi-lab-force-hint{color:var(--ml-warn);font-size:11px;margin:0;}
 #mwi-labyrinth-planner .mwi-lab-muted{color:var(--ml-muted);font-size:11px;margin:0;}
 #mwi-labyrinth-planner .mwi-lab-route-section p:empty{display:none;}
 #mwi-labyrinth-planner .mwi-lab-map-zoom{display:flex;align-items:center;background:#171928;border:1px solid #343852;border-radius:20px;padding:1px 3px;height:23px;gap:0;margin:0;}
@@ -190,6 +189,9 @@
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-summary .mwi-labyrinth-calc-clear-rate-preview__row{display:flex;flex-direction:column;align-items:flex-start;gap:0;}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-summary .mwi-labyrinth-calc-clear-rate-preview__value{max-width:100%;font-size:17px;font-weight:650;color:var(--ml-text);}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-life-yield>div{grid-column:2;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-combat-metrics>.mwi-labyrinth-calc-preview-failure{grid-column:1;grid-row:2;font-size:11px;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-combat-metrics>.mwi-labyrinth-calc-preview-room-experience{grid-column:2;grid-row:2;}
+#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-footer{font-size:11px;}
 #mwi-labyrinth-calc-clear-rate-preview :is(.mwi-labyrinth-calc-preview-pairs,.mwi-labyrinth-calc-preview-goals){display:grid;grid-template-columns:1fr 1fr;column-gap:12px;}
 #mwi-labyrinth-calc-clear-rate-preview :is(.mwi-labyrinth-calc-preview-upgrade,.mwi-labyrinth-calc-preview-upgrade-head){display:grid;grid-column:1/-1;grid-template-columns:subgrid;column-gap:8px;align-items:baseline;}
 #mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-preview-upgrade .mwi-labyrinth-calc-clear-rate-preview__value{max-width:none;}

@@ -264,12 +264,12 @@
         ctx.appendPreviewRow(tooltip, text("通关胜率", "Clear chance"), ctx.formatPreviewPercent(data.clearChance));
         tooltip.children[1]?.before(tooltip.lastElementChild);
       }
-      if (Number.isFinite(data.expectedSecondsPerClear))
-        ctx.appendPreviewRow(
-          tooltip,
-          text("预计耗时", "Expected time"),
-          `${Math.round(data.expectedSecondsPerClear)}s`
-        );
+      const seconds = data.expectedSecondsPerClear;
+      ctx.appendPreviewRow(
+        tooltip,
+        text("预计耗时", "Expected time"),
+        seconds === Infinity ? "∞" : Number.isFinite(seconds) && seconds >= 0 ? `${Math.round(seconds)}s` : "—"
+      );
       return tooltip;
     };
     ctx.disposePresentation = () => {
