@@ -6,7 +6,26 @@
   root.MwiLabyrinthCalculatorModules["combat-engine"] = function (ctx) {
     const slots = [];
     const queue = [];
-    let gameDataSnapshot = null;
+    const persistentCache = root.MwiLabyrinthSimulationCache?.create({ indexedDB: ctx.window.indexedDB });
+    let fingerprintSource = null,
+      fingerprintPromise = null,
+      engineFingerprint = null;
+    const digest = async (value) => {
+      const crypto = ctx.window.crypto || root.crypto;
+      if (!crypto?.subtle) return null;
+      const bytes = new TextEncoder().encode(value);
+      return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (n) =>
+        n.toString(16).padStart(2, "0")
+      ).join("");
+    };
+    function gameFingerprint(data) {
+      const source = ctx.cachedInitClientDataRaw || JSON.stringify(data);
+      if (source !== fingerprintSource) {
+        fingerprintSource = source;
+        fingerprintPromise = digest(source);
+      }
+      return fingerprintPromise;
+    }
     ctx.getCombatParallelism = () => {
       const cores = Number(ctx.window.navigator?.hardwareConcurrency);
       const memory = Number(ctx.window.navigator?.deviceMemory);
@@ -179,7 +198,7 @@
       completed.clear();
       inFlight.clear();
       cachedBytes = 0;
-      gameDataSnapshot = null;
+
       for (const slot of slots) {
         if (slot?.worker) slot.worker.terminate();
         if (slot?.url) URL.revokeObjectURL(slot.url);
@@ -271,9 +290,19 @@
     function slotAt(index) {
       return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false });
     }
-    function ensureSlot(index) {
+    function ensureSlot(
+      index,
+      gameData = ctx.getInitClientData(),
+      gameKey = ctx.cachedInitClientDataRaw || JSON.stringify(gameData)
+    ) {
       if (ctx.destroyed) return Promise.reject(new Error("计算已停止"));
       const slot = slotAt(index);
+      if (slot.initialization && slot.gameKey !== gameKey) {
+        slot.worker?.terminate();
+        if (slot.url) URL.revokeObjectURL(slot.url);
+        slot.initialization = null;
+      }
+      slot.gameKey = gameKey;
       if (slot.initialization) return slot.initialization;
       const token = generation;
       slot.initialization = (async () => {
@@ -281,8 +310,7 @@
         const assets = await ctx.combatWorkerScriptPromise;
         if (ctx.destroyed) throw new Error("计算已停止");
         if (token !== generation) throw new Error("战斗引擎初始化已取消");
-        gameDataSnapshot ||= ctx.getInitClientData();
-        if (!gameDataSnapshot) throw new Error("游戏数据尚未就绪");
+        if (!gameData) throw new Error("游戏数据尚未就绪");
         slot.url = URL.createObjectURL(new Blob([assets.workerBuffer], { type: "text/javascript" }));
         const worker = new Worker(slot.url);
         slot.worker = worker;
@@ -298,7 +326,7 @@
         await request(worker, "init", {
           wasm: assets.wasmBuffer.slice(0),
           hash: ctx.MWISIM_WASM_SHA256,
-          gameData: gameDataSnapshot.maps || gameDataSnapshot,
+          gameData: gameData.maps || gameData,
           fallbackData: assets.data?.fallbackData,
           originalMaps: assets.data?.originalMaps
         });
@@ -349,7 +377,7 @@
           token = generation;
         slot.busy = true;
         (async () => {
-          const worker = await ensureSlot(index);
+          const worker = await ensureSlot(index, job.gameData, job.gameKey);
           if (token !== generation || ctx.destroyed) throw new Error("战斗计算已取消");
           return request(worker, "run", { params: job.payload }, job.payload.trials, job.progressTracker);
         })()
@@ -363,16 +391,28 @@
           });
       }
     }
-    function dispatch(payload, progressTracker, parallel) {
+    function dispatch(payload, progressTracker, parallel, gameData, gameKey) {
       if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
       return new Promise((resolve, reject) => {
-        queue.push({ payload, progressTracker, resolve, reject, limit: parallel ? ctx.getCombatParallelism() : 1 });
+        queue.push({
+          payload,
+          progressTracker,
+          resolve,
+          reject,
+          gameData,
+          gameKey,
+          limit: parallel ? ctx.getCombatParallelism() : 1
+        });
         pump();
         startMonitor();
       });
     }
     ctx.simulateCombatRoomWithWorker = async function (params, progressTracker) {
-      if (ctx.destroyed) throw new Error("战斗计算已取消");
+      const token = generation,
+        owner = ctx.storageIdentity?.();
+      const cancelled = () => ctx.destroyed || token !== generation || ctx.storageIdentity?.() !== owner;
+      if (ctx.simulationCacheClearing) await ctx.simulationCacheClearing;
+      if (cancelled()) throw new Error("战斗计算已取消");
       const trials = Math.max(1, Math.floor(ctx.finiteNumber(params?.trials, 1)));
       const payload = {
         playerDto: ctx.deepCloneJson(params.playerDto),
@@ -382,12 +422,26 @@
         mazeCrateItemHrids: ctx.deepCloneJson(params.mazeCrateItemHrids || []),
         ...(params.seed === undefined ? {} : { seed: params.seed })
       };
-      // Only explicitly seeded EXP scans opt in. Compare the complete Worker input,
-      // not UI revisions or partial equipment signatures. Random runs stay fresh.
-      if (!params.reuseSimulation || !Number.isSafeInteger(params.seed))
-        return dispatch(payload, progressTracker, params.parallel);
-      const key = JSON.stringify([ctx.storageIdentity?.(), ctx.COMBAT_MODEL_SIGNATURE, payload]);
-      const token = generation;
+      const gameData = ctx.getInitClientData();
+      if (!gameData) throw new Error("游戏数据尚未就绪");
+      engineFingerprint ||= digest(
+        [ctx.MWISIM_WORKER_GZ_BASE64, ctx.MWISIM_DATA_GZ_BASE64, ctx.MWISIM_WASM_SHA256].join(":")
+      );
+      const pendingGameKey = gameFingerprint(gameData),
+        gameSource = fingerprintSource;
+      const [gameKey, engineKey] = await Promise.all([pendingGameKey, engineFingerprint]);
+      if (cancelled()) throw new Error("战斗计算已取消");
+      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource);
+      // Explicit opt-out remains available to benchmarks and fresh simulations.
+      if (!params.reuseSimulation || !Number.isSafeInteger(params.seed)) return run();
+      const key = JSON.stringify([
+        owner,
+        ctx.COMBAT_MODEL_SIGNATURE,
+        ctx.MWISIM_ENGINE_TAG,
+        engineKey,
+        gameKey || gameSource,
+        payload
+      ]);
       const hit = completed.get(key);
       if (hit) {
         completed.delete(key);
@@ -397,21 +451,73 @@
       }
       if (inFlight.has(key)) {
         const result = await inFlight.get(key);
-        if (ctx.destroyed || token !== generation) throw new Error("战斗计算已取消");
+        if (cancelled()) throw new Error("战斗计算已取消");
         progressTracker?.add(trials);
         return structuredClone(result);
       }
-      const pending = dispatch(payload, progressTracker, params.parallel);
+      const pending = (async () => {
+        const diskKey = gameKey && owner ? await digest(key) : null;
+        const cached = diskKey ? await persistentCache?.get(diskKey) : null;
+        if (cancelled()) throw new Error("战斗计算已取消");
+        if (cached) {
+          try {
+            validateCachedResult(cached, trials);
+            remember(key, cached);
+            progressTracker?.add(trials);
+            return cached;
+          } catch {
+            /* Damaged/old data is a cache miss, never a calculation failure. */
+          }
+        }
+        const result = await run();
+        if (cancelled()) throw new Error("战斗计算已取消");
+        validateCachedResult(result, trials);
+        remember(key, result);
+        if (diskKey) await persistentCache?.put(diskKey, result);
+        if (cancelled()) throw new Error("战斗计算已取消");
+        return result;
+      })();
       inFlight.set(key, pending);
       try {
-        const result = await pending;
-        if (ctx.destroyed || token !== generation) throw new Error("战斗计算已取消");
-        // Invalid or incomplete experience must never become a reusable result.
-        root.MwiLabyrinthCombatExperience.summarize(result);
-        remember(key, result);
-        return structuredClone(result);
+        return structuredClone(await pending);
       } finally {
         if (inFlight.get(key) === pending) inFlight.delete(key);
+      }
+    };
+    function validateCachedResult(result, trials) {
+      if (
+        result.trials !== trials ||
+        result.completedTrials !== trials ||
+        ![result.successes, result.failedByDeath, result.failedByTimeout].every(
+          (n) => Number.isSafeInteger(n) && n >= 0
+        ) ||
+        result.successes + result.failedByDeath + result.failedByTimeout !== trials ||
+        !Number.isFinite(result.totalSpentSeconds) ||
+        result.totalSpentSeconds < 0 ||
+        result.totalSpentSeconds > trials * 120 + 1e-6
+      )
+        throw new Error("模拟缓存数据无效");
+      root.MwiLabyrinthCombatExperience.summarize(result);
+    }
+    ctx.disposeSimulationCache = () => persistentCache?.close?.();
+    ctx.clearSimulationCache = async () => {
+      if (
+        ctx.manualUpdateRunning ||
+        ctx.automationEstimateRunning ||
+        ctx.roomDistributionRunning ||
+        inFlight.size ||
+        queue.length ||
+        slots.some((slot) => slot?.busy)
+      )
+        return false;
+      ctx.resetCombatSimulatorWorker();
+      ctx.clearSkillingSimulationCache?.();
+      ctx.simulationCacheClearing = Promise.resolve(persistentCache?.clear());
+      try {
+        const cleared = await ctx.simulationCacheClearing;
+        return !persistentCache || cleared === true;
+      } finally {
+        ctx.simulationCacheClearing = null;
       }
     };
 

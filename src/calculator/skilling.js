@@ -3,10 +3,20 @@
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["skilling"] = function (ctx) {
-    // A recommendation run owns this cache. Equal progress units and probabilities
-    // have exactly the same distribution, even when the room level differs.
+    const sharedStats = new Map(),
+      enhancingStats = new Map();
+    ctx.clearSkillingSimulationCache = () => {
+      sharedStats.clear();
+      enhancingStats.clear();
+    };
+    function rememberStats(cache, key, result) {
+      cache.set(key, result);
+      if (cache.size > 2048) cache.delete(cache.keys().next().value);
+      return { ...result };
+    }
+    // Only distribution inputs are shared; live labels and rewards are rebuilt.
     ctx.computeNonEnhancingClearStats = function computeNonEnhancingClearStats(params, cache) {
-      if (!cache) return calculateNonEnhancingClearStats(params);
+      cache ||= sharedStats;
       const progress = ctx.getEffectiveSkillingProgressPerSuccess(params.progressPerSuccess);
       const units = Math.ceil(params.targetProgress / progress - 1e-9);
       const key = JSON.stringify([
@@ -17,9 +27,10 @@
       ]);
       if (!(progress > 0) || !Number.isFinite(units)) return calculateNonEnhancingClearStats(params);
       if (cache.has(key)) return { ...cache.get(key) };
+      if (sharedStats.has(key)) return rememberStats(cache, key, sharedStats.get(key));
       const result = calculateNonEnhancingClearStats(params);
-      cache.set(key, result);
-      return { ...result };
+      rememberStats(sharedStats, key, result);
+      return rememberStats(cache, key, result);
     };
     function calculateNonEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, progressPerSuccess, targetProgress } = params;
@@ -94,6 +105,17 @@
     }
 
     ctx.computeEnhancingClearStats = function computeEnhancingClearStats(params) {
+      const key = JSON.stringify([
+        params.attempts,
+        params.successChance,
+        params.doubleChance,
+        params.targetLevel,
+        params.startLevel
+      ]);
+      if (enhancingStats.has(key)) return { ...enhancingStats.get(key) };
+      return rememberStats(enhancingStats, key, calculateEnhancingClearStats(params));
+    };
+    function calculateEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, targetLevel, startLevel } = params;
       const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
       const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
@@ -142,7 +164,7 @@
         clearChance,
         expectedAttemptsOnClear
       };
-    };
+    }
 
     ctx.getEnhancingTargetLevelByRoomLevel = function getEnhancingTargetLevelByRoomLevel(_roomLevel) {
       return 5;

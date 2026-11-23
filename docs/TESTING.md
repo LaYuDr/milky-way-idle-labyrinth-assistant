@@ -253,3 +253,8 @@ CI 使用 Node.js 24，运行同一完整门禁，并检查构建后的工作区
 - `node tools/browser-tokens.mjs` 回归右侧布局的三种宽度、代币方案、键盘/拖动、导出及保存。
 
 本机合成 3,000 条事件后追加一条，解压、合并、压缩的耗时中位数从约 151 毫秒降至约 6 毫秒，未包含 IndexedDB 读写；测量数据位于 `.workbench/optimizations/archive-benchmark.json`。上述均为离线验证，不是游戏服务器验收。
+
+## 共享模拟缓存
+
+- `npm run check:quick -- test/combat-engine.test.js test/calculator.test.js test/floor-parallel.test.js`：完整输入命中/失效、相同并发请求去重、跨实例恢复、配装/角色/模型/游戏数据隔离、损坏样本重算、读取期间取消、缓存清除保留显示、默认各入口固定种子与升级模拟复用。
+- `node tools/browser-simulation-cache.mjs`：390/1440/1920px 离线页面使用真实 Worker/WASM 与 IndexedDB，核对刷新后新增模拟为零、内部清理接口调用后重新模拟、跨标签读写、Infinity、条数/容量/LRU、配额异常和禁用存储。截图与报告在 `.workbench/simulation-cache/`；非真实游戏验收。

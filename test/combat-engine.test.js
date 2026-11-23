@@ -7,7 +7,7 @@ const zlib = require("node:zlib");
 const { webcrypto, createHash } = require("node:crypto");
 const source = fs.readFileSync(path.join(__dirname, "../src/calculator/combat-engine.js"), "utf8");
 const reference = require("./fixtures/combat-engine-reference.json");
-function fixture({ storage, navigator } = {}) {
+function fixture({ storage, navigator, cache } = {}) {
   const blobs = new Map();
   const state = { created: 0, runs: 0, stopped: 0, silent: false, transform: (m) => m };
   const packed = (name) => Buffer.from(source.match(new RegExp(`ctx\\.${name}\\s*=\\s*"([^"]+)"`))[1], "base64");
@@ -55,6 +55,7 @@ function fixture({ storage, navigator } = {}) {
   }
   const sandbox = {
     crypto: webcrypto,
+    TextEncoder,
     structuredClone,
     atob,
     Blob,
@@ -71,6 +72,7 @@ function fixture({ storage, navigator } = {}) {
     }
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/calculator/combat-experience.js"), "utf8"), sandbox);
+  if (cache) sandbox.MwiLabyrinthSimulationCache = { create: () => cache };
   vm.runInNewContext(source, sandbox);
   const ctx = {
     window: { crypto: webcrypto, localStorage: storage, navigator },
@@ -81,6 +83,7 @@ function fixture({ storage, navigator } = {}) {
     listen: (target, name, handler) => target.addEventListener(name, handler),
     finiteNumber: (n, fallback) => (Number.isFinite(Number(n)) ? Number(n) : fallback),
     deepCloneJson: (v) => JSON.parse(JSON.stringify(v)),
+    cachedInitClientDataRaw: JSON.stringify({ ...embedded.fallbackData, ...embedded.originalMaps }),
     getInitClientData: () => ({ ...embedded.fallbackData, ...embedded.originalMaps })
   };
   sandbox.MwiLabyrinthCalculatorModules["combat-engine"](ctx);
@@ -576,6 +579,11 @@ test("长任务按 4→6→9→14→16 扩容，卡顿降档后仍保存并放�
     timer.fn();
   }
   try {
+    // Cache fingerprints use asynchronous WebCrypto before entering the queue.
+    for (let i = 0; i < 200 && ctx.getCombatConcurrencyState().queued !== 16; i++)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
     assert.equal(ctx.getCombatConcurrencyState().active, 4);
     for (const expected of [6, 9, 14, 16]) {
       tick();
@@ -719,6 +727,94 @@ test("浏览器禁止存储时计算仍可完成，当前页面仍记住降低�
   assert.equal(ctx.getCombatConcurrencyState().limit, 2);
   try {
     assert.equal((await ctx.simulateCombatRoomWithWorker(reference.cases[0].params)).trials, 17);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});
+
+test("跨页面恢复完整样本；只重算变更配装，游戏数据与账号隔离，清理不触碰展示", async () => {
+  const disk = new Map();
+  const cache = {
+    get: async (key) => structuredClone(disk.get(key)),
+    put: async (key, value) => disk.set(key, structuredClone(value)),
+    clear: async () => {
+      disk.clear();
+      return true;
+    }
+  };
+  const params = { ...reference.cases[0].params, reuseSimulation: true };
+  const original = fixture({ cache });
+  original.ctx.storageIdentity = () => "origin:owner";
+  const expected = await original.ctx.simulateCombatRoomWithWorker(params);
+  original.ctx.resetCombatSimulatorWorker();
+  const next = fixture({ cache });
+  const { ctx, state } = next;
+  ctx.storageIdentity = () => "origin:owner";
+  try {
+    let progress = 0;
+    assert.deepEqual(await ctx.simulateCombatRoomWithWorker(params, { add: (n) => (progress += n) }), expected);
+    assert.equal(progress, params.trials);
+    assert.equal(state.runs, 0);
+    assert.equal(state.created, 0);
+    const changed = { ...params, playerDto: { ...params.playerDto, rangedLevel: 105 } };
+    await ctx.simulateCombatRoomWithWorker(changed);
+    assert.equal(state.runs, 1);
+    assert.deepEqual(await ctx.simulateCombatRoomWithWorker(params), expected);
+    assert.equal(state.runs, 1);
+    ctx.cachedInitClientDataRaw += " ";
+    await ctx.simulateCombatRoomWithWorker(params);
+    assert.equal(state.runs, 2);
+    assert.equal(state.created, 2, "updated game data reinitializes the worker");
+    ctx.storageIdentity = () => "other-owner";
+    await ctx.simulateCombatRoomWithWorker(params);
+    assert.equal(state.runs, 3);
+    ctx.automationRecommendByRoomTypeKey = new Map([["room", { levelDelta: 5 }]]);
+    ctx.manualUpdateRunning = true;
+    assert.equal(await ctx.clearSimulationCache(), false);
+    ctx.manualUpdateRunning = false;
+    assert.equal(await ctx.clearSimulationCache(), true);
+    assert.equal(disk.size, 0);
+    assert.equal(ctx.automationRecommendByRoomTypeKey.get("room").levelDelta, 5);
+    await ctx.simulateCombatRoomWithWorker(params);
+    assert.equal(state.runs, 4);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});
+
+test("损坏的持久化样本回退重算；读取期间取消不派发、不写缓存", async () => {
+  let stored, release;
+  const cache = {
+    get: async () => stored,
+    put: async (_key, value) => {
+      stored = structuredClone(value);
+    },
+    clear: async () => true
+  };
+  const { ctx, state } = fixture({ cache });
+  ctx.storageIdentity = () => "owner";
+  const params = { ...reference.cases[0].params, reuseSimulation: true };
+  try {
+    await ctx.simulateCombatRoomWithWorker(params);
+    stored.completedTrials = 0;
+    ctx.resetCombatSimulatorWorker();
+    await ctx.simulateCombatRoomWithWorker(params);
+    assert.equal(state.runs, 2);
+    assert.equal(stored.completedTrials, params.trials);
+    ctx.resetCombatSimulatorWorker();
+    cache.get = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const pending = ctx.simulateCombatRoomWithWorker(params);
+    while (!release)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
+    ctx.resetCombatSimulatorWorker();
+    release(null);
+    await assert.rejects(pending, /取消/);
+    assert.equal(state.runs, 2);
   } finally {
     ctx.resetCombatSimulatorWorker();
   }

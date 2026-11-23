@@ -236,8 +236,7 @@
               labyrinthUpgradeLevels,
               combatUpgrades,
               parallel: true,
-              isRunStale,
-              seed: ctx.window.crypto.getRandomValues(new Uint32Array(1))[0]
+              isRunStale
             }
           );
         }

@@ -29,6 +29,7 @@ export default [
   "src/calculator/history-view.js",
   "src/calculator/distribution.js",
   "src/calculator/controls.js",
+  "src/calculator/simulation-cache.js",
   "src/calculator/combat-engine.js",
   "src/calculator/live-progress.js",
   "src/calculator/loadouts.js",

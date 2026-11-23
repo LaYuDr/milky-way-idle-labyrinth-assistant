@@ -110,21 +110,14 @@ try {
       },
       { language }
     );
-    await page.evaluate(() => {
-      const ctx = window.testApi.context;
-      document.querySelector("#cell").addEventListener("mouseenter", () => {
-        window.previewEnteredAt = window.performance.now();
-      });
-      const position = ctx.positionPreviewTooltip;
-      ctx.positionPreviewTooltip = (...args) => {
-        window.previewShownAfter ??= window.performance.now() - window.previewEnteredAt;
-        return position(...args);
-      };
+    const showsImmediately = await page.evaluate(() => {
+      const cell = document.querySelector("#cell");
+      const rect = cell.getBoundingClientRect();
+      cell.dispatchEvent(new window.MouseEvent("mouseenter", { clientX: rect.x + 10, clientY: rect.y + 10 }));
+      return window.testApi.context.getPreviewTooltip()?.style.display === "block";
     });
-    await page.locator("#cell").hover();
+    assert.equal(showsImmediately, true);
     const tip = page.locator("#mwi-labyrinth-calc-clear-rate-preview");
-    await tip.waitFor({ state: "visible" });
-    assert.ok(await page.evaluate(() => window.previewShownAfter >= 490), "悬停约 500ms 后才显示");
     const leavesImmediately = await page.evaluate(() => {
       document.querySelector("#cell").dispatchEvent(new window.MouseEvent("mouseleave"));
       return window.testApi.context.getPreviewTooltip().style.display === "none";
@@ -466,6 +459,33 @@ try {
       separateYield: false,
       aligned: true
     });
+    const cappedLifeRows = await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      return ["skilling", "enhancing"].map((type) => {
+        const labels = (data) =>
+          [...ctx.renderSkillingPreviewTooltip(data).querySelectorAll(".mwi-labyrinth-calc-preview-upgrade")].map(
+            (row) => row.firstElementChild.textContent
+          );
+        const data = { ...window.previewData, type };
+        const baseline = labels(data);
+        const oneCapped = labels({ ...data, nextSkillingSuccessCost: null });
+        const bothCapped = labels({ ...data, nextSkillingSuccessCost: null, nextSkillingDoubleProgressCost: null });
+        const success = ctx.t("nextSkillingSuccessClearChance");
+        const double = ctx.t("nextSkillingDoubleProgressClearChance");
+        return { baseline, oneCapped, bothCapped, success, double };
+      });
+    });
+    for (const { baseline, oneCapped, bothCapped, success, double } of cappedLifeRows) {
+      assert.ok(baseline.includes(success) && baseline.includes(double));
+      assert.deepEqual(
+        oneCapped,
+        baseline.filter((name) => name !== success)
+      );
+      assert.deepEqual(
+        bothCapped,
+        baseline.filter((name) => name !== success && name !== double)
+      );
+    }
     // Optional/missing/zero values and enhancing retain the original fields.
     const checks = await page.evaluate(() => {
       const ctx = window.testApi.context;
@@ -488,7 +508,7 @@ try {
       const missingCostTip = ctx.renderSkillingPreviewTooltip({
         ...window.previewData,
         nextSkillingSuccessCost: undefined,
-        nextSkillingDoubleProgressCost: null
+        nextSkillingDoubleProgressCost: undefined
       });
       result.missingCosts = [...missingCostTip.querySelectorAll(".mwi-labyrinth-calc-preview-requirement")]
         .slice(-2)
@@ -673,8 +693,7 @@ try {
     assert.deepEqual(upgradeRows, [
       [names[0], "120 " + tokens, "52.0%", "+2.0", "120.0 K/h"],
       [names[1], "80 " + tokens, "48.8%", "-1.2", "110.0 K/h"],
-      [names[2], "80 " + tokens, "50.0%", "0.0", "0.0 K/h"],
-      [names[3], language === "zh" ? "已满级" : "Max level", "—", "—", "—"]
+      [names[2], "80 " + tokens, "50.0%", "0.0", "0.0 K/h"]
     ]);
     await tip.screenshot({ path: path.join(directory, `combat-upgrades-${language}-${width}-${height}.png`) });
     assert.equal(await tip.locator('.mwi-labyrinth-calc-preview-upgrade-experience[data-tone="good"]').count(), 1);
@@ -692,7 +711,22 @@ try {
         ctx.getExperienceTargets = getTargets;
       }
     });
-    assert.deepEqual(columns, [0, 0, 4]);
+    assert.deepEqual(columns, [0, 0, 3]);
+    const cappedLayout = await page.evaluate(() => {
+      const ctx = window.testApi.context;
+      const upgradeImpact = Object.fromEntries(
+        ctx.COMBAT_STAT_UPGRADES.map(({ key }) => [key, { level: 12, cost: null, clearChance: null }])
+      );
+      const tooltip = ctx.renderCombatPreviewTooltip({ ...window.combatUpgradeData, upgradeImpact });
+      return {
+        section: Boolean(tooltip.querySelector(".mwi-labyrinth-calc-preview-upgrades")),
+        rows: tooltip.querySelectorAll(".mwi-labyrinth-calc-preview-upgrade").length,
+        rewards: Boolean(
+          tooltip.textContent.includes(window.testApi.context.isChineseUi() ? "奖励期望" : "Expected rewards")
+        )
+      };
+    });
+    assert.deepEqual(cappedLayout, { section: false, rows: 0, rewards: true });
     const combatWithoutGoal = await page.evaluate(() => {
       const ctx = window.testApi.context;
       const getTargets = ctx.getExperienceTargets;

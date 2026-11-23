@@ -41,6 +41,7 @@ try {
     await page.locator("#mwi-labyrinth-calc-dock").waitFor({ state: "attached" });
 
     assert.equal(await page.locator("#mwi-labyrinth-sidebar-tab").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "清除模拟缓存", exact: true }).count(), 0);
     assert.equal(
       await page.locator("#mwi-labyrinth-planner").evaluate((node) => getComputedStyle(node).position),
       "static"

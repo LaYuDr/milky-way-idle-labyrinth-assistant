@@ -154,7 +154,7 @@
           const upgrades = [];
           for (const { key, zh, en } of ctx.COMBAT_STAT_UPGRADES) {
             const impact = data.upgradeImpact[key];
-            if (!impact) continue;
+            if (!impact || impact.cost === null) continue;
             const { cost, clearChance } = impact;
             ctx.appendPreviewRow(
               tooltip,
@@ -165,7 +165,7 @@
             row.classList.add(`${prefix}-upgrade`);
             const requirement = document.createElement("span");
             requirement.className = `${prefix}-requirement`;
-            requirement.textContent = cost === null ? text("已满级", "Max level") : `${cost} ${text("代币", "tokens")}`;
+            requirement.textContent = `${cost} ${text("代币", "tokens")}`;
             row.insertBefore(requirement, row.lastElementChild);
             appendDelta(row, data.clearChance, clearChance);
             appendUpgradeExperience(row, impact.experiencePerHour);
@@ -210,7 +210,19 @@
         thresholdRows.map((row) => [label(row), row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`)?.textContent])
       );
       thresholdRows.forEach((row) => row.remove());
-      const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key)));
+      const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key))).filter((row) => {
+        const costKey =
+          label(row) === ctx.t("nextSkillingSuccessClearChance")
+            ? "nextSkillingSuccessCost"
+            : label(row) === ctx.t("nextSkillingDoubleProgressClearChance")
+              ? "nextSkillingDoubleProgressCost"
+              : null;
+        if (costKey && data[costKey] === null) {
+          row.remove();
+          return false;
+        }
+        return true;
+      });
       if (upgrades.length) {
         for (const row of upgrades) {
           row.classList.add(`${prefix}-upgrade`);

@@ -3,9 +3,6 @@
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["previews"] = function (ctx) {
-    let showTimer = null;
-    let pendingCell = null;
-    let pendingPointer = null;
     let hoveredCell = null;
     let renderedPreview = null;
     let moveFrame = null;
@@ -15,10 +12,6 @@
       moveFrame = null;
     }
     function queueMove(cell, event) {
-      if (pendingCell === cell) {
-        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
-        return;
-      }
       if (hoveredCell !== cell) return;
       pointer = { clientX: event.clientX, clientY: event.clientY };
       if (moveFrame !== null) return;
@@ -44,12 +37,6 @@
       if (typeof hrid !== "string" || !hrid.startsWith("/monsters/")) return null;
       return weaknesses[hrid.slice("/monsters/".length)]?.[ctx.isChineseUi() ? 0 : 1] || null;
     };
-    function cancelShow() {
-      if (showTimer !== null) ctx.window.clearTimeout(showTimer);
-      showTimer = null;
-      pendingCell = null;
-      pendingPointer = null;
-    }
     ctx.getPreviewTooltip = function getPreviewTooltip() {
       return document.getElementById(ctx.PREVIEW_TOOLTIP_ID);
     };
@@ -69,7 +56,6 @@
     };
 
     ctx.hidePreviewTooltip = function hidePreviewTooltip() {
-      cancelShow();
       hoveredCell = null;
       renderedPreview = null;
       pointer = null;
@@ -815,7 +801,6 @@
     };
 
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
-      cancelShow();
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
@@ -839,14 +824,7 @@
       cell[ctx.PREVIEW_CELL_BOUND_FLAG] = true;
       ctx.listen(cell, "mouseenter", (event) => {
         ctx.hidePreviewTooltip();
-        pendingCell = cell;
-        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
-        showTimer = ctx.window.setTimeout(() => {
-          const position = pendingPointer;
-          const stillHovered = pendingCell === cell;
-          cancelShow();
-          if (!ctx.destroyed && stillHovered && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, position);
-        }, 500);
+        if (!ctx.destroyed && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, event);
       });
       ctx.listen(cell, "mousemove", (event) => {
         queueMove(cell, event);

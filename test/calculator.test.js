@@ -92,11 +92,11 @@ test("战斗房的四种升级共用基准场景，独立升一级且跳过已�
   const run = (options) =>
     ctx.computeCombatRoomClearChance({}, {}, room, {}, null, 100, "0,0", {
       labyrinthUpgradeLevels: levels,
-      seed: 173,
       ...options
     });
   const result = await run({ combatUpgrades: ctx.getCombatUpgradeOptions(levels) });
   assert.equal(calls.length, 5);
+  assert.ok(calls.every((params) => params.reuseSimulation && params.seed === 173));
   assert.equal(result.clearChance, 0.01);
   for (const [i, suffix] of ["combat_damage", "attack_speed", "cast_speed", "critical_rate"].entries()) {
     const key = "/labyrinth_upgrades/" + suffix;

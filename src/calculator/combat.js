@@ -366,8 +366,8 @@
           ? combatCrate.combatCrateItemHrids.slice()
           : [],
         trials,
-        seed: options.seed,
-        reuseSimulation: options.reuseSimulation,
+        seed: options.seed ?? 173,
+        reuseSimulation: options.reuseSimulation !== false,
         parallel: options.parallel
       };
       const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
@@ -527,8 +527,8 @@
           labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
           combatUpgrades: options.combatUpgrades,
           isRunStale: options.isRunStale,
-          seed: options.seed,
-          reuseSimulation: options.reuseSimulation,
+          seed: options.seed ?? 173,
+          reuseSimulation: options.reuseSimulation !== false,
           parallel: options.parallel
         }
       );

@@ -11401,10 +11401,20 @@ SOFTWARE.
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["skilling"] = function (ctx) {
-    // A recommendation run owns this cache. Equal progress units and probabilities
-    // have exactly the same distribution, even when the room level differs.
+    const sharedStats = new Map(),
+      enhancingStats = new Map();
+    ctx.clearSkillingSimulationCache = () => {
+      sharedStats.clear();
+      enhancingStats.clear();
+    };
+    function rememberStats(cache, key, result) {
+      cache.set(key, result);
+      if (cache.size > 2048) cache.delete(cache.keys().next().value);
+      return { ...result };
+    }
+    // Only distribution inputs are shared; live labels and rewards are rebuilt.
     ctx.computeNonEnhancingClearStats = function computeNonEnhancingClearStats(params, cache) {
-      if (!cache) return calculateNonEnhancingClearStats(params);
+      cache ||= sharedStats;
       const progress = ctx.getEffectiveSkillingProgressPerSuccess(params.progressPerSuccess);
       const units = Math.ceil(params.targetProgress / progress - 1e-9);
       const key = JSON.stringify([
@@ -11415,9 +11425,10 @@ SOFTWARE.
       ]);
       if (!(progress > 0) || !Number.isFinite(units)) return calculateNonEnhancingClearStats(params);
       if (cache.has(key)) return { ...cache.get(key) };
+      if (sharedStats.has(key)) return rememberStats(cache, key, sharedStats.get(key));
       const result = calculateNonEnhancingClearStats(params);
-      cache.set(key, result);
-      return { ...result };
+      rememberStats(sharedStats, key, result);
+      return rememberStats(cache, key, result);
     };
     function calculateNonEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, progressPerSuccess, targetProgress } = params;
@@ -11492,6 +11503,17 @@ SOFTWARE.
     }
 
     ctx.computeEnhancingClearStats = function computeEnhancingClearStats(params) {
+      const key = JSON.stringify([
+        params.attempts,
+        params.successChance,
+        params.doubleChance,
+        params.targetLevel,
+        params.startLevel
+      ]);
+      if (enhancingStats.has(key)) return { ...enhancingStats.get(key) };
+      return rememberStats(enhancingStats, key, calculateEnhancingClearStats(params));
+    };
+    function calculateEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, targetLevel, startLevel } = params;
       const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
       const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
@@ -11540,7 +11562,7 @@ SOFTWARE.
         clearChance,
         expectedAttemptsOnClear
       };
-    };
+    }
 
     ctx.getEnhancingTargetLevelByRoomLevel = function getEnhancingTargetLevelByRoomLevel(_roomLevel) {
       return 5;
@@ -12657,9 +12679,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   "use strict";
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["previews"] = function (ctx) {
-    let showTimer = null;
-    let pendingCell = null;
-    let pendingPointer = null;
     let hoveredCell = null;
     let renderedPreview = null;
     let moveFrame = null;
@@ -12669,10 +12688,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       moveFrame = null;
     }
     function queueMove(cell, event) {
-      if (pendingCell === cell) {
-        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
-        return;
-      }
       if (hoveredCell !== cell) return;
       pointer = { clientX: event.clientX, clientY: event.clientY };
       if (moveFrame !== null) return;
@@ -12698,12 +12713,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (typeof hrid !== "string" || !hrid.startsWith("/monsters/")) return null;
       return weaknesses[hrid.slice("/monsters/".length)]?.[ctx.isChineseUi() ? 0 : 1] || null;
     };
-    function cancelShow() {
-      if (showTimer !== null) ctx.window.clearTimeout(showTimer);
-      showTimer = null;
-      pendingCell = null;
-      pendingPointer = null;
-    }
     ctx.getPreviewTooltip = function getPreviewTooltip() {
       return document.getElementById(ctx.PREVIEW_TOOLTIP_ID);
     };
@@ -12723,7 +12732,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     };
 
     ctx.hidePreviewTooltip = function hidePreviewTooltip() {
-      cancelShow();
       hoveredCell = null;
       renderedPreview = null;
       pointer = null;
@@ -13469,7 +13477,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     };
 
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
-      cancelShow();
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
@@ -13493,14 +13500,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       cell[ctx.PREVIEW_CELL_BOUND_FLAG] = true;
       ctx.listen(cell, "mouseenter", (event) => {
         ctx.hidePreviewTooltip();
-        pendingCell = cell;
-        pendingPointer = { clientX: event.clientX, clientY: event.clientY };
-        showTimer = ctx.window.setTimeout(() => {
-          const position = pendingPointer;
-          const stillHovered = pendingCell === cell;
-          cancelShow();
-          if (!ctx.destroyed && stillHovered && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, position);
-        }, 500);
+        if (!ctx.destroyed && cell.isConnected) ctx.showSkillingPreviewTooltip(cell, event);
       });
       ctx.listen(cell, "mousemove", (event) => {
         queueMove(cell, event);
@@ -16963,6 +16963,169 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   };
 })(globalThis);
 
+// SOURCE: src/calculator/simulation-cache.js
+// Local, disposable simulation samples. Never stores credentials or uploads data.
+(function (root) {
+  "use strict";
+  function create({ indexedDB = root.indexedDB, maxEntries = 8192, maxBytes = 32 * 1024 * 1024 } = {}) {
+    let opening,
+      disabled = false;
+    function open() {
+      if (disabled || !indexedDB) return Promise.resolve(null);
+      return (opening ||= new Promise((resolve) => {
+        let settled = false;
+        const finish = (db) => {
+          if (settled) {
+            db?.close();
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          if (!db) disabled = true;
+          resolve(db);
+        };
+        const timer = setTimeout(() => finish(null), 1500);
+        try {
+          const request = indexedDB.open("mwi-labyrinth:simulation-cache:v1", 1);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore("samples").createIndex("used", "used");
+            request.result.createObjectStore("meta");
+          };
+          request.onerror = request.onblocked = () => finish(null);
+          request.onsuccess = () => {
+            const db = request.result;
+            db.onversionchange = () => {
+              db.close();
+              disabled = true;
+            };
+            finish(db);
+          };
+        } catch {
+          finish(null);
+        }
+      }));
+    }
+    async function transaction(action) {
+      const db = await open();
+      if (!db || disabled) return null;
+      return new Promise((resolve) => {
+        let tx,
+          value = null,
+          done = false;
+        const finish = (result) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(result);
+        };
+        const timer = setTimeout(() => {
+          disabled = true;
+          try {
+            tx?.abort();
+          } catch {
+            /* Already completed. */
+          }
+          finish(null);
+        }, 1500);
+        try {
+          tx = db.transaction(["samples", "meta"], "readwrite");
+          tx.oncomplete = () => finish(value);
+          tx.onabort = tx.onerror = () => {
+            disabled = true;
+            finish(null);
+          };
+          action(
+            tx.objectStore("samples"),
+            tx.objectStore("meta"),
+            (result) => {
+              value = result;
+            },
+            (callback) => () => {
+              try {
+                callback();
+              } catch {
+                tx.abort();
+              }
+            }
+          );
+        } catch {
+          disabled = true;
+          finish(null);
+        }
+      });
+    }
+    return {
+      close() {
+        disabled = true;
+        void opening?.then((db) => db?.close());
+      },
+      get(key) {
+        return transaction((samples, _meta, set, guard) => {
+          const request = samples.get(key);
+          request.onsuccess = guard(() => {
+            const row = request.result;
+            if (!row || row.schema !== 1) return;
+            samples.put({ ...row, used: Date.now() }, key);
+            set(row.result);
+          });
+        });
+      },
+      put(key, result) {
+        // JSON is only used for the size estimate. IndexedDB preserves Infinity.
+        const bytes = 2 * (key.length + JSON.stringify(result).length);
+        if (bytes > maxBytes) return Promise.resolve(null);
+        return transaction((samples, meta, _set, guard) => {
+          const prior = samples.get(key),
+            totals = meta.get("totals");
+          let ready = 0;
+          const write = () => {
+            if (++ready !== 2) return;
+            const count = { entries: 0, bytes: 0, ...totals.result };
+            const valid =
+              [count.entries, count.bytes].every((n) => Number.isSafeInteger(n) && n >= 0) &&
+              (!prior.result || (Number.isSafeInteger(prior.result.bytes) && prior.result.bytes > 0));
+            if (!valid) {
+              samples.clear();
+              count.entries = 1;
+              count.bytes = bytes;
+            } else {
+              count.entries += prior.result ? 0 : 1;
+              count.bytes += bytes - (prior.result?.bytes || 0);
+            }
+            samples.put({ schema: 1, bytes, used: Date.now(), result }, key);
+            const save = () => meta.put(count, "totals");
+            if (count.entries <= maxEntries && count.bytes <= maxBytes) {
+              save();
+              return;
+            }
+            const cursor = samples.index("used").openCursor();
+            cursor.onsuccess = guard(() => {
+              const item = cursor.result;
+              if (!item || (count.entries <= maxEntries && count.bytes <= maxBytes)) {
+                save();
+                return;
+              }
+              count.entries--;
+              count.bytes -= item.value.bytes;
+              item.delete();
+              item.continue();
+            });
+          };
+          prior.onsuccess = totals.onsuccess = guard(write);
+        });
+      },
+      clear() {
+        return transaction((samples, meta, set) => {
+          samples.clear();
+          meta.clear();
+          set(true);
+        });
+      }
+    };
+  }
+  root.MwiLabyrinthSimulationCache = Object.freeze({ create });
+})(globalThis);
+
 // SOURCE: src/calculator/combat-engine.js
 // Worker adapter for Yinhaoran1128/labyrinth-clear-rate 1.8.2 (e30f758841ba).
 // Engine authors: dakonglong, wow121, Yinhr. Sources and hashes: docs/THIRD_PARTY.md.
@@ -16972,7 +17135,26 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   root.MwiLabyrinthCalculatorModules["combat-engine"] = function (ctx) {
     const slots = [];
     const queue = [];
-    let gameDataSnapshot = null;
+    const persistentCache = root.MwiLabyrinthSimulationCache?.create({ indexedDB: ctx.window.indexedDB });
+    let fingerprintSource = null,
+      fingerprintPromise = null,
+      engineFingerprint = null;
+    const digest = async (value) => {
+      const crypto = ctx.window.crypto || root.crypto;
+      if (!crypto?.subtle) return null;
+      const bytes = new TextEncoder().encode(value);
+      return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (n) =>
+        n.toString(16).padStart(2, "0")
+      ).join("");
+    };
+    function gameFingerprint(data) {
+      const source = ctx.cachedInitClientDataRaw || JSON.stringify(data);
+      if (source !== fingerprintSource) {
+        fingerprintSource = source;
+        fingerprintPromise = digest(source);
+      }
+      return fingerprintPromise;
+    }
     ctx.getCombatParallelism = () => {
       const cores = Number(ctx.window.navigator?.hardwareConcurrency);
       const memory = Number(ctx.window.navigator?.deviceMemory);
@@ -17145,7 +17327,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       completed.clear();
       inFlight.clear();
       cachedBytes = 0;
-      gameDataSnapshot = null;
+
       for (const slot of slots) {
         if (slot?.worker) slot.worker.terminate();
         if (slot?.url) URL.revokeObjectURL(slot.url);
@@ -17237,9 +17419,19 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     function slotAt(index) {
       return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false });
     }
-    function ensureSlot(index) {
+    function ensureSlot(
+      index,
+      gameData = ctx.getInitClientData(),
+      gameKey = ctx.cachedInitClientDataRaw || JSON.stringify(gameData)
+    ) {
       if (ctx.destroyed) return Promise.reject(new Error("计算已停止"));
       const slot = slotAt(index);
+      if (slot.initialization && slot.gameKey !== gameKey) {
+        slot.worker?.terminate();
+        if (slot.url) URL.revokeObjectURL(slot.url);
+        slot.initialization = null;
+      }
+      slot.gameKey = gameKey;
       if (slot.initialization) return slot.initialization;
       const token = generation;
       slot.initialization = (async () => {
@@ -17247,8 +17439,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const assets = await ctx.combatWorkerScriptPromise;
         if (ctx.destroyed) throw new Error("计算已停止");
         if (token !== generation) throw new Error("战斗引擎初始化已取消");
-        gameDataSnapshot ||= ctx.getInitClientData();
-        if (!gameDataSnapshot) throw new Error("游戏数据尚未就绪");
+        if (!gameData) throw new Error("游戏数据尚未就绪");
         slot.url = URL.createObjectURL(new Blob([assets.workerBuffer], { type: "text/javascript" }));
         const worker = new Worker(slot.url);
         slot.worker = worker;
@@ -17264,7 +17455,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         await request(worker, "init", {
           wasm: assets.wasmBuffer.slice(0),
           hash: ctx.MWISIM_WASM_SHA256,
-          gameData: gameDataSnapshot.maps || gameDataSnapshot,
+          gameData: gameData.maps || gameData,
           fallbackData: assets.data?.fallbackData,
           originalMaps: assets.data?.originalMaps
         });
@@ -17315,7 +17506,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           token = generation;
         slot.busy = true;
         (async () => {
-          const worker = await ensureSlot(index);
+          const worker = await ensureSlot(index, job.gameData, job.gameKey);
           if (token !== generation || ctx.destroyed) throw new Error("战斗计算已取消");
           return request(worker, "run", { params: job.payload }, job.payload.trials, job.progressTracker);
         })()
@@ -17329,16 +17520,28 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           });
       }
     }
-    function dispatch(payload, progressTracker, parallel) {
+    function dispatch(payload, progressTracker, parallel, gameData, gameKey) {
       if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
       return new Promise((resolve, reject) => {
-        queue.push({ payload, progressTracker, resolve, reject, limit: parallel ? ctx.getCombatParallelism() : 1 });
+        queue.push({
+          payload,
+          progressTracker,
+          resolve,
+          reject,
+          gameData,
+          gameKey,
+          limit: parallel ? ctx.getCombatParallelism() : 1
+        });
         pump();
         startMonitor();
       });
     }
     ctx.simulateCombatRoomWithWorker = async function (params, progressTracker) {
-      if (ctx.destroyed) throw new Error("战斗计算已取消");
+      const token = generation,
+        owner = ctx.storageIdentity?.();
+      const cancelled = () => ctx.destroyed || token !== generation || ctx.storageIdentity?.() !== owner;
+      if (ctx.simulationCacheClearing) await ctx.simulationCacheClearing;
+      if (cancelled()) throw new Error("战斗计算已取消");
       const trials = Math.max(1, Math.floor(ctx.finiteNumber(params?.trials, 1)));
       const payload = {
         playerDto: ctx.deepCloneJson(params.playerDto),
@@ -17348,12 +17551,26 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         mazeCrateItemHrids: ctx.deepCloneJson(params.mazeCrateItemHrids || []),
         ...(params.seed === undefined ? {} : { seed: params.seed })
       };
-      // Only explicitly seeded EXP scans opt in. Compare the complete Worker input,
-      // not UI revisions or partial equipment signatures. Random runs stay fresh.
-      if (!params.reuseSimulation || !Number.isSafeInteger(params.seed))
-        return dispatch(payload, progressTracker, params.parallel);
-      const key = JSON.stringify([ctx.storageIdentity?.(), ctx.COMBAT_MODEL_SIGNATURE, payload]);
-      const token = generation;
+      const gameData = ctx.getInitClientData();
+      if (!gameData) throw new Error("游戏数据尚未就绪");
+      engineFingerprint ||= digest(
+        [ctx.MWISIM_WORKER_GZ_BASE64, ctx.MWISIM_DATA_GZ_BASE64, ctx.MWISIM_WASM_SHA256].join(":")
+      );
+      const pendingGameKey = gameFingerprint(gameData),
+        gameSource = fingerprintSource;
+      const [gameKey, engineKey] = await Promise.all([pendingGameKey, engineFingerprint]);
+      if (cancelled()) throw new Error("战斗计算已取消");
+      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource);
+      // Explicit opt-out remains available to benchmarks and fresh simulations.
+      if (!params.reuseSimulation || !Number.isSafeInteger(params.seed)) return run();
+      const key = JSON.stringify([
+        owner,
+        ctx.COMBAT_MODEL_SIGNATURE,
+        ctx.MWISIM_ENGINE_TAG,
+        engineKey,
+        gameKey || gameSource,
+        payload
+      ]);
       const hit = completed.get(key);
       if (hit) {
         completed.delete(key);
@@ -17363,21 +17580,73 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       if (inFlight.has(key)) {
         const result = await inFlight.get(key);
-        if (ctx.destroyed || token !== generation) throw new Error("战斗计算已取消");
+        if (cancelled()) throw new Error("战斗计算已取消");
         progressTracker?.add(trials);
         return structuredClone(result);
       }
-      const pending = dispatch(payload, progressTracker, params.parallel);
+      const pending = (async () => {
+        const diskKey = gameKey && owner ? await digest(key) : null;
+        const cached = diskKey ? await persistentCache?.get(diskKey) : null;
+        if (cancelled()) throw new Error("战斗计算已取消");
+        if (cached) {
+          try {
+            validateCachedResult(cached, trials);
+            remember(key, cached);
+            progressTracker?.add(trials);
+            return cached;
+          } catch {
+            /* Damaged/old data is a cache miss, never a calculation failure. */
+          }
+        }
+        const result = await run();
+        if (cancelled()) throw new Error("战斗计算已取消");
+        validateCachedResult(result, trials);
+        remember(key, result);
+        if (diskKey) await persistentCache?.put(diskKey, result);
+        if (cancelled()) throw new Error("战斗计算已取消");
+        return result;
+      })();
       inFlight.set(key, pending);
       try {
-        const result = await pending;
-        if (ctx.destroyed || token !== generation) throw new Error("战斗计算已取消");
-        // Invalid or incomplete experience must never become a reusable result.
-        root.MwiLabyrinthCombatExperience.summarize(result);
-        remember(key, result);
-        return structuredClone(result);
+        return structuredClone(await pending);
       } finally {
         if (inFlight.get(key) === pending) inFlight.delete(key);
+      }
+    };
+    function validateCachedResult(result, trials) {
+      if (
+        result.trials !== trials ||
+        result.completedTrials !== trials ||
+        ![result.successes, result.failedByDeath, result.failedByTimeout].every(
+          (n) => Number.isSafeInteger(n) && n >= 0
+        ) ||
+        result.successes + result.failedByDeath + result.failedByTimeout !== trials ||
+        !Number.isFinite(result.totalSpentSeconds) ||
+        result.totalSpentSeconds < 0 ||
+        result.totalSpentSeconds > trials * 120 + 1e-6
+      )
+        throw new Error("模拟缓存数据无效");
+      root.MwiLabyrinthCombatExperience.summarize(result);
+    }
+    ctx.disposeSimulationCache = () => persistentCache?.close?.();
+    ctx.clearSimulationCache = async () => {
+      if (
+        ctx.manualUpdateRunning ||
+        ctx.automationEstimateRunning ||
+        ctx.roomDistributionRunning ||
+        inFlight.size ||
+        queue.length ||
+        slots.some((slot) => slot?.busy)
+      )
+        return false;
+      ctx.resetCombatSimulatorWorker();
+      ctx.clearSkillingSimulationCache?.();
+      ctx.simulationCacheClearing = Promise.resolve(persistentCache?.clear());
+      try {
+        const cleared = await ctx.simulationCacheClearing;
+        return !persistentCache || cleared === true;
+      } finally {
+        ctx.simulationCacheClearing = null;
       }
     };
 
@@ -19309,8 +19578,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           ? combatCrate.combatCrateItemHrids.slice()
           : [],
         trials,
-        seed: options.seed,
-        reuseSimulation: options.reuseSimulation,
+        seed: options.seed ?? 173,
+        reuseSimulation: options.reuseSimulation !== false,
         parallel: options.parallel
       };
       const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
@@ -19470,8 +19739,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
           combatUpgrades: options.combatUpgrades,
           isRunStale: options.isRunStale,
-          seed: options.seed,
-          reuseSimulation: options.reuseSimulation,
+          seed: options.seed ?? 173,
+          reuseSimulation: options.reuseSimulation !== false,
           parallel: options.parallel
         }
       );
@@ -19779,8 +20048,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               labyrinthUpgradeLevels,
               combatUpgrades,
               parallel: true,
-              isRunStale,
-              seed: ctx.window.crypto.getRandomValues(new Uint32Array(1))[0]
+              isRunStale
             }
           );
         }
@@ -21917,7 +22185,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           const upgrades = [];
           for (const { key, zh, en } of ctx.COMBAT_STAT_UPGRADES) {
             const impact = data.upgradeImpact[key];
-            if (!impact) continue;
+            if (!impact || impact.cost === null) continue;
             const { cost, clearChance } = impact;
             ctx.appendPreviewRow(
               tooltip,
@@ -21928,7 +22196,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             row.classList.add(`${prefix}-upgrade`);
             const requirement = document.createElement("span");
             requirement.className = `${prefix}-requirement`;
-            requirement.textContent = cost === null ? text("已满级", "Max level") : `${cost} ${text("代币", "tokens")}`;
+            requirement.textContent = `${cost} ${text("代币", "tokens")}`;
             row.insertBefore(requirement, row.lastElementChild);
             appendDelta(row, data.clearChance, clearChance);
             appendUpgradeExperience(row, impact.experiencePerHour);
@@ -21973,7 +22241,19 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         thresholdRows.map((row) => [label(row), row.querySelector(`.${ctx.PREVIEW_TOOLTIP_CLASS}__value`)?.textContent])
       );
       thresholdRows.forEach((row) => row.remove());
-      const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key)));
+      const upgrades = take(Object.keys(upgradeFields).map((key) => ctx.t(key))).filter((row) => {
+        const costKey =
+          label(row) === ctx.t("nextSkillingSuccessClearChance")
+            ? "nextSkillingSuccessCost"
+            : label(row) === ctx.t("nextSkillingDoubleProgressClearChance")
+              ? "nextSkillingDoubleProgressCost"
+              : null;
+        if (costKey && data[costKey] === null) {
+          row.remove();
+          return false;
+        }
+        return true;
+      });
       if (upgrades.length) {
         for (const row of upgrades) {
           row.classList.add(`${prefix}-upgrade`);
@@ -23094,6 +23374,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       for (const [id, kind] of timers) window[`clear${kind}`](id);
       timers.clear();
       ctx.resetCombatSimulatorWorker(new Error("迷宫助手已停止计算"));
+      ctx.disposeSimulationCache();
       ctx.restoreProgressHook?.();
       ctx.clearAutomationWideLayout();
       const table = ctx.getAutomationEstimateTable();
@@ -23271,7 +23552,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.16",
+    version: "0.12.17",
     status: "ready",
     plan: core?.plan,
     destroy() {
