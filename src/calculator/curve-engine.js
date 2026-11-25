@@ -11,7 +11,9 @@
     const DEFAULT_BASE_TRIALS = statsMod?.DEFAULT_BASE_TRIALS || 250;
     const DEFAULT_CHUNK_TRIALS = statsMod?.DEFAULT_CHUNK_TRIALS || 250;
     const DEFAULT_MAX_LEVEL = statsMod?.DEFAULT_MAX_LEVEL || 300;
-    const DEFAULT_BATCH_SIZE = 10;
+    const DEFAULT_BATCH_SIZE = 3;
+    const BG_BATCH_COOLDOWN_MS = 40;
+    const BG_FOREGROUND_WAIT_MS = 150;
 
     const curveStore = storeMod?.create({ indexedDB: ctx.window?.indexedDB }) || null;
     const combatCurves = new Map(); // curveKey -> CurveEntry
@@ -23,6 +25,7 @@
     let backgroundRunId = 0;
     let backgroundRunning = false;
     let backgroundPaused = false;
+    let userPausedBackground = false;
     let backgroundProgress = {
       readyMonsters: 0,
       totalMonsters: 10,
@@ -596,6 +599,11 @@
       const entry = await hydrateCombatCurve(profile, hi);
       if (cancelled() || ctx.destroyed) return entry;
 
+      const sleepMs = (ms) =>
+        new Promise((resolve) => {
+          ctx.setTimeout(resolve, ms);
+        });
+
       const runWave = async (jobs, wavePriority, stageName) => {
         if (!jobs.length) return;
         const batches = [];
@@ -603,10 +611,18 @@
           batches.push(jobs.slice(i, i + batchSize));
         }
         let cursor = 0;
-        const lanes = Math.max(1, Math.min(batches.length, ctx.getCombatParallelism()));
+        const maxLanes =
+          wavePriority >= 2
+            ? Math.max(1, Math.min(4, Math.floor(ctx.getCombatParallelism() / 2)))
+            : ctx.getCombatParallelism();
+        const lanes = Math.max(1, Math.min(batches.length, maxLanes));
         await Promise.all(
           Array.from({ length: lanes }, async () => {
             while (!cancelled() && !ctx.destroyed) {
+              if (wavePriority >= 2 && ctx.hasForegroundCombatWork?.()) {
+                await sleepMs(BG_FOREGROUND_WAIT_MS);
+                continue;
+              }
               const idx = cursor++;
               if (idx >= batches.length) return;
               const batch = batches[idx];
@@ -628,6 +644,9 @@
                 completedLevels: countCompletedLevels(entry.view, hi),
                 maxLevel: hi
               });
+              if (wavePriority >= 2 && !cancelled() && !ctx.destroyed) {
+                await sleepMs(BG_BATCH_COOLDOWN_MS);
+              }
             }
           })
         );
@@ -647,7 +666,7 @@
             for (const c of plan) hotJobs.push({ level: lv, trials: c.trials, seed: c.seed });
           }
         }
-        await runWave(hotJobs, Math.min(priority, 1), "stage1-hot");
+        await runWave(hotJobs, priority, "stage1-hot");
         if (cancelled() || ctx.destroyed) return entry;
       }
 
@@ -699,14 +718,36 @@
       return {
         running: backgroundRunning,
         paused: backgroundPaused,
+        userPaused: userPausedBackground,
         ...backgroundProgress
       };
     };
 
+    ctx.pauseBackgroundCurvePrecompute = function pauseBackgroundCurvePrecompute() {
+      userPausedBackground = true;
+      backgroundRunId += 1;
+      backgroundRunning = false;
+      backgroundPaused = true;
+      ctx.__activeBackgroundCurveSignature = "";
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
+      backgroundProgress = { ...backgroundProgress, stage: "paused", currentMonster: "" };
+      notifyCurveListeners();
+    };
+
+    ctx.triggerBackgroundCurvePrecompute = function triggerBackgroundCurvePrecompute(state) {
+      userPausedBackground = false;
+      const targetState = state || ctx.getGameState?.();
+      if (!targetState?.characterLabyrinth) return;
+      ctx.scheduleBackgroundCurvePrecompute(targetState, { force: true });
+    };
+
     ctx.stopBackgroundCurvePrecompute = function stopBackgroundCurvePrecompute() {
+      userPausedBackground = false;
       backgroundRunId += 1;
       backgroundRunning = false;
       backgroundPaused = false;
+      ctx.__activeBackgroundCurveSignature = "";
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
       backgroundProgress = { ...backgroundProgress, stage: "idle", currentMonster: "" };
       notifyCurveListeners();
     };
@@ -723,11 +764,15 @@
       if (ctx.destroyed || !state?.characterLabyrinth) return;
       const initClientData = ctx.getInitClientData();
       if (!initClientData) return;
+      if (options.force) userPausedBackground = false;
+      if (userPausedBackground && !options.force) return;
       if (!options.force && !isLabyrinthSurfaceActive()) {
         if (backgroundRunning) {
           backgroundPaused = true;
           backgroundRunId += 1;
           backgroundRunning = false;
+          ctx.__activeBackgroundCurveSignature = "";
+          ctx.cancelQueuedCombatJobsByPriority?.(2);
           backgroundProgress = { ...backgroundProgress, stage: "paused" };
           notifyCurveListeners();
         }
@@ -762,9 +807,9 @@
       }
 
       const floor = Math.max(1, Math.floor(ctx.finiteNumber(state.characterLabyrinth?.currentFloor, 1)));
-      const hotMin = Math.max(1, floor * 20 - 10);
-      const hotMax = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 60);
       const defaultMaxLevel = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 40);
+      const hotMin = Math.max(1, floor * 20 - 10);
+      const hotMax = Math.min(defaultMaxLevel, floor * 20 + 30);
 
       const entries = (ctx.LABYRINTH_AUTOMATION_COMBAT_ROOM_TYPES || []).slice().sort((a, b) => {
         const aHot = floorMonsters.has(a.monsterHrid) ? 0 : 1;
@@ -772,21 +817,27 @@
         return aHot - bHot;
       });
 
+      const providedCombatProfiles = options.combatProfiles;
+      const providedSkillProfiles = options.skillProfiles;
       const profiles = [];
       for (const item of entries) {
-        const profile = ctx.extractCombatProfile(state, initClientData, item.monsterHrid, maxEnhancementByItem, {
-          labyrinthUpgradeLevels,
-          identity
-        });
+        const profile =
+          providedCombatProfiles?.get?.(item.monsterHrid) ||
+          ctx.extractCombatProfile(state, initClientData, item.monsterHrid, maxEnhancementByItem, {
+            labyrinthUpgradeLevels,
+            identity
+          });
         if (profile) profiles.push(profile);
       }
       if (!profiles.length) return;
 
       // Also warm all 10 skilling 1..300 curves synchronously (~3ms total).
       for (const item of ctx.LABYRINTH_AUTOMATION_SKILL_ROOM_TYPES || []) {
-        const skProfile = ctx.extractSkillingProfile(state, initClientData, item.skillHrid, maxEnhancementByItem, {
-          labyrinthUpgradeLevels
-        });
+        const skProfile =
+          providedSkillProfiles?.get?.(item.skillHrid) ||
+          ctx.extractSkillingProfile(state, initClientData, item.skillHrid, maxEnhancementByItem, {
+            labyrinthUpgradeLevels
+          });
         if (skProfile) ctx.getOrBuildSkillingCurve(skProfile, defaultMaxLevel);
       }
 
@@ -806,6 +857,7 @@
       if (allReady) {
         backgroundRunning = false;
         backgroundPaused = false;
+        ctx.__activeBackgroundCurveSignature = "";
         backgroundProgress = {
           readyMonsters: profiles.length,
           totalMonsters: profiles.length,
@@ -817,13 +869,14 @@
         return;
       }
 
-      // Avoid restarting if already running for the exact same profile signature set.
-      const runSignature =
-        profiles.map((p) => p.curveKey).join(",") + `|${targetTrials}|${fullPrecision}|${defaultMaxLevel}`;
+      // Order-independent signature so revealing new floor tiles never cancels/restarts background precomputation.
+      const stableKeys = profiles.map((p) => p.curveKey).sort();
+      const runSignature = stableKeys.join(",") + `|${targetTrials}|${fullPrecision}|${defaultMaxLevel}`;
       if (backgroundRunning && ctx.__activeBackgroundCurveSignature === runSignature) {
         return;
       }
 
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
       ctx.__activeBackgroundCurveSignature = runSignature;
       const runId = ++backgroundRunId;
       backgroundRunning = true;

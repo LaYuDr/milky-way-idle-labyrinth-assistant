@@ -27,6 +27,22 @@
       panel.append(advanced);
       return panel;
     };
+    let disposeCurveListener = null;
+    function formatCurveActionLabel(status) {
+      const total = Math.max(1, Number(status?.totalMonsters) || 10);
+      const ready = Math.max(0, Math.min(total, Number(status?.readyMonsters) || 0));
+      if (status?.running) return text(`曲线表 ${ready}/${total} · 暂停`, `Curve ${ready}/${total} · Pause`);
+      if (status?.stage === "ready" && ready >= total)
+        return text(`曲线表 ${ready}/${total} 已就绪`, `Curve ${ready}/${total} ready`);
+      if (status?.paused) return text(`曲线表 ${ready}/${total} · 继续`, `Curve ${ready}/${total} · Resume`);
+      return text(`预建曲线表 (${ready}/${total})`, `Build curves (${ready}/${total})`);
+    }
+    function syncCurveActionButton(control, status = ctx.getCurvePrecomputeStatus?.()) {
+      const button = control?.querySelector?.(".mwi-labyrinth-calc-curve-action");
+      if (!button) return;
+      button.textContent = formatCurveActionLabel(status);
+      button.dataset.stage = String(status?.stage || "idle");
+    }
     function syncRecommendationControls(control) {
       if (!control) return;
       const running = ctx.automationEstimateRunning;
@@ -48,6 +64,7 @@
         stop.hidden = !running;
         if (!running) stop.disabled = false;
       }
+      syncCurveActionButton(control);
       const status = control.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__status`);
       if (status) status.hidden = !running && ["", ctx.t("pending"), ctx.t("calcDone")].includes(status.textContent);
     }
@@ -122,6 +139,27 @@
         const goals = control.querySelector("#mwi-labyrinth-calc-experience-goals");
         const precisionToggle = goals.querySelector(".mwi-labyrinth-calc-curve-precision");
         if (precisionToggle) actions.prepend(precisionToggle);
+        if (typeof ctx.getCurvePrecomputeStatus === "function") {
+          const curveButton = document.createElement("button");
+          curveButton.type = "button";
+          curveButton.className = "mwi-labyrinth-calc-curve-action";
+          curveButton.title = text(
+            "1~300 级战斗曲线本地缓存：建好后走迷宫与推荐直接查表，仅改配装或属性时重算受影响的怪物",
+            "Local 1-300 combat curve table: instant lookup during labyrinth runs & recommendations; only affected monsters recalculate on stat/loadout changes."
+          );
+          ctx.listen(curveButton, "click", () => {
+            if (ctx.getCurvePrecomputeStatus?.()?.running) ctx.pauseBackgroundCurvePrecompute?.();
+            else ctx.triggerBackgroundCurvePrecompute?.();
+            syncCurveActionButton(control);
+          });
+          actions.prepend(curveButton);
+          syncCurveActionButton(control);
+          if (!disposeCurveListener && typeof ctx.onCurveStatusChange === "function") {
+            disposeCurveListener = ctx.onCurveStatusChange((nextStatus) => {
+              syncCurveActionButton(document.getElementById(ctx.AUTOMATION_ESTIMATE_CONTROL_ID), nextStatus);
+            });
+          }
+        }
         const experienceHeading = document.createElement("div");
         experienceHeading.className = "mwi-labyrinth-calc-experience-heading";
         const experienceTools = document.createElement("div");
@@ -278,6 +316,8 @@
       return tooltip;
     };
     ctx.disposePresentation = () => {
+      disposeCurveListener?.();
+      disposeCurveListener = null;
       document
         .querySelectorAll("[data-mwi-labyrinth-room-group]")
         .forEach((node) => node.removeAttribute("data-mwi-labyrinth-room-group"));

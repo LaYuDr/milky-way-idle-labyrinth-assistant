@@ -102,6 +102,8 @@
 .mwi-labyrinth-calc-auto-heading h3{font-size:13px;margin:0;font-weight:650;color:var(--ml-text);}
 .mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-width:0;}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-precision{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-action{font-size:11px;min-height:24px;padding:2px 8px;border-radius:var(--ml-radius-sm);border:1px solid var(--ml-line-strong);background:var(--ml-surface-soft);color:var(--ml-text);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-action[data-stage="ready"]{border-color:rgba(134,239,172,.45);color:#bbf7d0;}
 #mwi-labyrinth-calc-auto-estimate-control [data-curve-full-precision]{width:14px;min-width:14px;height:14px;margin:0;}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ml-muted);}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:50px;}

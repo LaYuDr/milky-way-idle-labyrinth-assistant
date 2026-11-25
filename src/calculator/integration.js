@@ -64,6 +64,7 @@
       if (identityChanged) {
         previousIdentity = identity;
         ctx.resetProfileChangeTracker?.();
+        ctx.resetControllerProfileCheck?.();
         ctx.stopBackgroundCurvePrecompute?.();
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;

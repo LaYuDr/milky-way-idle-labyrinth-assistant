@@ -885,6 +885,29 @@ test("combat-engine 优先级队列：P0 立即抢占 P2 排队任务；热保�
     assert.ok(releaseEntry, "scheduled 60s idle worker release");
     releaseEntry.fn();
     assert.ok(stopped.length > stoppedBefore, "idle release terminated extra worker slots");
+
+    // Cancel queued P2 jobs without disrupting an in-flight P0 job
+    ctx.window.navigator = { hardwareConcurrency: 2, deviceMemory: 8 };
+    const origRun = order.length;
+    holdFirst = null;
+    const pForeground = ctx.simulateCombatRoomWithWorker({ ...base, mazeDifficulty: 10, priority: 0 });
+    while (!holdFirst) {
+      await new Promise((r) => {
+        setTimeout(r, 2);
+      });
+    }
+    const pQueuedBg = ctx.simulateCombatRoomWithWorker({ ...base, mazeDifficulty: 50, priority: 2 });
+    while (ctx.getCombatConcurrencyState().queued < 1) {
+      await new Promise((r) => {
+        setTimeout(r, 2);
+      });
+    }
+    const removed = ctx.cancelQueuedCombatJobsByPriority(2);
+    assert.equal(removed, 1, "should cancel queued P2 job");
+    await assert.rejects(pQueuedBg, /后台预计算已取消/);
+    holdFirst();
+    await pForeground;
+    assert.ok(order.length > origRun, "foreground P0 job completed normally");
   } finally {
     ctx.resetCombatSimulatorWorker();
   }

@@ -49,6 +49,16 @@
       return Array.from(indexes).sort((a, b) => a - b);
     };
 
+    let lastProfileCheckRevision = -1;
+    let lastProfileCheckIdentity = "";
+    let lastProfileCheckDone = false;
+
+    ctx.resetControllerProfileCheck = function resetControllerProfileCheck() {
+      lastProfileCheckRevision = -1;
+      lastProfileCheckIdentity = "";
+      lastProfileCheckDone = false;
+    };
+
     ctx.refreshControlPanelPlacement = function refreshControlPanelPlacement() {
       ctx.syncVisibleLabyrinthUpgradeLevelsCache();
       if (ctx.roomDistributionEnabled && ctx.isRoomDistributionUnsupportedDevice()) {
@@ -78,8 +88,21 @@
 
       // Automation page should render independently from active labyrinth room grid data.
       ctx.refreshAutomationEstimatePanel(state);
+      const currentIdentity = ctx.storageIdentity?.() || "";
+      const currentRevision = Number(ctx.inputRevision) || 0;
+      const profileCheckStale =
+        !lastProfileCheckDone ||
+        currentRevision !== lastProfileCheckRevision ||
+        currentIdentity !== lastProfileCheckIdentity;
       if (ctx.isAutomationEstimatePanelVisible()) {
-        ctx.scheduleBackgroundCurvePrecompute?.(state);
+        const curveStatus = ctx.getCurvePrecomputeStatus?.();
+        if (
+          profileCheckStale ||
+          curveStatus?.stage === "idle" ||
+          (curveStatus?.stage === "paused" && !curveStatus?.userPaused)
+        ) {
+          ctx.scheduleBackgroundCurvePrecompute?.(state);
+        }
       }
 
       const roomRows = Array.isArray(state.characterLabyrinth.roomData) ? state.characterLabyrinth.roomData : [];
@@ -120,49 +143,61 @@
       }
       const initClientData = ctx.getInitClientData();
       if (initClientData && typeof ctx.detectRoomProfileChanges === "function") {
-        const diff = ctx.detectRoomProfileChanges(state, initClientData);
-        if (!diff.identityChanged && (diff.changedSkills.length || diff.changedMonsters.length)) {
-          const changedSkillSet = new Set(diff.changedSkills);
-          const changedMonsterSet = new Set(diff.changedMonsters);
-          const affectedCombatKeys = [];
-          const colCount = Array.isArray(roomRows[0]) ? roomRows[0].length : 0;
-          const roomCells = colCount > 0 ? ctx.findRoomGridCells(flatRooms.length) : [];
-          for (let idx = 0; idx < flatRooms.length; idx += 1) {
-            const room = flatRooms[idx];
-            if (!room) continue;
-            const roomKey = colCount > 0 ? `${idx % colCount},${Math.floor(idx / colCount)}` : "";
-            if (!roomKey) continue;
-            if (room.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && changedSkillSet.has(room.skillHrid)) {
-              const cell = roomCells[idx];
-              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
-                const profile = diff.skillProfiles.get(room.skillHrid);
-                const updated = ctx.computeRoomClearChance(state, initClientData, room, diff.maxEnhancementByItem, {
-                  labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
-                  profile
-                });
-                if (updated) {
-                  ctx.upsertBadge(cell, updated.clearChance, updated.expectedSecondsPerClear, updated.debug);
-                  ctx.updateRoomEstimate(roomKey, updated);
-                  if (updated.skillingPreview) ctx.setCellSkillingPreview(cell, updated.skillingPreview);
-                  ctx.saveRoomResult?.(state, roomKey, updated, cell);
+        if (profileCheckStale) {
+          lastProfileCheckDone = true;
+          lastProfileCheckRevision = currentRevision;
+          lastProfileCheckIdentity = currentIdentity;
+          const diff = ctx.detectRoomProfileChanges(state, initClientData);
+          if (!diff.identityChanged && (diff.changedSkills.length || diff.changedMonsters.length)) {
+            const changedSkillSet = new Set(diff.changedSkills);
+            const changedMonsterSet = new Set(diff.changedMonsters);
+            const affectedCombatKeys = [];
+            const colCount = Array.isArray(roomRows[0]) ? roomRows[0].length : 0;
+            const roomCells = colCount > 0 ? ctx.findRoomGridCells(flatRooms.length) : [];
+            for (let idx = 0; idx < flatRooms.length; idx += 1) {
+              const room = flatRooms[idx];
+              if (!room) continue;
+              const roomKey = colCount > 0 ? `${idx % colCount},${Math.floor(idx / colCount)}` : "";
+              if (!roomKey) continue;
+              if (room.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && changedSkillSet.has(room.skillHrid)) {
+                const cell = roomCells[idx];
+                if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                  const profile = diff.skillProfiles.get(room.skillHrid);
+                  const updated = ctx.computeRoomClearChance(state, initClientData, room, diff.maxEnhancementByItem, {
+                    labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
+                    profile
+                  });
+                  if (updated) {
+                    ctx.upsertBadge(cell, updated.clearChance, updated.expectedSecondsPerClear, updated.debug);
+                    ctx.updateRoomEstimate(roomKey, updated);
+                    if (updated.skillingPreview) ctx.setCellSkillingPreview(cell, updated.skillingPreview);
+                    ctx.saveRoomResult?.(state, roomKey, updated, cell);
+                  }
+                }
+              } else if (room.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && changedMonsterSet.has(room.monsterHrid)) {
+                const cell = roomCells[idx];
+                if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                  affectedCombatKeys.push(roomKey);
                 }
               }
-            } else if (room.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && changedMonsterSet.has(room.monsterHrid)) {
-              const cell = roomCells[idx];
-              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
-                affectedCombatKeys.push(roomKey);
-              }
+            }
+            if (affectedCombatKeys.length) {
+              ctx.invalidateSavedRoomKeys?.(state, affectedCombatKeys);
+              for (const key of affectedCombatKeys) ctx.pendingAutoRecalcRoomKeys?.add(key);
             }
           }
-          if (affectedCombatKeys.length) {
-            ctx.invalidateSavedRoomKeys?.(state, affectedCombatKeys);
-            for (const key of affectedCombatKeys) ctx.pendingAutoRecalcRoomKeys?.add(key);
+          ctx.scheduleBackgroundCurvePrecompute?.(state, {
+            maxEnhancementByItem: diff.maxEnhancementByItem,
+            labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
+            combatProfiles: diff.combatProfiles,
+            skillProfiles: diff.skillProfiles
+          });
+        } else {
+          const curveStatus = ctx.getCurvePrecomputeStatus?.();
+          if (curveStatus?.stage === "idle" || (curveStatus?.stage === "paused" && !curveStatus?.userPaused)) {
+            ctx.scheduleBackgroundCurvePrecompute?.(state);
           }
         }
-        ctx.scheduleBackgroundCurvePrecompute?.(state, {
-          maxEnhancementByItem: diff.maxEnhancementByItem,
-          labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels
-        });
       }
       ctx.scheduleAutoRecalcIfNeeded(state);
       return panel;

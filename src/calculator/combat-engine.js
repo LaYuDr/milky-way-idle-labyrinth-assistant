@@ -665,11 +665,33 @@
       }
       queue.splice(pos, 0, job);
     }
+    ctx.cancelQueuedCombatJobsByPriority = function cancelQueuedCombatJobsByPriority(
+      minPriority = 2,
+      error = new Error("后台预计算已取消")
+    ) {
+      let removed = 0;
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].priority >= minPriority) {
+          const [job] = queue.splice(i, 1);
+          job.reject(error);
+          removed++;
+        }
+      }
+      return removed;
+    };
+    ctx.hasForegroundCombatWork = () =>
+      queue.some((job) => job.priority < 2) || Boolean(ctx.manualUpdateRunning || ctx.automationEstimateRunning);
     function effectiveJobLimit(job) {
       const cap = currentLimit();
-      // Background P2 precomputation leaves 1 core for UI responsiveness on 3+ core devices.
-      const priorityCap = job.priority >= 2 && cap >= 3 ? cap - 1 : cap;
-      return Math.min(job.limit, priorityCap);
+      if (job.priority >= 2) {
+        // Yield completely while foreground (P0/P1) jobs are waiting in the queue.
+        if (queue.some((queued) => queued.priority < 2)) return 0;
+        // Cap background P2 precomputation to at most half the active limit (max 4 workers)
+        // so the browser UI and game loop stay smooth on every device.
+        const bgCap = Math.max(1, Math.min(4, Math.floor(cap / 2)));
+        return Math.min(job.limit, bgCap);
+      }
+      return Math.min(job.limit, cap);
     }
     function pump() {
       for (let j = 0; j < queue.length;) {

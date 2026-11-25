@@ -2,7 +2,7 @@
 // @name         迷宫助手
 // @description  银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级。
 // @namespace    https://www.milkywayidle.com/
-// @version      0.12.18
+// @version      0.12.19
 // @author       dakonglong, 柆雨
 // @license      MIT
 // @match        https://www.milkywayidle.com/*
@@ -509,7 +509,7 @@
     return { dispose, report, client };
   }
   if (typeof module !== "undefined" && module.exports) module.exports = { createUsageClient, boot };
-  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.18","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
+  try { boot({"pluginId":"mwi_labyrinth","name":"迷宫助手","version":"0.12.19","endpoint":"https://ukpyedhl.cn-hk1.rainapp.top","development":false,"defaultEnabled":true,"reportOptOut":true}, {getValue: typeof GM_getValue === "function" ? GM_getValue : null,
 setValue: typeof GM_setValue === "function" ? GM_setValue : null,
 listen: typeof GM_addValueChangeListener === "function" ? GM_addValueChangeListener : null,
 unlisten: typeof GM_removeValueChangeListener === "function" ? GM_removeValueChangeListener : null,
@@ -6374,6 +6374,8 @@ DEALINGS IN THE SOFTWARE.
 .mwi-labyrinth-calc-auto-heading h3{font-size:13px;margin:0;font-weight:650;color:var(--ml-text);}
 .mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-width:0;}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-precision{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-action{font-size:11px;min-height:24px;padding:2px 8px;border-radius:var(--ml-radius-sm);border:1px solid var(--ml-line-strong);background:var(--ml-surface-soft);color:var(--ml-text);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-action[data-stage="ready"]{border-color:rgba(134,239,172,.45);color:#bbf7d0;}
 #mwi-labyrinth-calc-auto-estimate-control [data-curve-full-precision]{width:14px;min-width:14px;height:14px;margin:0;}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ml-muted);}
 #mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:50px;}
@@ -19717,11 +19719,33 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       queue.splice(pos, 0, job);
     }
+    ctx.cancelQueuedCombatJobsByPriority = function cancelQueuedCombatJobsByPriority(
+      minPriority = 2,
+      error = new Error("后台预计算已取消")
+    ) {
+      let removed = 0;
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].priority >= minPriority) {
+          const [job] = queue.splice(i, 1);
+          job.reject(error);
+          removed++;
+        }
+      }
+      return removed;
+    };
+    ctx.hasForegroundCombatWork = () =>
+      queue.some((job) => job.priority < 2) || Boolean(ctx.manualUpdateRunning || ctx.automationEstimateRunning);
     function effectiveJobLimit(job) {
       const cap = currentLimit();
-      // Background P2 precomputation leaves 1 core for UI responsiveness on 3+ core devices.
-      const priorityCap = job.priority >= 2 && cap >= 3 ? cap - 1 : cap;
-      return Math.min(job.limit, priorityCap);
+      if (job.priority >= 2) {
+        // Yield completely while foreground (P0/P1) jobs are waiting in the queue.
+        if (queue.some((queued) => queued.priority < 2)) return 0;
+        // Cap background P2 precomputation to at most half the active limit (max 4 workers)
+        // so the browser UI and game loop stay smooth on every device.
+        const bgCap = Math.max(1, Math.min(4, Math.floor(cap / 2)));
+        return Math.min(job.limit, bgCap);
+      }
+      return Math.min(job.limit, cap);
     }
     function pump() {
       for (let j = 0; j < queue.length;) {
@@ -22983,7 +23007,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     const DEFAULT_BASE_TRIALS = statsMod?.DEFAULT_BASE_TRIALS || 250;
     const DEFAULT_CHUNK_TRIALS = statsMod?.DEFAULT_CHUNK_TRIALS || 250;
     const DEFAULT_MAX_LEVEL = statsMod?.DEFAULT_MAX_LEVEL || 300;
-    const DEFAULT_BATCH_SIZE = 10;
+    const DEFAULT_BATCH_SIZE = 3;
+    const BG_BATCH_COOLDOWN_MS = 40;
+    const BG_FOREGROUND_WAIT_MS = 150;
 
     const curveStore = storeMod?.create({ indexedDB: ctx.window?.indexedDB }) || null;
     const combatCurves = new Map(); // curveKey -> CurveEntry
@@ -22995,6 +23021,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     let backgroundRunId = 0;
     let backgroundRunning = false;
     let backgroundPaused = false;
+    let userPausedBackground = false;
     let backgroundProgress = {
       readyMonsters: 0,
       totalMonsters: 10,
@@ -23568,6 +23595,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const entry = await hydrateCombatCurve(profile, hi);
       if (cancelled() || ctx.destroyed) return entry;
 
+      const sleepMs = (ms) =>
+        new Promise((resolve) => {
+          ctx.setTimeout(resolve, ms);
+        });
+
       const runWave = async (jobs, wavePriority, stageName) => {
         if (!jobs.length) return;
         const batches = [];
@@ -23575,10 +23607,18 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           batches.push(jobs.slice(i, i + batchSize));
         }
         let cursor = 0;
-        const lanes = Math.max(1, Math.min(batches.length, ctx.getCombatParallelism()));
+        const maxLanes =
+          wavePriority >= 2
+            ? Math.max(1, Math.min(4, Math.floor(ctx.getCombatParallelism() / 2)))
+            : ctx.getCombatParallelism();
+        const lanes = Math.max(1, Math.min(batches.length, maxLanes));
         await Promise.all(
           Array.from({ length: lanes }, async () => {
             while (!cancelled() && !ctx.destroyed) {
+              if (wavePriority >= 2 && ctx.hasForegroundCombatWork?.()) {
+                await sleepMs(BG_FOREGROUND_WAIT_MS);
+                continue;
+              }
               const idx = cursor++;
               if (idx >= batches.length) return;
               const batch = batches[idx];
@@ -23600,6 +23640,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
                 completedLevels: countCompletedLevels(entry.view, hi),
                 maxLevel: hi
               });
+              if (wavePriority >= 2 && !cancelled() && !ctx.destroyed) {
+                await sleepMs(BG_BATCH_COOLDOWN_MS);
+              }
             }
           })
         );
@@ -23619,7 +23662,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             for (const c of plan) hotJobs.push({ level: lv, trials: c.trials, seed: c.seed });
           }
         }
-        await runWave(hotJobs, Math.min(priority, 1), "stage1-hot");
+        await runWave(hotJobs, priority, "stage1-hot");
         if (cancelled() || ctx.destroyed) return entry;
       }
 
@@ -23671,14 +23714,36 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return {
         running: backgroundRunning,
         paused: backgroundPaused,
+        userPaused: userPausedBackground,
         ...backgroundProgress
       };
     };
 
+    ctx.pauseBackgroundCurvePrecompute = function pauseBackgroundCurvePrecompute() {
+      userPausedBackground = true;
+      backgroundRunId += 1;
+      backgroundRunning = false;
+      backgroundPaused = true;
+      ctx.__activeBackgroundCurveSignature = "";
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
+      backgroundProgress = { ...backgroundProgress, stage: "paused", currentMonster: "" };
+      notifyCurveListeners();
+    };
+
+    ctx.triggerBackgroundCurvePrecompute = function triggerBackgroundCurvePrecompute(state) {
+      userPausedBackground = false;
+      const targetState = state || ctx.getGameState?.();
+      if (!targetState?.characterLabyrinth) return;
+      ctx.scheduleBackgroundCurvePrecompute(targetState, { force: true });
+    };
+
     ctx.stopBackgroundCurvePrecompute = function stopBackgroundCurvePrecompute() {
+      userPausedBackground = false;
       backgroundRunId += 1;
       backgroundRunning = false;
       backgroundPaused = false;
+      ctx.__activeBackgroundCurveSignature = "";
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
       backgroundProgress = { ...backgroundProgress, stage: "idle", currentMonster: "" };
       notifyCurveListeners();
     };
@@ -23695,11 +23760,15 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (ctx.destroyed || !state?.characterLabyrinth) return;
       const initClientData = ctx.getInitClientData();
       if (!initClientData) return;
+      if (options.force) userPausedBackground = false;
+      if (userPausedBackground && !options.force) return;
       if (!options.force && !isLabyrinthSurfaceActive()) {
         if (backgroundRunning) {
           backgroundPaused = true;
           backgroundRunId += 1;
           backgroundRunning = false;
+          ctx.__activeBackgroundCurveSignature = "";
+          ctx.cancelQueuedCombatJobsByPriority?.(2);
           backgroundProgress = { ...backgroundProgress, stage: "paused" };
           notifyCurveListeners();
         }
@@ -23734,9 +23803,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
 
       const floor = Math.max(1, Math.floor(ctx.finiteNumber(state.characterLabyrinth?.currentFloor, 1)));
-      const hotMin = Math.max(1, floor * 20 - 10);
-      const hotMax = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 60);
       const defaultMaxLevel = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 40);
+      const hotMin = Math.max(1, floor * 20 - 10);
+      const hotMax = Math.min(defaultMaxLevel, floor * 20 + 30);
 
       const entries = (ctx.LABYRINTH_AUTOMATION_COMBAT_ROOM_TYPES || []).slice().sort((a, b) => {
         const aHot = floorMonsters.has(a.monsterHrid) ? 0 : 1;
@@ -23744,21 +23813,27 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return aHot - bHot;
       });
 
+      const providedCombatProfiles = options.combatProfiles;
+      const providedSkillProfiles = options.skillProfiles;
       const profiles = [];
       for (const item of entries) {
-        const profile = ctx.extractCombatProfile(state, initClientData, item.monsterHrid, maxEnhancementByItem, {
-          labyrinthUpgradeLevels,
-          identity
-        });
+        const profile =
+          providedCombatProfiles?.get?.(item.monsterHrid) ||
+          ctx.extractCombatProfile(state, initClientData, item.monsterHrid, maxEnhancementByItem, {
+            labyrinthUpgradeLevels,
+            identity
+          });
         if (profile) profiles.push(profile);
       }
       if (!profiles.length) return;
 
       // Also warm all 10 skilling 1..300 curves synchronously (~3ms total).
       for (const item of ctx.LABYRINTH_AUTOMATION_SKILL_ROOM_TYPES || []) {
-        const skProfile = ctx.extractSkillingProfile(state, initClientData, item.skillHrid, maxEnhancementByItem, {
-          labyrinthUpgradeLevels
-        });
+        const skProfile =
+          providedSkillProfiles?.get?.(item.skillHrid) ||
+          ctx.extractSkillingProfile(state, initClientData, item.skillHrid, maxEnhancementByItem, {
+            labyrinthUpgradeLevels
+          });
         if (skProfile) ctx.getOrBuildSkillingCurve(skProfile, defaultMaxLevel);
       }
 
@@ -23778,6 +23853,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (allReady) {
         backgroundRunning = false;
         backgroundPaused = false;
+        ctx.__activeBackgroundCurveSignature = "";
         backgroundProgress = {
           readyMonsters: profiles.length,
           totalMonsters: profiles.length,
@@ -23789,13 +23865,14 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return;
       }
 
-      // Avoid restarting if already running for the exact same profile signature set.
-      const runSignature =
-        profiles.map((p) => p.curveKey).join(",") + `|${targetTrials}|${fullPrecision}|${defaultMaxLevel}`;
+      // Order-independent signature so revealing new floor tiles never cancels/restarts background precomputation.
+      const stableKeys = profiles.map((p) => p.curveKey).sort();
+      const runSignature = stableKeys.join(",") + `|${targetTrials}|${fullPrecision}|${defaultMaxLevel}`;
       if (backgroundRunning && ctx.__activeBackgroundCurveSignature === runSignature) {
         return;
       }
 
+      ctx.cancelQueuedCombatJobsByPriority?.(2);
       ctx.__activeBackgroundCurveSignature = runSignature;
       const runId = ++backgroundRunId;
       backgroundRunning = true;
@@ -23965,6 +24042,16 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return Array.from(indexes).sort((a, b) => a - b);
     };
 
+    let lastProfileCheckRevision = -1;
+    let lastProfileCheckIdentity = "";
+    let lastProfileCheckDone = false;
+
+    ctx.resetControllerProfileCheck = function resetControllerProfileCheck() {
+      lastProfileCheckRevision = -1;
+      lastProfileCheckIdentity = "";
+      lastProfileCheckDone = false;
+    };
+
     ctx.refreshControlPanelPlacement = function refreshControlPanelPlacement() {
       ctx.syncVisibleLabyrinthUpgradeLevelsCache();
       if (ctx.roomDistributionEnabled && ctx.isRoomDistributionUnsupportedDevice()) {
@@ -23994,8 +24081,21 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
       // Automation page should render independently from active labyrinth room grid data.
       ctx.refreshAutomationEstimatePanel(state);
+      const currentIdentity = ctx.storageIdentity?.() || "";
+      const currentRevision = Number(ctx.inputRevision) || 0;
+      const profileCheckStale =
+        !lastProfileCheckDone ||
+        currentRevision !== lastProfileCheckRevision ||
+        currentIdentity !== lastProfileCheckIdentity;
       if (ctx.isAutomationEstimatePanelVisible()) {
-        ctx.scheduleBackgroundCurvePrecompute?.(state);
+        const curveStatus = ctx.getCurvePrecomputeStatus?.();
+        if (
+          profileCheckStale ||
+          curveStatus?.stage === "idle" ||
+          (curveStatus?.stage === "paused" && !curveStatus?.userPaused)
+        ) {
+          ctx.scheduleBackgroundCurvePrecompute?.(state);
+        }
       }
 
       const roomRows = Array.isArray(state.characterLabyrinth.roomData) ? state.characterLabyrinth.roomData : [];
@@ -24036,49 +24136,61 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       const initClientData = ctx.getInitClientData();
       if (initClientData && typeof ctx.detectRoomProfileChanges === "function") {
-        const diff = ctx.detectRoomProfileChanges(state, initClientData);
-        if (!diff.identityChanged && (diff.changedSkills.length || diff.changedMonsters.length)) {
-          const changedSkillSet = new Set(diff.changedSkills);
-          const changedMonsterSet = new Set(diff.changedMonsters);
-          const affectedCombatKeys = [];
-          const colCount = Array.isArray(roomRows[0]) ? roomRows[0].length : 0;
-          const roomCells = colCount > 0 ? ctx.findRoomGridCells(flatRooms.length) : [];
-          for (let idx = 0; idx < flatRooms.length; idx += 1) {
-            const room = flatRooms[idx];
-            if (!room) continue;
-            const roomKey = colCount > 0 ? `${idx % colCount},${Math.floor(idx / colCount)}` : "";
-            if (!roomKey) continue;
-            if (room.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && changedSkillSet.has(room.skillHrid)) {
-              const cell = roomCells[idx];
-              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
-                const profile = diff.skillProfiles.get(room.skillHrid);
-                const updated = ctx.computeRoomClearChance(state, initClientData, room, diff.maxEnhancementByItem, {
-                  labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
-                  profile
-                });
-                if (updated) {
-                  ctx.upsertBadge(cell, updated.clearChance, updated.expectedSecondsPerClear, updated.debug);
-                  ctx.updateRoomEstimate(roomKey, updated);
-                  if (updated.skillingPreview) ctx.setCellSkillingPreview(cell, updated.skillingPreview);
-                  ctx.saveRoomResult?.(state, roomKey, updated, cell);
+        if (profileCheckStale) {
+          lastProfileCheckDone = true;
+          lastProfileCheckRevision = currentRevision;
+          lastProfileCheckIdentity = currentIdentity;
+          const diff = ctx.detectRoomProfileChanges(state, initClientData);
+          if (!diff.identityChanged && (diff.changedSkills.length || diff.changedMonsters.length)) {
+            const changedSkillSet = new Set(diff.changedSkills);
+            const changedMonsterSet = new Set(diff.changedMonsters);
+            const affectedCombatKeys = [];
+            const colCount = Array.isArray(roomRows[0]) ? roomRows[0].length : 0;
+            const roomCells = colCount > 0 ? ctx.findRoomGridCells(flatRooms.length) : [];
+            for (let idx = 0; idx < flatRooms.length; idx += 1) {
+              const room = flatRooms[idx];
+              if (!room) continue;
+              const roomKey = colCount > 0 ? `${idx % colCount},${Math.floor(idx / colCount)}` : "";
+              if (!roomKey) continue;
+              if (room.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && changedSkillSet.has(room.skillHrid)) {
+                const cell = roomCells[idx];
+                if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                  const profile = diff.skillProfiles.get(room.skillHrid);
+                  const updated = ctx.computeRoomClearChance(state, initClientData, room, diff.maxEnhancementByItem, {
+                    labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
+                    profile
+                  });
+                  if (updated) {
+                    ctx.upsertBadge(cell, updated.clearChance, updated.expectedSecondsPerClear, updated.debug);
+                    ctx.updateRoomEstimate(roomKey, updated);
+                    if (updated.skillingPreview) ctx.setCellSkillingPreview(cell, updated.skillingPreview);
+                    ctx.saveRoomResult?.(state, roomKey, updated, cell);
+                  }
+                }
+              } else if (room.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && changedMonsterSet.has(room.monsterHrid)) {
+                const cell = roomCells[idx];
+                if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                  affectedCombatKeys.push(roomKey);
                 }
               }
-            } else if (room.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && changedMonsterSet.has(room.monsterHrid)) {
-              const cell = roomCells[idx];
-              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
-                affectedCombatKeys.push(roomKey);
-              }
+            }
+            if (affectedCombatKeys.length) {
+              ctx.invalidateSavedRoomKeys?.(state, affectedCombatKeys);
+              for (const key of affectedCombatKeys) ctx.pendingAutoRecalcRoomKeys?.add(key);
             }
           }
-          if (affectedCombatKeys.length) {
-            ctx.invalidateSavedRoomKeys?.(state, affectedCombatKeys);
-            for (const key of affectedCombatKeys) ctx.pendingAutoRecalcRoomKeys?.add(key);
+          ctx.scheduleBackgroundCurvePrecompute?.(state, {
+            maxEnhancementByItem: diff.maxEnhancementByItem,
+            labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
+            combatProfiles: diff.combatProfiles,
+            skillProfiles: diff.skillProfiles
+          });
+        } else {
+          const curveStatus = ctx.getCurvePrecomputeStatus?.();
+          if (curveStatus?.stage === "idle" || (curveStatus?.stage === "paused" && !curveStatus?.userPaused)) {
+            ctx.scheduleBackgroundCurvePrecompute?.(state);
           }
         }
-        ctx.scheduleBackgroundCurvePrecompute?.(state, {
-          maxEnhancementByItem: diff.maxEnhancementByItem,
-          labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels
-        });
       }
       ctx.scheduleAutoRecalcIfNeeded(state);
       return panel;
@@ -24992,6 +25104,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (identityChanged) {
         previousIdentity = identity;
         ctx.resetProfileChangeTracker?.();
+        ctx.resetControllerProfileCheck?.();
         ctx.stopBackgroundCurvePrecompute?.();
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;
@@ -26258,6 +26371,22 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       panel.append(advanced);
       return panel;
     };
+    let disposeCurveListener = null;
+    function formatCurveActionLabel(status) {
+      const total = Math.max(1, Number(status?.totalMonsters) || 10);
+      const ready = Math.max(0, Math.min(total, Number(status?.readyMonsters) || 0));
+      if (status?.running) return text(`曲线表 ${ready}/${total} · 暂停`, `Curve ${ready}/${total} · Pause`);
+      if (status?.stage === "ready" && ready >= total)
+        return text(`曲线表 ${ready}/${total} 已就绪`, `Curve ${ready}/${total} ready`);
+      if (status?.paused) return text(`曲线表 ${ready}/${total} · 继续`, `Curve ${ready}/${total} · Resume`);
+      return text(`预建曲线表 (${ready}/${total})`, `Build curves (${ready}/${total})`);
+    }
+    function syncCurveActionButton(control, status = ctx.getCurvePrecomputeStatus?.()) {
+      const button = control?.querySelector?.(".mwi-labyrinth-calc-curve-action");
+      if (!button) return;
+      button.textContent = formatCurveActionLabel(status);
+      button.dataset.stage = String(status?.stage || "idle");
+    }
     function syncRecommendationControls(control) {
       if (!control) return;
       const running = ctx.automationEstimateRunning;
@@ -26279,6 +26408,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         stop.hidden = !running;
         if (!running) stop.disabled = false;
       }
+      syncCurveActionButton(control);
       const status = control.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__status`);
       if (status) status.hidden = !running && ["", ctx.t("pending"), ctx.t("calcDone")].includes(status.textContent);
     }
@@ -26353,6 +26483,27 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const goals = control.querySelector("#mwi-labyrinth-calc-experience-goals");
         const precisionToggle = goals.querySelector(".mwi-labyrinth-calc-curve-precision");
         if (precisionToggle) actions.prepend(precisionToggle);
+        if (typeof ctx.getCurvePrecomputeStatus === "function") {
+          const curveButton = document.createElement("button");
+          curveButton.type = "button";
+          curveButton.className = "mwi-labyrinth-calc-curve-action";
+          curveButton.title = text(
+            "1~300 级战斗曲线本地缓存：建好后走迷宫与推荐直接查表，仅改配装或属性时重算受影响的怪物",
+            "Local 1-300 combat curve table: instant lookup during labyrinth runs & recommendations; only affected monsters recalculate on stat/loadout changes."
+          );
+          ctx.listen(curveButton, "click", () => {
+            if (ctx.getCurvePrecomputeStatus?.()?.running) ctx.pauseBackgroundCurvePrecompute?.();
+            else ctx.triggerBackgroundCurvePrecompute?.();
+            syncCurveActionButton(control);
+          });
+          actions.prepend(curveButton);
+          syncCurveActionButton(control);
+          if (!disposeCurveListener && typeof ctx.onCurveStatusChange === "function") {
+            disposeCurveListener = ctx.onCurveStatusChange((nextStatus) => {
+              syncCurveActionButton(document.getElementById(ctx.AUTOMATION_ESTIMATE_CONTROL_ID), nextStatus);
+            });
+          }
+        }
         const experienceHeading = document.createElement("div");
         experienceHeading.className = "mwi-labyrinth-calc-experience-heading";
         const experienceTools = document.createElement("div");
@@ -26509,6 +26660,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return tooltip;
     };
     ctx.disposePresentation = () => {
+      disposeCurveListener?.();
+      disposeCurveListener = null;
       document
         .querySelectorAll("[data-mwi-labyrinth-room-group]")
         .forEach((node) => node.removeAttribute("data-mwi-labyrinth-room-group"));
@@ -28071,7 +28224,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.18",
+    version: "0.12.19",
     status: "ready",
     plan: core?.plan,
     destroy() {
