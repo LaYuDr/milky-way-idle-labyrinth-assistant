@@ -488,15 +488,80 @@
         ctx.getRoomDistributionContext()?.labyrinthSignature !== context.labyrinthSignature;
 
       try {
+        let lastUiAt = 0;
+        const syncDistributionUi = (force = false) => {
+          const now = ctx.window.performance?.now?.() ?? Date.now();
+          if (!force && now - lastUiAt < 80) return;
+          lastUiAt = now;
+          ctx.roomDistributionProgress = {
+            labyrinthSignature: context.labyrinthSignature,
+            current: completedCount,
+            total: totalCount
+          };
+          ctx.setControlStatus({
+            running: true,
+            ratio: completedCount / totalCount,
+            message: ctx.t("roomDistributionCalculatingFmt", { current: completedCount, total: totalCount })
+          });
+          ctx.renderRoomDistributionPanel();
+        };
+
+        const combatTasks = [];
         for (const entry of entries) {
-          for (const roomLevel of levels) {
-            if (isRunStale()) {
-              return false;
+          if (isRunStale()) return false;
+          if (!entry.isCombat) {
+            const skProfile =
+              typeof ctx.extractSkillingProfile === "function"
+                ? ctx.extractSkillingProfile(state, initClientData, entry.skillHrid, maxEnhancementByItem, {
+                    labyrinthUpgradeLevels
+                  })
+                : null;
+            for (const roomLevel of levels) {
+              if (isRunStale()) return false;
+              const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
+              try {
+                const result = ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
+                  labyrinthUpgradeLevels,
+                  summaryOnly: true,
+                  profile: skProfile
+                });
+                if (result && Number.isFinite(Number(result.clearChance))) {
+                  chances.push(ctx.clamp01(Number(result.clearChance)));
+                } else {
+                  failedCount += 1;
+                }
+              } catch (error) {
+                if (isRunStale()) return false;
+                failedCount += 1;
+                console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
+              }
+              completedCount += 1;
             }
-            const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
-            try {
-              const result = entry.isCombat
-                ? await ctx.computeCombatRoomClearChance(
+            syncDistributionUi();
+            continue;
+          }
+
+          const cbProfile =
+            typeof ctx.extractCombatProfile === "function"
+              ? ctx.extractCombatProfile(state, initClientData, entry.monsterHrid, maxEnhancementByItem, {
+                  labyrinthUpgradeLevels
+                })
+              : null;
+          for (const roomLevel of levels) {
+            combatTasks.push({ entry, roomLevel, cbProfile });
+          }
+        }
+
+        if (combatTasks.length > 0 && !isRunStale()) {
+          let nextTask = 0;
+          const lanes = Math.max(1, Math.min(combatTasks.length, ctx.getCombatParallelism?.() || 1));
+          await Promise.all(
+            Array.from({ length: lanes }, async () => {
+              while (nextTask < combatTasks.length && !isRunStale()) {
+                const { entry, roomLevel, cbProfile } = combatTasks[nextTask++];
+                const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
+                try {
+                  const result = await ctx.computeCombatRoomClearChance(
                     state,
                     initClientData,
                     room,
@@ -504,43 +569,37 @@
                     null,
                     combatTrials,
                     `distribution:${context.labyrinthSignature}:${entry.key}:${roomLevel}`,
-                    { labyrinthUpgradeLevels }
-                  )
-                : ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
-                    labyrinthUpgradeLevels
-                  });
-              if (isRunStale()) return false;
-              if (result && Number.isFinite(Number(result.clearChance))) {
-                chances.push(ctx.clamp01(Number(result.clearChance)));
-              } else {
-                failedCount += 1;
+                    {
+                      labyrinthUpgradeLevels,
+                      profile: cbProfile,
+                      parallel: true,
+                      allowBaseCurveHit: true,
+                      priority: 1,
+                      isRunStale
+                    }
+                  );
+                  if (isRunStale()) return;
+                  if (result && Number.isFinite(Number(result.clearChance))) {
+                    chances.push(ctx.clamp01(Number(result.clearChance)));
+                  } else {
+                    failedCount += 1;
+                  }
+                } catch (error) {
+                  if (isRunStale()) return;
+                  failedCount += 1;
+                  console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
+                }
+                completedCount += 1;
+                syncDistributionUi();
               }
-            } catch (error) {
-              if (isRunStale()) return false;
-              failedCount += 1;
-              console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
-            }
-            completedCount += 1;
-            ctx.roomDistributionProgress = {
-              labyrinthSignature: context.labyrinthSignature,
-              current: completedCount,
-              total: totalCount
-            };
-            ctx.setControlStatus({
-              running: true,
-              ratio: completedCount / totalCount,
-              message: ctx.t("roomDistributionCalculatingFmt", { current: completedCount, total: totalCount })
-            });
-            ctx.renderRoomDistributionPanel();
-            if (!entry.isCombat && completedCount % 10 === 0) {
-              await ctx.nextFrame();
-            }
-          }
+            })
+          );
         }
 
         if (isRunStale()) {
           return false;
         }
+        syncDistributionUi(true);
         ctx.roomDistributionSnapshot = {
           inputSignature,
           labyrinthSignature: context.labyrinthSignature,

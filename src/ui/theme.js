@@ -87,59 +87,72 @@
 #mwi-labyrinth-calc-clear-rate-control>.mwi-labyrinth-calc-clear-rate-control__progress{grid-column:1/-1;width:100%;margin:0;display:flex;flex-direction:column;gap:3px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__track{height:3px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__bar{background:var(--ml-action);}
-#mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__text{font-size:11px;color:var(--ml-muted);}
-/* Recommendation controls respond to their host width, including a narrow desktop sidebar. */
-#mwi-labyrinth-calc-auto-estimate-control{container-type:inline-size;container-name:mwi-lab-recommend;min-width:0;width:100%;max-width:920px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;padding:0;margin:0 0 10px;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:13px;}
-.mwi-labyrinth-calc-auto-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;padding:6px 0;background:transparent;border-bottom:1px solid var(--ml-line);border-radius:0;}
-.mwi-labyrinth-calc-auto-heading h3{font-size:14px;margin:0;font-weight:650;}
-.mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ml-muted);}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:64px;}
-.mwi-labyrinth-calc-auto-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 20px;padding:8px 0;background:transparent;}
-.mwi-labyrinth-calc-auto-method{display:flex;align-items:center;gap:6px;min-width:0;}
-.mwi-labyrinth-calc-auto-target{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:6px;min-width:0;flex:1;}
-.mwi-labyrinth-calc-auto-toolbar .mwi-labyrinth-calc-auto-target>span{font-size:12px;color:var(--ml-muted);}
-.mwi-labyrinth-calc-auto-toolbar input[type="number"]{width:64px;flex:0 0 64px;text-align:right;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary{min-height:28px;min-width:96px;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-status{margin:0;padding:6px 0;border-top:1px solid var(--ml-line);font-size:12px;color:var(--ml-accent);overflow-wrap:anywhere;}
-#mwi-labyrinth-calc-experience-goals{min-width:0;max-width:none;margin:0;padding:8px 0 0;background:transparent;border-top:1px solid var(--ml-line);font-size:13px;color:var(--ml-text);}
-.mwi-labyrinth-calc-experience-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px;}
-.mwi-labyrinth-calc-experience-heading h4{margin:0;font-size:13px;font-weight:600;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label{display:grid;grid-template-columns:minmax(0,1fr) 68px;align-items:center;gap:6px;max-width:none;min-width:0;padding:3px 0;margin:0;border-bottom:1px solid var(--ml-line);}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label:nth-last-child(-n+2){border-bottom:0;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs input{width:68px;text-align:right;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-skill{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-icon{width:20px;height:20px;flex:0 0 20px;}
-#mwi-labyrinth-calc-auto-estimate-control input[type="number"]{height:28px;padding:3px 6px;background:transparent;font-size:12px;}
-#mwi-labyrinth-calc-auto-estimate-control button{min-height:28px;padding:4px 8px;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-target>span{min-width:0;overflow-wrap:anywhere;}
-.mwi-labyrinth-calc-prefill-toggle{display:flex;align-items:center;gap:8px;max-width:100%;min-height:36px;margin:8px 0;font-size:12px;font-weight:400;line-height:1.45;cursor:pointer;color:var(--ml-muted);}
-.mwi-labyrinth-calc-prefill-toggle input{flex:0 0 16px;width:16px;height:16px;margin:0;}
+#mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__text{font-size:11px;line-height:1.45;color:var(--ml-muted);white-space:normal;overflow-wrap:anywhere;}
+/* Recommendation controls: concise, zero-fluff, compact, transparent host integration. */
+#mwi-labyrinth-calc-auto-estimate-control{container-type:inline-size;container-name:mwi-lab-recommend;min-width:0;width:100%;max-width:920px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;padding:0;margin:0 0 6px;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:12px;}
+#mwi-labyrinth-calc-auto-estimate-control input[type="number"]{height:26px;padding:2px 6px;background:transparent;font-size:12px;text-align:right;appearance:textfield;}
+#mwi-labyrinth-calc-auto-estimate-control input[type="number"]::-webkit-inner-spin-button,#mwi-labyrinth-calc-auto-estimate-control input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+#mwi-labyrinth-calc-auto-estimate-control button{min-height:26px;height:26px;padding:0 7px;font-size:12px;line-height:1;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control button:not(.mwi-labyrinth-calc-experience-stop){min-width:74px;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary{background:var(--ml-action);color:var(--ml-action-text);border-color:transparent;font-weight:700;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary:hover:not(:disabled){background:var(--ml-action-hover);border-color:transparent;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary:active:not(:disabled){background:var(--ml-accent);border-color:transparent;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-experience-stop{color:var(--ml-danger);border-color:rgba(255,167,181,.45);}
+.mwi-labyrinth-calc-auto-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 8px;padding:4px 0 6px;background:transparent;border-bottom:1px solid var(--ml-line);border-radius:0;}
+.mwi-labyrinth-calc-auto-heading h3{font-size:13px;margin:0;font-weight:650;color:var(--ml-text);}
+.mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-width:0;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-precision{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control [data-curve-full-precision]{width:14px;min-width:14px;height:14px;margin:0;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ml-muted);}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:50px;}
+.mwi-labyrinth-calc-auto-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 8px;padding:6px 0;background:transparent;}
+.mwi-labyrinth-calc-auto-method{display:flex;align-items:center;gap:4px;min-width:0;}
+.mwi-labyrinth-calc-auto-target{display:flex;flex-direction:row;align-items:center;gap:4px;min-width:0;}
+.mwi-labyrinth-calc-auto-toolbar .mwi-labyrinth-calc-auto-target>span{font-size:12px;color:var(--ml-muted);white-space:nowrap;}
+.mwi-labyrinth-calc-auto-toolbar input[type="number"]{width:50px;flex:0 0 50px;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-status{margin:0;padding:4px 0 0;border-top:1px solid var(--ml-line);font-size:11px;color:var(--ml-accent);overflow-wrap:anywhere;}
+#mwi-labyrinth-calc-experience-goals{min-width:0;max-width:none;margin:0;padding:6px 0 4px;background:transparent;border-top:1px solid var(--ml-line);font-size:12px;color:var(--ml-text);}
+.mwi-labyrinth-calc-experience-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px 8px;margin-bottom:5px;}
+.mwi-labyrinth-calc-experience-heading h4{margin:0;font-size:12px;font-weight:650;color:var(--ml-text);}
+.mwi-labyrinth-calc-experience-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-scan{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-experience-goals :is([data-experience-full-scan],[data-curve-full-precision]){width:14px;min-width:14px;height:14px;margin:0;}
+#mwi-labyrinth-calc-experience-goals [data-experience-save-error]{margin:4px 0 6px;font-size:11px;gap:6px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-group{min-width:0;}
+#mwi-labyrinth-calc-experience-goals :is(.mwi-labyrinth-calc-life-goals-heading,.mwi-labyrinth-calc-combat-goals-heading){padding:0 0 2px;margin:0 0 3px;background:transparent;border-radius:0;border-bottom:1px solid rgba(65,70,95,.65);font-size:11px;font-weight:600;color:var(--ml-muted);line-height:1.35;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list label{display:grid;grid-template-columns:minmax(0,1fr) 54px;align-items:center;gap:4px;max-width:none;min-width:0;padding:1px 0;margin:0;border-bottom:0;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input{width:54px;height:22px;padding:1px 5px;font-size:12px;border-color:rgba(98,107,134,.45);border-radius:3px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input::placeholder{color:rgba(183,191,212,.38);}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input:not(:placeholder-shown){border-color:#527d73;color:var(--ml-accent);font-weight:600;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input:focus{border-color:var(--ml-accent);}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-skill{display:flex;align-items:center;gap:5px;min-width:0;font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-icon{width:16px;height:16px;flex:0 0 16px;}
+.mwi-labyrinth-calc-prefill-toggle{display:flex;align-items:center;gap:6px;max-width:100%;min-height:24px;margin:4px 0 6px;font-size:12px;font-weight:400;line-height:1.35;cursor:pointer;color:var(--ml-muted);}
+.mwi-labyrinth-calc-prefill-toggle input{flex:0 0 14px;width:14px;height:14px;margin:0;}
 .mwi-labyrinth-calc-prefill-toggle span{min-width:0;overflow-wrap:anywhere;}
-/* Compact secondary columns while keeping room names readable. */
-#mwi-labyrinth-calc-experience-goals :is(.mwi-labyrinth-calc-combat-goals-heading,.mwi-labyrinth-calc-life-goals-heading){grid-column:1/-1;padding:7px 9px;margin-top:8px;background:var(--ml-inset);border-radius:3px;font-size:12px;font-weight:650;color:var(--ml-text);}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-life-goals-heading{margin-top:0;}
+/* Keep native table appearance; only align assistant columns and stabilize edit geometry. */
 .mwi-labyrinth-auto-table :is(td,th){padding:6px 4px!important;}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_roomLabel"]{min-width:7rem;white-space:nowrap;}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_roomLabel"]>*{flex-shrink:0;}
 .mwi-labyrinth-auto-table td:nth-child(2) select{width:5.5rem!important;min-width:0!important;max-width:5.5rem;}
 .mwi-labyrinth-auto-table :is(td,th):nth-child(2){width:5.5rem;}
-.mwi-labyrinth-auto-table :is(td,th)[class*="mwi-labyrinth-calc-auto-"]{width:4rem;min-width:4rem;max-width:5rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-floor-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-floor-cell{width:3.75rem;min-width:3.75rem;max-width:4.5rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-estimate-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-estimate-cell{width:5.5rem;min-width:5.5rem;max-width:6.25rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-recommend-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-recommend-cell{width:4.5rem;min-width:4.5rem;max-width:5.25rem;}
 .mwi-labyrinth-auto-table th{overflow-wrap:normal;word-break:normal;text-wrap:balance;}
-.mwi-labyrinth-auto-table td:is(.mwi-labyrinth-calc-auto-estimate-cell,.mwi-labyrinth-calc-auto-recommend-cell){font-size:13px;text-align:right;padding:6px 4px;background:var(--ml-surface);}
-.mwi-labyrinth-auto-table th[class*="mwi-labyrinth-calc-"]{font-size:12px;font-weight:500;color:var(--ml-muted);text-align:right;padding:6px 4px;background:var(--ml-header);}
-.mwi-labyrinth-auto-table .mwi-labyrinth-calc-experience-result{font-size:11px;color:var(--ml-muted);margin:3px 0 0;}
-.mwi-labyrinth-auto-table td[data-mwi-labyrinth-calc-recommend-setting]{font-size:16px;color:var(--ml-accent);font-weight:650;}
-.mwi-labyrinth-auto-table td.mwi-labyrinth-calc-auto-recommend-cell:not([data-mwi-labyrinth-calc-recommend-setting]){white-space:normal;overflow-wrap:anywhere;}
+.mwi-labyrinth-auto-table :is(td,th)[class*="mwi-labyrinth-calc-auto-"]{text-align:right!important;padding-left:10px!important;padding-right:8px!important;}
+.mwi-labyrinth-auto-table th[class*="mwi-labyrinth-calc-"]{font-size:13px;font-weight:600;color:inherit;white-space:nowrap;}
+.mwi-labyrinth-auto-table td:is(.mwi-labyrinth-calc-auto-floor-cell,.mwi-labyrinth-calc-auto-estimate-cell,.mwi-labyrinth-calc-auto-recommend-cell){font-size:13px;white-space:nowrap;}
+.mwi-labyrinth-auto-table .mwi-labyrinth-calc-experience-result{font-size:11px;color:var(--ml-muted);margin:2px 0 0;}
+.mwi-labyrinth-auto-table td[data-mwi-labyrinth-calc-recommend-setting]{font-size:15px;color:var(--ml-accent);font-weight:650;}
+.mwi-labyrinth-auto-table td.mwi-labyrinth-calc-auto-recommend-cell:not([data-mwi-labyrinth-calc-recommend-setting]){color:var(--ml-muted);white-space:normal;overflow-wrap:anywhere;}
 .mwi-labyrinth-auto-table .mwi-labyrinth-calc-auto-recommend-cell>strong{font:inherit;}
 .mwi-labyrinth-auto-table tr[data-mwi-labyrinth-adjust] td[data-mwi-labyrinth-calc-recommend-setting]{color:var(--ml-warn);}
-.mwi-labyrinth-auto-table tr:has([data-mwi-labyrinth-room-group])>td{border-top:34px solid var(--ml-inset)!important;}
+.mwi-labyrinth-auto-table tr:has([data-mwi-labyrinth-room-group])>td{border-top:22px solid var(--ml-inset)!important;}
 .mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]{position:relative;}
-.mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]::before{content:attr(data-mwi-labyrinth-room-group);position:absolute;left:8px;top:-28px;white-space:nowrap;font-size:13px;line-height:22px;font-weight:650;color:var(--ml-text);}
-
-
-.mwi-labyrinth-auto-table :is(td,th){border-bottom:1px solid var(--ml-line);}
+.mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]::before{content:attr(data-mwi-labyrinth-room-group);position:absolute;left:6px;top:-19px;white-space:nowrap;font-size:12px;line-height:16px;font-weight:600;color:var(--ml-muted);}
 /* Reserve the native editor's footprint in both modes so names and action buttons stay put. */
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_skipThreshold"]{display:grid!important;grid-template-columns:1.625rem 1.625rem 2rem 2.75rem;gap:.1875rem!important;align-items:center;width:8.5625rem;min-width:8.5625rem;min-height:var(--button-height-small,1.5rem);}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_skipThreshold"]>span{grid-column:1/4;text-align:right;min-width:0;}
@@ -250,13 +263,14 @@
 #mwi-labyrinth-calc-room-distribution-floating [class$="__bar"]{height:8px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-room-distribution-floating [class$="__bar"]>span{background:var(--ml-action);border-radius:2px;}
 #mwi-labyrinth-calc-room-distribution-floating [class$="__meta"]{color:var(--ml-muted);font-size:12px;line-height:1.5;margin:0 0 12px;}
-@container mwi-lab-recommend (max-width:560px){
- .mwi-labyrinth-calc-auto-toolbar{grid-template-columns:1fr;gap:6px;}
+@container mwi-lab-recommend (min-width:680px){
+ #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;}
 }
-@container mwi-lab-recommend (max-width:359px){
- .mwi-labyrinth-calc-auto-actions{justify-content:space-between;width:100%;}
- #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}
- #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label:nth-last-child(2){border-bottom:1px solid var(--ml-line);}
+@container mwi-lab-recommend (max-width:349px){
+ .mwi-labyrinth-calc-auto-toolbar{display:grid;grid-template-columns:1fr;gap:5px;}
+ .mwi-labyrinth-calc-auto-method{justify-content:space-between;}
+ .mwi-labyrinth-calc-auto-target{flex:1;justify-content:space-between;}
+ #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;gap:6px;}
 }
 @media(prefers-reduced-motion:reduce){:is(#mwi-labyrinth-planner,[id^="mwi-labyrinth-calc-"]) *{transition:none!important;}}
 `;

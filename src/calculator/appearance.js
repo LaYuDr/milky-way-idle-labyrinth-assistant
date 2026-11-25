@@ -55,6 +55,13 @@
   white-space: nowrap;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
+/* Native entered/failure labels occupy the same bottom row. Keep their status
+   visible immediately, including before the next calculator refresh. Details
+   remain available through the room's existing hover handler. */
+[data-room-x][data-room-y]:has([class*="LabyrinthPanel_roomEntered"], [class*="LabyrinthPanel_roomFailCount"]) > .${ctx.BADGE_CLASS},
+[data-room-x][data-room-y][class*="LabyrinthPanel_clearedRoom"] > .${ctx.BADGE_CLASS} {
+  display: none;
+}
 .${ctx.CONTROL_CLASS} {
   position: relative;
   z-index: 2;

@@ -95,19 +95,22 @@
       if (warning) warning.hidden = !ctx.experienceStorageError;
       const mode = form.querySelector("[data-experience-full-scan]");
       if (mode) mode.checked = settings.mode === "full";
-      const note = form.querySelector("[data-experience-scan-note]");
-      if (note) {
+      const control = document.getElementById(ctx.AUTOMATION_ESTIMATE_CONTROL_ID);
+      const curvePrecision = (control || form).querySelector("[data-curve-full-precision]");
+      if (curvePrecision && typeof ctx.getCurveFullPrecisionSetting === "function") {
+        curvePrecision.checked = ctx.getCurveFullPrecisionSetting();
+      }
+      const scanLabel = form.querySelector(".mwi-labyrinth-calc-experience-scan");
+      if (scanLabel) {
         const content =
           settings.mode === "full"
-            ? text(
-                "战斗：检查当前扫描范围内的全部等级，耗时较长。",
-                "Combat: check every level in the search range; takes longer."
-              )
+            ? text("战斗：扫描全部等级（耗时较长）", "Combat: scan all levels in range (slower)")
             : text(
-                "战斗：连续六级未达标即停止，可能漏掉后续达标等级。",
-                "Combat: stop after six misses in a row; later qualifying levels may be missed."
+                "战斗：连续 6 级未达标即停（可能漏掉后续达标等级）",
+                "Combat: stop after 6 misses (may skip later levels)"
               );
-        if (note.textContent !== content) note.textContent = content;
+        if (scanLabel.title !== content) scanLabel.title = content;
+        if (mode && mode.title !== content) mode.title = content;
       }
     };
     ctx.saveExperienceTarget = (key, value) => {
@@ -216,6 +219,26 @@
       const concurrency = params.entry.isCombat ? ctx.getCombatParallelism() : 1;
       const clearStatsCache = new Map();
       const ordinaryLife = !params.entry.isCombat && params.entry.skillHrid !== "/skills/enhancing";
+      const skillingProfile =
+        !params.entry.isCombat && typeof ctx.extractSkillingProfile === "function"
+          ? ctx.extractSkillingProfile(
+              params.state,
+              params.initClientData,
+              params.entry.skillHrid,
+              params.maxEnhancementByItem,
+              { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            )
+          : null;
+      const combatProfile =
+        params.entry.isCombat && typeof ctx.extractCombatProfile === "function"
+          ? ctx.extractCombatProfile(
+              params.state,
+              params.initClientData,
+              params.entry.monsterHrid,
+              params.maxEnhancementByItem,
+              { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            )
+          : null;
       const analysis = await root.MwiLabyrinthExperiencePolicy.scan({
         minLevel,
         maxLevel: Math.max(minLevel, maxLevel),
@@ -228,7 +251,7 @@
         futureUpperBound: ordinaryLife ? (sample, level, max) => sample.experiencePerHour * (max / level) : null,
         onProgress: ({ completed, level }) => {
           if (!ctx.automationEstimateRunning) return;
-          ctx.automationEstimateStatusText = `${ctx.getAutomationRoomLabel(params.entry, params.initClientData)} · Lv.${level} · ${completed} ${text("级", "levels")}${concurrency > 1 ? ` · ${ctx.getCombatConcurrencyState().limit} ${text("路并行上限", "worker limit")}` : ""}`;
+          ctx.automationEstimateStatusText = `${ctx.getAutomationRoomLabel(params.entry, params.initClientData)} · Lv.${level} (${completed})${concurrency > 1 ? ` · ${ctx.getCombatConcurrencyState().limit}${text("路", "w")}` : ""}`;
           ctx.setAutomationEstimateControlStatus({ running: true, message: ctx.automationEstimateStatusText });
         },
         target: params.targetExperience,
@@ -246,6 +269,7 @@
             return ctx.computeRoomClearChance(params.state, params.initClientData, room, params.maxEnhancementByItem, {
               includePersonalBuffs: false,
               labyrinthUpgradeLevels: params.labyrinthUpgradeLevels,
+              profile: skillingProfile,
               summaryOnly: true,
               clearStatsCache
             });
@@ -262,6 +286,8 @@
               seed: 173,
               reuseSimulation: true,
               parallel: true,
+              priority: 1,
+              profile: combatProfile,
               labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
             }
           );
@@ -303,7 +329,7 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = buttonClass;
-        button.textContent = text("按经验效率推荐", "Recommend by EXP/hour");
+        button.textContent = text("按经验推荐", "By EXP");
         ctx.listen(button, "click", () => ctx.runAutomationRecommendCalculation("experience"));
         row.append(button);
         form = document.createElement("section");
@@ -311,24 +337,34 @@
         const summary = document.createElement("h4");
         summary.id = `${formId}-title`;
         form.setAttribute("aria-labelledby", summary.id);
-        summary.textContent = text("经验目标 · K/h", "EXP goals · K/h");
+        summary.textContent = text("经验目标 (K/h)", "EXP goals (K/h)");
         const grid = document.createElement("div");
         grid.className = "mwi-labyrinth-calc-experience-inputs";
-        const lifeHeading = document.createElement("div");
-        lifeHeading.className = "mwi-labyrinth-calc-life-goals-heading";
-        lifeHeading.textContent = text("生活项目", "Life skills");
-        grid.append(lifeHeading);
+        const createGroup = (kind, titleText, titleTip) => {
+          const group = document.createElement("div");
+          group.className = "mwi-labyrinth-calc-experience-group";
+          group.dataset.group = kind;
+          const heading = document.createElement("div");
+          heading.className =
+            kind === "life" ? "mwi-labyrinth-calc-life-goals-heading" : "mwi-labyrinth-calc-combat-goals-heading";
+          heading.textContent = titleText;
+          if (titleTip) heading.title = titleTip;
+          const list = document.createElement("div");
+          list.className = "mwi-labyrinth-calc-experience-list";
+          group.append(heading, list);
+          grid.append(group);
+          return list;
+        };
+        const lifeList = createGroup("life", text("生活", "Life"));
+        const combatList = createGroup(
+          "combat",
+          text("战斗", "Combat"),
+          text(
+            "七项战斗技能总经验（K/h），含失败与入场耗时",
+            "Total EXP across 7 combat skills (K/h), including failures and entry time"
+          )
+        );
         for (const entry of rooms) {
-          if (entry === rooms[skills.length]) {
-            const heading = document.createElement("div");
-            heading.className = "mwi-labyrinth-calc-combat-goals-heading";
-            heading.textContent = text("战斗项目 · 七项技能总经验", "Combat rooms · total EXP across seven skills");
-            heading.title = text(
-              "每个候选等级使用设置的战斗场数，经验效率包含失败和入场耗时。",
-              "Each level uses the configured battle count; EXP/hour includes failures and entry time."
-            );
-            grid.append(heading);
-          }
           const label = document.createElement("label"),
             name = document.createElement("span"),
             input = document.createElement("input");
@@ -352,7 +388,7 @@
           input.type = "number";
           input.min = "0";
           input.step = "any";
-          input.placeholder = text("未设置", "Not set");
+          input.placeholder = "—";
           input.inputMode = "decimal";
           input.dataset.skill = entry.key;
           input.setAttribute("aria-label", `${skillName} ${text("目标经验", "target EXP")} (K/h)`);
@@ -361,12 +397,12 @@
             ctx.saveExperienceTarget(entry.key, target);
             input.setCustomValidity(
               input.validity.badInput || (input.value && target === null)
-                ? text("请输入不小于 0 的有效数值（K/h）", "Enter a valid nonnegative amount in K/h")
+                ? text("请输入不小于 0 的数值（K/h）", "Enter a nonnegative amount (K/h)")
                 : ""
             );
           });
           label.append(name, input);
-          grid.append(label);
+          (entry.isCombat ? combatList : lifeList).append(label);
         }
         const scanLabel = document.createElement("label");
         scanLabel.className = "mwi-labyrinth-calc-experience-scan";
@@ -374,30 +410,40 @@
         scan.type = "checkbox";
         scan.dataset.experienceFullScan = "";
         const caption = document.createElement("span");
-        caption.textContent = text("完整扫描战斗等级", "Scan all combat levels");
+        caption.textContent = text("完整扫描", "Full scan");
         scanLabel.append(scan, caption);
         ctx.listen(scan, "change", () => ctx.saveExperienceScanMode(scan.checked ? "full" : "quick"));
-        const note = document.createElement("p");
-        note.dataset.experienceScanNote = "";
-        note.id = `${formId}-scan-note`;
-        note.className = "mwi-labyrinth-calc-experience-note";
-        scan.setAttribute("aria-describedby", note.id);
+        const precisionLabel = document.createElement("label");
+        precisionLabel.className = "mwi-labyrinth-calc-curve-precision";
+        const precision = document.createElement("input");
+        precision.type = "checkbox";
+        precision.dataset.curveFullPrecision = "";
+        const precisionCaption = document.createElement("span");
+        precisionCaption.textContent = text("曲线全精算", "Full curve");
+        precisionLabel.title = text(
+          "后台 1~300 级战斗曲线表全部按满场数精算；默认仅精算胜率过渡区（±15 级）。",
+          "Refine all 1–300 combat curve levels to full trials; default refines transition band (+/-15 levels) only."
+        );
+        precision.title = precisionLabel.title;
+        precisionLabel.append(precision, precisionCaption);
+        ctx.listen(precision, "change", () => {
+          ctx.setCurveFullPrecisionSetting?.(precision.checked);
+          const liveState = ctx.getGameState?.();
+          if (liveState?.characterLabyrinth) ctx.scheduleBackgroundCurvePrecompute?.(liveState);
+        });
         const warning = document.createElement("div");
         warning.dataset.experienceSaveError = "";
         warning.className = "mwi-labyrinth-calc-experience-save-error";
         warning.setAttribute("role", "status");
         warning.hidden = true;
         const message = document.createElement("span");
-        message.textContent = text(
-          "没能保存经验设置。本次修改仍在，请重试并暂勿关闭页面。",
-          "Could not save EXP settings. Your edits remain here; retry before closing this page."
-        );
+        message.textContent = text("经验设置保存失败，修改已保留。", "Failed to save EXP settings; edits kept.");
         const retry = document.createElement("button");
         retry.type = "button";
         retry.textContent = text("重试保存", "Retry save");
         ctx.listen(retry, "click", ctx.persistExperienceSettings);
         warning.append(message, retry);
-        form.append(summary, scanLabel, note, warning, grid);
+        form.append(summary, scanLabel, precisionLabel, warning, grid);
         control.append(row, form);
       }
       // Reuse native sprite URLs, without hard-coding versioned asset names.
@@ -440,7 +486,7 @@
         button.textContent =
           running && ctx.automationRecommendBasis === "experience" && ctx.automationEstimateRunningMode === "recommend"
             ? ctx.t("calculating")
-            : text("按经验效率推荐", "Recommend by EXP/hour");
+            : text("按经验推荐", "By EXP");
     };
     const cellContent = ctx.upsertAutomationRecommendCellContent;
     ctx.upsertAutomationRecommendCellContent = (cell, estimate) => {
@@ -464,16 +510,27 @@
       cell.setAttribute(ctx.AUTOMATION_RECOMMEND_CELL_RENDER_TOKEN_ATTR, token);
       cell.textContent = "";
       const main = document.createElement("strong");
+      const rawMessage = String(estimate.message || "");
+      const displayMessage =
+        estimate.status === "error" &&
+        [
+          "扫描范围内未达标",
+          "未找到达到目标的等级",
+          "No level in range exceeds goal",
+          "No level meets the target"
+        ].includes(rawMessage)
+          ? ctx.t("targetNotMet")
+          : rawMessage;
       main.textContent =
         estimate.status === "ready"
           ? ctx.formatAutomationSignedDelta(estimate.levelDelta + 1)
           : estimate.status === "excluded"
             ? "-"
-            : estimate.message;
+            : displayMessage;
       cell.append(main);
       cell.removeAttribute("title");
       if (a)
-        cell.title = `${a.scanMode === "quick" ? text("快速扫描", "Quick scan") : text("完整扫描", "Full scan")} · ${text("已检查", "Checked")} Lv.${a.minLevel}–${a.maxLevel}${a.stoppedEarly ? (a.stopReason === "certified-upper-bound" ? text(" · 后续等级均不达标", " · Remaining levels cannot meet target") : text(" · 连续六级未达标，后续未检查", " · Six consecutive misses; later levels unchecked")) : a.atSearchLimit ? text(" · 已到扫描上限", " · Search limit reached") : ""}`;
+        cell.title = `${estimate.status === "error" ? text("扫描范围内未达标 · ", "Not met in range · ") : ""}${a.scanMode === "quick" ? text("快速扫描", "Quick scan") : text("完整扫描", "Full scan")} · ${text("已检查", "Checked")} Lv.${a.minLevel}–${a.maxLevel}${a.stoppedEarly ? (a.stopReason === "certified-upper-bound" ? text(" · 后续等级均不达标", " · Remaining levels cannot meet target") : text(" · 连续六级未达标，后续未检查", " · Six consecutive misses; later levels unchecked")) : a.atSearchLimit ? text(" · 已到扫描上限", " · Search limit reached") : ""}`;
     };
     const preview = ctx.renderSkillingPreviewTooltip;
     ctx.renderSkillingPreviewTooltip = (data) => {
@@ -544,25 +601,22 @@
       const element = document.createElement("style");
       element.id = "mwi-labyrinth-calc-experience-style";
       element.textContent = `
-.mwi-labyrinth-calc-experience-actions{flex-basis:100%;margin-top:8px;}
-.mwi-labyrinth-calc-experience-scan{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;}
-#${formId} [data-experience-full-scan]{width:16px;min-width:16px;height:16px;padding:0;accent-color:var(--ml-action,#43c4ad);}
-#${formId} [data-experience-save-error]{color:var(--ml-warn,#e9c487);display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0;}
+.mwi-labyrinth-calc-experience-actions{flex-basis:100%;margin-top:6px;}
+.mwi-labyrinth-calc-experience-scan{display:inline-flex;align-items:center;gap:4px;}
+#${formId} :is([data-experience-full-scan],[data-curve-full-precision]){width:14px;min-width:14px;height:14px;padding:0;accent-color:var(--ml-action,#43c4ad);}
+#${formId} [data-experience-save-error]{color:var(--ml-warn,#e9c487);display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:4px 0;}
 #${formId} [data-experience-save-error][hidden]{display:none;}
-.${buttonClass}{font:inherit;font-size:12px;color:#fff;background:#3269c7;border:1px solid #6a94da;border-radius:4px;padding:6px 10px;cursor:pointer;}
+.${buttonClass}{font:inherit;font-size:12px;color:#fff;background:#3269c7;border:1px solid #6a94da;border-radius:4px;padding:4px 8px;cursor:pointer;}
 .${buttonClass}:disabled{opacity:.65;cursor:wait;}
-#${formId}{flex-basis:100%;max-width:620px;color:#eeeef5;font:12px/1.5 system-ui,sans-serif;}
-#${formId} summary{cursor:pointer;padding:6px 0;}
-#${formId} p,.mwi-labyrinth-calc-experience-note{color:#c1c4d8;font-size:12px;line-height:1.5;margin:8px 0;white-space:normal;}
-.mwi-labyrinth-calc-experience-note{flex-basis:100%;max-width:620px;}
-.mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;}
-.mwi-labyrinth-calc-experience-inputs label{display:flex;gap:8px;align-items:center;justify-content:space-between;min-width:0;}
-.mwi-labyrinth-calc-experience-inputs input{width:128px;min-width:0;box-sizing:border-box;background:#161722;color:#eeeef5;border:1px solid #747b9c;border-radius:4px;font:inherit;padding:6px;}
-.mwi-labyrinth-calc-experience-inputs input::placeholder{color:#c1c4d8;opacity:1;}
-.mwi-labyrinth-calc-experience-inputs input:invalid{border-color:#ffba92;}
-.mwi-labyrinth-calc-experience-result{font-size:11px;line-height:1.5;font-weight:400;white-space:normal;max-width:240px;margin-top:4px;overflow-wrap:anywhere;}
-.mwi-labyrinth-calc-experience-result summary{cursor:pointer;}
-@media(max-width:700px){.mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}.mwi-labyrinth-calc-experience-inputs input{width:150px;}}
+#${formId}{flex-basis:100%;max-width:620px;color:#eeeef5;font:12px/1.4 system-ui,sans-serif;}
+.mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;}
+.mwi-labyrinth-calc-experience-list{display:grid;grid-template-columns:1fr;gap:2px;}
+.mwi-labyrinth-calc-experience-list label{display:flex;gap:6px;align-items:center;justify-content:space-between;min-width:0;}
+.mwi-labyrinth-calc-experience-list input{width:54px;min-width:0;box-sizing:border-box;background:#161722;color:#eeeef5;border:1px solid #747b9c;border-radius:4px;font:inherit;padding:2px 5px;text-align:right;}
+.mwi-labyrinth-calc-experience-list input::placeholder{color:#c1c4d8;opacity:.45;}
+.mwi-labyrinth-calc-experience-list input:invalid{border-color:#ffba92;}
+.mwi-labyrinth-calc-experience-result{font-size:11px;line-height:1.4;font-weight:400;white-space:normal;max-width:240px;margin-top:2px;overflow-wrap:anywhere;}
+@media(max-width:480px){.mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}}
 `;
       document.head.append(element);
     };

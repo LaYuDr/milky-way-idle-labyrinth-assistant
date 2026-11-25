@@ -46,10 +46,7 @@
       }
       document.dispatchEvent(new Event("mwi-labyrinth-sidebar-change"));
     }
-    for (const [name, label] of [
-      ["planner", "路线与计算"],
-      ["tokens", "代币规划"]
-    ]) {
+    for (const [name, label] of [["planner", "路线与计算"]]) {
       const button = document.createElement("button");
       button.type = "button";
       button.id = `mwi-labyrinth-sidebar-${name}-tab`;

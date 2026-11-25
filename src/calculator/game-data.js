@@ -299,11 +299,15 @@
       return null;
     };
 
+    ctx.isMapObject = function isMapObject(value) {
+      return Boolean(value && (value instanceof Map || Object.prototype.toString.call(value) === "[object Map]"));
+    };
+
     ctx.getContainerValue = function getContainerValue(container, key) {
       if (!container || key === undefined || key === null) {
         return undefined;
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.get(key);
       }
       return container[key];
@@ -313,7 +317,7 @@
       if (!container) {
         return [];
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return Array.from(container.entries());
       }
       if (typeof container === "object") {
@@ -350,7 +354,7 @@
       if (Array.isArray(value)) {
         return `[${value.map((item) => ctx.stableStringify(item)).join(",")}]`;
       }
-      if (value instanceof Map) {
+      if (ctx.isMapObject(value)) {
         const entries = Array.from(value.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
         return ctx.stableStringify(entries);
       }
@@ -669,7 +673,7 @@
       if (!skillMap) {
         return 0;
       }
-      if (skillMap instanceof Map) {
+      if (ctx.isMapObject(skillMap)) {
         return Number(skillMap.get(skillHrid)?.level || 0);
       }
       return Number(skillMap[skillHrid]?.level || 0);

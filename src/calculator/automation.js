@@ -923,7 +923,20 @@
         return;
       }
       if (estimate.status !== "ready") {
-        cell.textContent = String(estimate.message || ctx.t("pending"));
+        const rawMessage = String(estimate.message || ctx.t("pending"));
+        const isNotMet =
+          estimate.status === "error" &&
+          [
+            ctx.t("targetNotMet"),
+            "扫描范围内未达标",
+            "未找到达到目标的等级",
+            "No level in range exceeds goal",
+            "No level meets the target"
+          ].includes(rawMessage);
+        cell.textContent = isNotMet ? ctx.t("targetNotMet") : rawMessage;
+        if (isNotMet) {
+          cell.title = ctx.isChineseUi() ? "扫描范围内未达到目标" : "No level in range meets target";
+        }
         return;
       }
       const settingLevel = Math.floor(ctx.finiteNumber(estimate.levelDelta, 0)) + 1;
@@ -977,6 +990,9 @@
         const table = ctx.getAutomationEstimateTable();
         let anchor = table;
         while (anchor && anchor.parentElement !== section) anchor = anchor.parentElement;
+        if (anchor?.previousElementSibling?.classList.contains("mwi-labyrinth-calc-prefill-toggle")) {
+          anchor = anchor.previousElementSibling;
+        }
         section.insertBefore(root, anchor || null);
       }
       const settingsLabel = root.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__settings-label`);
@@ -1343,10 +1359,17 @@
             null,
             combatTrials,
             `auto:recommend:${params.entry.key}:${safeRoomLevel}:target${Math.round(params.targetChance * 1000)}`,
-            { includePersonalBuffs: false, parallel: true, labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            {
+              includePersonalBuffs: false,
+              parallel: true,
+              priority: 1,
+              profile: params.cachedProfile || null,
+              labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
+            }
           )
         : ctx.computeRoomClearChance(params.state, params.initClientData, room, params.maxEnhancementByItem, {
             includePersonalBuffs: false,
+            profile: params.cachedProfile || null,
             labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
           });
 
@@ -1401,6 +1424,27 @@
       const maxDelta = Math.max(0, Math.floor(ctx.AUTOMATION_RECOMMEND_MAX_DELTA));
       const isCombatEntry = Boolean(params?.entry?.isCombat);
       const minRoomLevel = isCombatEntry ? ctx.COMBAT_MIN_ROOM_LEVEL : 1;
+      if (!params.cachedProfile) {
+        params.cachedProfile = isCombatEntry
+          ? typeof ctx.extractCombatProfile === "function"
+            ? ctx.extractCombatProfile(
+                params.state,
+                params.initClientData,
+                params.entry.monsterHrid,
+                params.maxEnhancementByItem,
+                { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+              )
+            : null
+          : typeof ctx.extractSkillingProfile === "function"
+            ? ctx.extractSkillingProfile(
+                params.state,
+                params.initClientData,
+                params.entry.skillHrid,
+                params.maxEnhancementByItem,
+                { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+              )
+            : null;
+      }
       const minDelta = Math.min(
         -1,
         Math.max(Math.floor(ctx.AUTOMATION_RECOMMEND_MIN_DELTA), Math.ceil(minRoomLevel - effectiveLevel))
@@ -1640,8 +1684,8 @@
           finished++;
           const pool = ctx.getCombatConcurrencyState();
           ctx.automationEstimateStatusText = ctx.isChineseUi()
-            ? `已完成 ${finished}/${entries.length} 项${pool.active > 1 ? ` · ${pool.active} 路并行` : ""}`
-            : `Completed ${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active} workers` : ""}`;
+            ? `计算中 ${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active}路` : ""}`
+            : `${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active}w` : ""}`;
           ctx.setAutomationEstimateControlStatus({ running: true, message: ctx.automationEstimateStatusText });
           await ctx.nextFrame();
         }
@@ -1667,15 +1711,15 @@
     ctx.finishAutomationStatus = (reason, completed, total, errors) => {
       ctx.automationEstimateStatusText = ctx.isChineseUi()
         ? reason
-          ? `${reason}，已完成 ${completed}/${total} 项，结果已保留`
+          ? `${reason} · ${completed}/${total}`
           : errors
-            ? `已处理 ${completed}/${total} 项，${errors} 项失败，请查看对应行`
-            : `计算完成 · ${completed}/${total} 项`
+            ? `完成 ${completed}/${total} · ${errors} 项失败`
+            : `计算完成 · ${completed}/${total}`
         : reason
-          ? `Stopped: ${reason}; ${completed}/${total} completed, results kept`
+          ? `${reason} · ${completed}/${total}`
           : errors
-            ? `Processed ${completed}/${total}; ${errors} failed, see affected rows`
-            : `Calculation complete · ${completed}/${total}`;
+            ? `Done ${completed}/${total} · ${errors} failed`
+            : `Done · ${completed}/${total}`;
     };
 
     ctx.runAutomationRecommendCalculation = async function runAutomationRecommendCalculation(basis = "winRate") {
@@ -1794,12 +1838,7 @@
                 experienceAnalysis,
                 roomLabel,
                 isCombat: entry.isCombat,
-                message:
-                  basis === "experience"
-                    ? ctx.isChineseUi()
-                      ? "扫描范围内未达标"
-                      : "No level in range exceeds goal"
-                    : ctx.t("targetNotMet")
+                message: ctx.t("targetNotMet")
               });
             } else {
               const recommendedRoomLevel = Math.max(1, Math.floor(ctx.finiteNumber(match.roomLevel, 1)));
@@ -1848,7 +1887,8 @@
         ctx.automationEstimateStatusText = `${ctx.t("calcFailed")}：${String(error?.message || error)}`;
       } finally {
         ctx.automationRunSnapshot = null;
-        ctx.releaseIdleCombatWorkers();
+        if (typeof ctx.scheduleIdleCombatWorkerRelease === "function") ctx.scheduleIdleCombatWorkerRelease(60000);
+        else ctx.releaseIdleCombatWorkers();
         ctx.automationEstimateRunning = false;
         ctx.automationEstimateRunningMode = "";
         if (!ctx.destroyed) ctx.renderAutomationEstimateTable(entries);
@@ -2038,7 +2078,8 @@
         ctx.automationEstimateStatusText = `${ctx.t("calcFailed")}：${String(error?.message || error)}`;
       } finally {
         ctx.automationRunSnapshot = null;
-        ctx.releaseIdleCombatWorkers();
+        if (typeof ctx.scheduleIdleCombatWorkerRelease === "function") ctx.scheduleIdleCombatWorkerRelease(60000);
+        else ctx.releaseIdleCombatWorkers();
         ctx.automationEstimateRunning = false;
         ctx.automationEstimateRunningMode = "";
         ctx.setAutomationEstimateControlStatus({

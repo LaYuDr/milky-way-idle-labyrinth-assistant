@@ -4,16 +4,295 @@
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["skilling"] = function (ctx) {
     const sharedStats = new Map(),
-      enhancingStats = new Map();
+      enhancingStats = new Map(),
+      skillingCurves = new Map();
+    let dpBufA = new Float64Array(512);
+    let dpBufB = new Float64Array(512);
+    let enhBufA = new Float64Array(16);
+    let enhBufB = new Float64Array(16);
+
     ctx.clearSkillingSimulationCache = () => {
       sharedStats.clear();
       enhancingStats.clear();
+      skillingCurves.clear();
     };
     function rememberStats(cache, key, result) {
       cache.set(key, result);
       if (cache.size > 2048) cache.delete(cache.keys().next().value);
       return { ...result };
     }
+    function ensureDpBuffers(size) {
+      if (size > dpBufA.length) {
+        const nextSize = Math.max(size + 64, dpBufA.length * 2);
+        dpBufA = new Float64Array(nextSize);
+        dpBufB = new Float64Array(nextSize);
+      }
+    }
+    function ensureEnhBuffers(size) {
+      if (size > enhBufA.length) {
+        const nextSize = Math.max(size + 8, enhBufA.length * 2);
+        enhBufA = new Float64Array(nextSize);
+        enhBufB = new Float64Array(nextSize);
+      }
+    }
+
+    // Zero-allocation double-buffered exact DP with active upper-bound pruning.
+    ctx.solveNonEnhancingClearStats = function solveNonEnhancingClearStats(
+      attempts,
+      successChance,
+      doubleChance,
+      neededUnits
+    ) {
+      if (!Number.isFinite(neededUnits) || neededUnits <= 0) {
+        return { clearChance: 1, expectedAttemptsOnClear: 0 };
+      }
+      if (!Number.isFinite(attempts) || attempts <= 0) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+      const p = ctx.clamp01(successChance);
+      const d = ctx.clamp01(doubleChance);
+      if (p <= 0 || neededUnits > attempts * 2) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+      if (p >= 1 && d <= 0) {
+        return neededUnits <= attempts
+          ? { clearChance: 1, expectedAttemptsOnClear: neededUnits }
+          : { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+
+      ensureDpBuffers(neededUnits);
+      const q0 = 1 - p;
+      const q1 = p * (1 - d);
+      const q2 = p * d;
+      const q12 = q1 + q2;
+      const uMinus1 = neededUnits - 1;
+      const uMinus2 = neededUnits - 2;
+
+      let cur = dpBufA;
+      let nxt = dpBufB;
+      cur[0] = 1;
+      let cleared = 0;
+      let expectedAttemptsNumerator = 0;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const prevMax = Math.min(uMinus1, (attempt - 1) * 2);
+        const nextMax = Math.min(uMinus1, attempt * 2);
+        nxt.fill(0, 0, nextMax + 1);
+        let reachedNow = 0;
+
+        for (let units = 0; units <= prevMax; units += 1) {
+          const prob = cur[units];
+          if (prob <= 0) continue;
+          if (q0 > 0) nxt[units] += prob * q0;
+          if (units < uMinus2) {
+            nxt[units + 1] += prob * q1;
+            nxt[units + 2] += prob * q2;
+          } else if (units === uMinus2) {
+            nxt[uMinus1] += prob * q1;
+            reachedNow += prob * q2;
+          } else {
+            reachedNow += prob * q12;
+          }
+        }
+
+        if (reachedNow > 0) {
+          cleared += reachedNow;
+          expectedAttemptsNumerator += attempt * reachedNow;
+        }
+        const tmp = cur;
+        cur = nxt;
+        nxt = tmp;
+      }
+
+      const clearChance = ctx.clamp01(cleared);
+      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
+      return { clearChance, expectedAttemptsOnClear };
+    };
+
+    // Scalar-unrolled exact DP for the standard +5 enhancing target (zero allocations),
+    // falling back to double-buffered DP for arbitrary targets/start levels.
+    ctx.solveEnhancingClearStats = function solveEnhancingClearStats(
+      attempts,
+      successChance,
+      doubleChance,
+      targetLevel,
+      startLevel
+    ) {
+      const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
+      const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
+      if (target <= 0 || start >= target) {
+        return { clearChance: 1, expectedAttemptsOnClear: 0 };
+      }
+      if (!Number.isFinite(attempts) || attempts <= 0) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+
+      const p = ctx.clamp01(successChance);
+      const d = ctx.clamp01(doubleChance);
+      const q0 = 1 - p;
+      const q1 = p * (1 - d);
+      const q2 = p * d;
+      const q12 = q1 + q2;
+
+      if (target === 5 && start === 0) {
+        let s0 = 1,
+          s1 = 0,
+          s2 = 0,
+          s3 = 0,
+          s4 = 0,
+          cleared = 0,
+          expectedAttemptsNumerator = 0;
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+          const n0 = (s0 + s1) * q0;
+          const n1 = s0 * q1 + s2 * q0;
+          const n2 = s0 * q2 + s1 * q1 + s3 * q0;
+          const n3 = s1 * q2 + s2 * q1 + s4 * q0;
+          const n4 = s2 * q2 + s3 * q1;
+          const reachedNow = s3 * q2 + s4 * q12;
+          if (reachedNow > 0) {
+            cleared += reachedNow;
+            expectedAttemptsNumerator += attempt * reachedNow;
+          }
+          s0 = n0;
+          s1 = n1;
+          s2 = n2;
+          s3 = n3;
+          s4 = n4;
+        }
+        const clearChance = ctx.clamp01(cleared);
+        return {
+          clearChance,
+          expectedAttemptsOnClear: clearChance > 0 ? expectedAttemptsNumerator / clearChance : null
+        };
+      }
+
+      ensureEnhBuffers(target + 1);
+      let cur = enhBufA;
+      let nxt = enhBufB;
+      cur.fill(0, 0, target + 1);
+      cur[Math.min(start, target)] = 1;
+      let cleared = 0;
+      let expectedAttemptsNumerator = 0;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        nxt.fill(0, 0, target);
+        let reachedNow = 0;
+        for (let level = 0; level < target; level += 1) {
+          const prob = cur[level];
+          if (prob <= 0) continue;
+          nxt[level > 0 ? level - 1 : 0] += prob * q0;
+          if (level + 1 >= target) {
+            reachedNow += prob * q12;
+          } else if (level + 2 >= target) {
+            nxt[level + 1] += prob * q1;
+            reachedNow += prob * q2;
+          } else {
+            nxt[level + 1] += prob * q1;
+            nxt[level + 2] += prob * q2;
+          }
+        }
+        if (reachedNow > 0) {
+          cleared += reachedNow;
+          expectedAttemptsNumerator += attempt * reachedNow;
+        }
+        const tmp = cur;
+        cur = nxt;
+        nxt = tmp;
+      }
+
+      const clearChance = ctx.clamp01(cleared);
+      return {
+        clearChance,
+        expectedAttemptsOnClear: clearChance > 0 ? expectedAttemptsNumerator / clearChance : null
+      };
+    };
+
+    // Build and cache a full 1..maxLevel exact lookup table for a normalized skilling profile (~0.3ms/skill).
+    ctx.getOrBuildSkillingCurve = function getOrBuildSkillingCurve(profile, requestedMaxLevel = 300) {
+      if (!profile || !profile.coreProfileKey) return null;
+      const targetMax = Math.max(300, Math.ceil(ctx.finiteNumber(requestedMaxLevel, 300)));
+      const existing = skillingCurves.get(profile.coreProfileKey);
+      if (existing && existing.maxLevel >= targetMax) {
+        skillingCurves.delete(profile.coreProfileKey);
+        skillingCurves.set(profile.coreProfileKey, existing);
+        return existing;
+      }
+
+      const startLevel = existing ? existing.maxLevel + 1 : 1;
+      const clearChanceArr = new Float64Array(targetMax);
+      const expectedAttemptsArr = new Float64Array(targetMax);
+      expectedAttemptsArr.fill(NaN);
+      if (existing) {
+        clearChanceArr.set(existing.clearChance);
+        expectedAttemptsArr.set(existing.expectedAttempts);
+      }
+
+      const { isEnhancing, effectiveSkillLevel, successBonus, doubleChance, attempts, progressPerSuccess } = profile;
+      let prevP = NaN;
+      let prevUnits = -1;
+      let prevStats = null;
+
+      for (let lv = startLevel; lv <= targetMax; lv += 1) {
+        const levelDelta = effectiveSkillLevel - lv;
+        const levelBonus = levelDelta >= 0 ? levelDelta * 0.005 : levelDelta * 0.01;
+        const successChance = ctx.skillingSuccessChance(0.8 * (1 + levelBonus + successBonus));
+        let stats;
+        if (isEnhancing) {
+          const targetEnh = ctx.getEnhancingTargetLevelByRoomLevel(lv);
+          if (successChance === prevP && targetEnh === prevUnits && prevStats) {
+            stats = prevStats;
+          } else {
+            stats = ctx.solveEnhancingClearStats(attempts, successChance, doubleChance, targetEnh, 0);
+            prevP = successChance;
+            prevUnits = targetEnh;
+            prevStats = stats;
+          }
+        } else {
+          const targetProgress = lv * 10;
+          const neededUnits = progressPerSuccess > 0 ? Math.ceil(targetProgress / progressPerSuccess - 1e-9) : Infinity;
+          if (successChance === prevP && neededUnits === prevUnits && prevStats) {
+            stats = prevStats;
+          } else {
+            stats =
+              progressPerSuccess > 0 && Number.isFinite(neededUnits)
+                ? ctx.solveNonEnhancingClearStats(attempts, successChance, doubleChance, neededUnits)
+                : { clearChance: 0, expectedAttemptsOnClear: null };
+            prevP = successChance;
+            prevUnits = neededUnits;
+            prevStats = stats;
+          }
+        }
+        clearChanceArr[lv - 1] = stats.clearChance;
+        expectedAttemptsArr[lv - 1] = stats.expectedAttemptsOnClear === null ? NaN : stats.expectedAttemptsOnClear;
+      }
+
+      const entry = {
+        coreProfileKey: profile.coreProfileKey,
+        maxLevel: targetMax,
+        clearChance: clearChanceArr,
+        expectedAttempts: expectedAttemptsArr
+      };
+      skillingCurves.delete(profile.coreProfileKey);
+      skillingCurves.set(profile.coreProfileKey, entry);
+      if (skillingCurves.size > 256) {
+        skillingCurves.delete(skillingCurves.keys().next().value);
+      }
+      return entry;
+    };
+
+    ctx.lookupSkillingCurveStats = function lookupSkillingCurveStats(profile, roomLevel) {
+      const lv = Math.floor(ctx.finiteNumber(roomLevel, 0));
+      if (!profile || lv < 1) return null;
+      const curve = ctx.getOrBuildSkillingCurve(profile, lv);
+      if (!curve) return null;
+      const clearChance = curve.clearChance[lv - 1];
+      const expected = curve.expectedAttempts[lv - 1];
+      return {
+        clearChance,
+        expectedAttemptsOnClear: Number.isFinite(expected) ? expected : null
+      };
+    };
+
     // Only distribution inputs are shared; live labels and rewards are rebuilt.
     ctx.computeNonEnhancingClearStats = function computeNonEnhancingClearStats(params, cache) {
       cache ||= sharedStats;
@@ -46,62 +325,8 @@
         return { clearChance: 0, expectedAttemptsOnClear: null };
       }
 
-      const p = ctx.clamp01(successChance);
-      const d = ctx.clamp01(doubleChance);
-      if (p <= 0) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
       const neededUnits = Math.ceil(targetProgress / effectiveProgressPerSuccess - 1e-9);
-      if (neededUnits <= 0) {
-        return { clearChance: 1, expectedAttemptsOnClear: 0 };
-      }
-      if (neededUnits > attempts * 2) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
-      const q0 = 1 - p;
-      const q1 = p * (1 - d);
-      const q2 = p * d;
-
-      let stateDist = new Float64Array(neededUnits + 1);
-      stateDist[0] = 1;
-      let expectedAttemptsNumerator = 0;
-
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const nextDist = new Float64Array(neededUnits + 1);
-
-        for (let units = 0; units <= neededUnits; units += 1) {
-          const prob = stateDist[units];
-          if (prob <= 0) {
-            continue;
-          }
-
-          if (units === neededUnits) {
-            nextDist[neededUnits] += prob;
-            continue;
-          }
-
-          nextDist[units] += prob * q0;
-          nextDist[Math.min(neededUnits, units + 1)] += prob * q1;
-          nextDist[Math.min(neededUnits, units + 2)] += prob * q2;
-        }
-
-        const reachedNow = nextDist[neededUnits] - stateDist[neededUnits];
-        if (reachedNow > 0) {
-          expectedAttemptsNumerator += attempt * reachedNow;
-        }
-
-        stateDist = nextDist;
-      }
-
-      const clearChance = ctx.clamp01(stateDist[neededUnits]);
-      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
-
-      return {
-        clearChance,
-        expectedAttemptsOnClear
-      };
+      return ctx.solveNonEnhancingClearStats(attempts, successChance, doubleChance, neededUnits);
     }
 
     ctx.computeEnhancingClearStats = function computeEnhancingClearStats(params) {
@@ -117,53 +342,7 @@
     };
     function calculateEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, targetLevel, startLevel } = params;
-      const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
-      const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
-      if (target <= 0 || start >= target) {
-        return { clearChance: 1, expectedAttemptsOnClear: 0 };
-      }
-      if (!Number.isFinite(attempts) || attempts <= 0) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
-      const p = ctx.clamp01(successChance);
-      const d = ctx.clamp01(doubleChance);
-      const failChance = 1 - p;
-      const singleSuccessChance = p * (1 - d);
-      const doubleSuccessChance = p * d;
-
-      let stateDist = new Float64Array(target + 1);
-      stateDist[Math.min(start, target)] = 1;
-      let expectedAttemptsNumerator = 0;
-
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const nextDist = new Float64Array(target + 1);
-        for (let level = 0; level <= target; level += 1) {
-          const prob = stateDist[level];
-          if (prob <= 0) {
-            continue;
-          }
-          if (level === target) {
-            nextDist[target] += prob;
-            continue;
-          }
-          nextDist[Math.max(0, level - 1)] += prob * failChance;
-          nextDist[Math.min(target, level + 1)] += prob * singleSuccessChance;
-          nextDist[Math.min(target, level + 2)] += prob * doubleSuccessChance;
-        }
-        const reachedNow = nextDist[target] - stateDist[target];
-        if (reachedNow > 0) {
-          expectedAttemptsNumerator += attempt * reachedNow;
-        }
-        stateDist = nextDist;
-      }
-
-      const clearChance = ctx.clamp01(stateDist[target]);
-      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
-      return {
-        clearChance,
-        expectedAttemptsOnClear
-      };
+      return ctx.solveEnhancingClearStats(attempts, successChance, doubleChance, targetLevel, startLevel);
     }
 
     ctx.getEnhancingTargetLevelByRoomLevel = function getEnhancingTargetLevelByRoomLevel(_roomLevel) {
@@ -197,74 +376,125 @@
         return null;
       }
 
-      const skillId = ctx.skillHridToSkillId(room.skillHrid);
-      if (!skillId) {
-        return null;
+      const roomLevel = Number(room.recommendedLevel || 0);
+      const profile =
+        options.profile && options.profile.skillHrid === room.skillHrid
+          ? options.profile
+          : typeof ctx.extractSkillingProfile === "function"
+            ? ctx.extractSkillingProfile(state, initClientData, room.skillHrid, maxEnhancementByItem, options)
+            : null;
+
+      let skillId;
+      let actionTypeHrid;
+      let isEnhancingRoom;
+      let labyrinthUpgradeLevels;
+      let labyrinthUpgradeMetrics;
+      let labyrinthExperienceBonus;
+      let globalMetrics;
+      let roomLoadout;
+      let baseSkillLevel;
+      let skillLevelBonus;
+      let efficiencyBonus;
+      let actionSpeedBonus;
+      let successBonus;
+      let experienceBonusDetail;
+      let experienceBonus;
+      let doubleChance;
+      let effectiveSkillLevel;
+      let baseActionSeconds;
+      let actionSeconds;
+      let attempts;
+      let experienceMultiplier;
+
+      if (profile) {
+        skillId = profile.skillId;
+        actionTypeHrid = profile.actionTypeHrid;
+        isEnhancingRoom = profile.isEnhancing;
+        labyrinthUpgradeLevels = profile.labyrinthUpgradeLevels;
+        labyrinthUpgradeMetrics = profile.labyrinthUpgradeMetrics;
+        labyrinthExperienceBonus = profile.labyrinthExperienceBonus;
+        globalMetrics = profile.globalMetrics;
+        roomLoadout = profile.roomLoadout;
+        baseSkillLevel = profile.baseSkillLevel;
+        skillLevelBonus = profile.skillLevelBonus;
+        efficiencyBonus = profile.efficiencyBonus;
+        actionSpeedBonus = profile.actionSpeedBonus;
+        successBonus = profile.successBonus;
+        experienceBonusDetail = profile.experienceBonusDetail;
+        experienceBonus = profile.experienceBonus;
+        doubleChance = profile.doubleChance;
+        effectiveSkillLevel = profile.effectiveSkillLevel;
+        baseActionSeconds = profile.baseActionSeconds;
+        actionSeconds = profile.actionSeconds;
+        attempts = profile.attempts;
+        experienceMultiplier = profile.experienceMultiplier;
+      } else {
+        skillId = ctx.skillHridToSkillId(room.skillHrid);
+        if (!skillId) {
+          return null;
+        }
+        actionTypeHrid = ctx.skillIdToActionTypeHrid(skillId);
+        isEnhancingRoom = skillId === "enhancing";
+        const crateSelection = ctx.getLabyrinthCrateSelection(state);
+        labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
+        const teaCrateItemHrid = String(crateSelection?.teaCrateItemHrid || "");
+        const crateBuffs = ctx.getCrateBuffs(initClientData, teaCrateItemHrid);
+        labyrinthUpgradeMetrics = ctx.buildLabyrinthUpgradeSkillingMetrics(labyrinthUpgradeLevels);
+        labyrinthExperienceBonus = ctx.getLabyrinthUpgradeExperienceBonus(labyrinthUpgradeLevels);
+        const includePersonalBuffs = false;
+        const globalPair = ctx.getSkillingGlobalMetrics(state, skillId, actionTypeHrid, {
+          includePersonalBuffs
+        });
+        globalMetrics = globalPair.globalMetrics;
+
+        const fallbackMetrics = ctx.createEmptySkillingMetrics();
+        ctx.addSkillingMetrics(fallbackMetrics, globalPair.equipmentMetrics);
+
+        roomLoadout = ctx.getSkillingRoomLoadoutMetrics(
+          state,
+          initClientData,
+          room,
+          skillId,
+          actionTypeHrid,
+          maxEnhancementByItem,
+          fallbackMetrics
+        );
+        const crateMetrics = ctx.getSkillingBuffMetrics(skillId, crateBuffs);
+        const combinedMetrics = ctx.createEmptySkillingMetrics();
+        ctx.addSkillingMetrics(combinedMetrics, globalMetrics);
+        ctx.addSkillingMetrics(combinedMetrics, roomLoadout.metrics);
+        ctx.addSkillingMetrics(combinedMetrics, crateMetrics);
+        ctx.addSkillingMetrics(combinedMetrics, labyrinthUpgradeMetrics);
+
+        baseSkillLevel = ctx.getSkillLevel(state.characterSkillMap, room.skillHrid);
+        skillLevelBonus = combinedMetrics.skillLevelBonus;
+        efficiencyBonus = combinedMetrics.efficiencyBonus;
+        actionSpeedBonus = combinedMetrics.actionSpeedBonus;
+        successBonus = combinedMetrics.successBonus;
+        experienceBonusDetail = ctx.computeSkillingExperienceBonusForRoom(
+          state,
+          skillId,
+          actionTypeHrid,
+          roomLoadout.metrics,
+          crateMetrics,
+          includePersonalBuffs,
+          labyrinthExperienceBonus
+        );
+        experienceBonus = ctx.finiteNumber(experienceBonusDetail?.totalBonus, 0);
+        doubleChance = ctx.clamp01(combinedMetrics.crateDoubleProgressBonus + combinedMetrics.gatheringBonus);
+        effectiveSkillLevel = baseSkillLevel + skillLevelBonus;
+        baseActionSeconds = isEnhancingRoom ? ctx.BASE_ENHANCING_ACTION_SECONDS : ctx.BASE_ACTION_SECONDS;
+        actionSeconds = baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus);
+        attempts = Math.max(1, Math.floor(ctx.ROOM_DURATION_SECONDS / actionSeconds));
+        experienceMultiplier = Math.max(0, ctx.finiteNumber(experienceBonusDetail?.multiplier, 1));
       }
 
-      const actionTypeHrid = ctx.skillIdToActionTypeHrid(skillId);
-      const isEnhancingRoom = skillId === "enhancing";
-      const crateSelection = ctx.getLabyrinthCrateSelection(state);
-      const labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
-      const teaCrateItemHrid = String(crateSelection?.teaCrateItemHrid || "");
-      const crateBuffs = ctx.getCrateBuffs(initClientData, teaCrateItemHrid);
-      const labyrinthUpgradeMetrics = ctx.buildLabyrinthUpgradeSkillingMetrics(labyrinthUpgradeLevels);
-      const labyrinthExperienceBonus = ctx.getLabyrinthUpgradeExperienceBonus(labyrinthUpgradeLevels);
-      const includePersonalBuffs = false;
-      const { equipmentMetrics, globalMetrics } = ctx.getSkillingGlobalMetrics(state, skillId, actionTypeHrid, {
-        includePersonalBuffs
-      });
-
-      const fallbackMetrics = ctx.createEmptySkillingMetrics();
-      ctx.addSkillingMetrics(fallbackMetrics, equipmentMetrics);
-
-      const roomLoadout = ctx.getSkillingRoomLoadoutMetrics(
-        state,
-        initClientData,
-        room,
-        skillId,
-        actionTypeHrid,
-        maxEnhancementByItem,
-        fallbackMetrics
-      );
-      const crateMetrics = ctx.getSkillingBuffMetrics(skillId, crateBuffs);
-      const combinedMetrics = ctx.createEmptySkillingMetrics();
-      ctx.addSkillingMetrics(combinedMetrics, globalMetrics);
-      ctx.addSkillingMetrics(combinedMetrics, roomLoadout.metrics);
-      ctx.addSkillingMetrics(combinedMetrics, crateMetrics);
-      ctx.addSkillingMetrics(combinedMetrics, labyrinthUpgradeMetrics);
-
-      const baseSkillLevel = ctx.getSkillLevel(state.characterSkillMap, room.skillHrid);
-      const skillLevelBonus = combinedMetrics.skillLevelBonus;
-      const efficiencyBonus = combinedMetrics.efficiencyBonus;
-      const actionSpeedBonus = combinedMetrics.actionSpeedBonus;
-      const successBonus = combinedMetrics.successBonus;
-      const experienceBonusDetail = ctx.computeSkillingExperienceBonusForRoom(
-        state,
-        skillId,
-        actionTypeHrid,
-        roomLoadout.metrics,
-        crateMetrics,
-        includePersonalBuffs,
-        labyrinthExperienceBonus
-      );
-      const experienceBonus = ctx.finiteNumber(experienceBonusDetail?.totalBonus, 0);
-      const crateDoubleProgressBonus = combinedMetrics.crateDoubleProgressBonus;
-      const gatheringBonus = combinedMetrics.gatheringBonus;
-
-      const effectiveSkillLevel = baseSkillLevel + skillLevelBonus;
-      const roomLevel = Number(room.recommendedLevel || 0);
       const levelDelta = effectiveSkillLevel - roomLevel;
       const levelBonus = levelDelta >= 0 ? levelDelta * 0.005 : levelDelta * 0.01;
       const successChance = ctx.skillingSuccessChance(0.8 * (1 + levelBonus + successBonus));
-      const doubleChance = ctx.clamp01(crateDoubleProgressBonus + gatheringBonus);
       const rewardPreview = options.summaryOnly ? null : ctx.createRoomRewardPreview(state, room);
 
-      const baseActionSeconds = isEnhancingRoom ? ctx.BASE_ENHANCING_ACTION_SECONDS : ctx.BASE_ACTION_SECONDS;
-      const actionSeconds = baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus);
-      const attempts = Math.max(1, Math.floor(ctx.ROOM_DURATION_SECONDS / actionSeconds));
       const baseExperiencePerRoom = Math.max(0, roomLevel * 50);
-      const experienceMultiplier = Math.max(0, ctx.finiteNumber(experienceBonusDetail?.multiplier, 1));
       const experiencePerRoom = Math.max(0, baseExperiencePerRoom * experienceMultiplier);
       const experiencePerAction = attempts > 0 ? Math.max(0, experiencePerRoom / attempts) : experiencePerRoom;
       const speedDeltaForOneMoreAttempt = ctx.computeActionSpeedDeltaForOneMoreAttempt(
@@ -294,15 +524,20 @@
         ? baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus + speedDeltaForOneMoreAttempt)
         : actionSeconds;
 
+      const integerRoomLevel = Number.isInteger(roomLevel) && roomLevel >= 1 ? roomLevel : 0;
+
       if (isEnhancingRoom) {
         targetEnhLevel = ctx.getEnhancingTargetLevelByRoomLevel(roomLevel);
-        clearStats = ctx.computeEnhancingClearStats({
-          attempts,
-          successChance,
-          doubleChance,
-          targetLevel: targetEnhLevel,
-          startLevel: 0
-        });
+        clearStats =
+          profile && integerRoomLevel
+            ? ctx.lookupSkillingCurveStats(profile, integerRoomLevel)
+            : ctx.computeEnhancingClearStats({
+                attempts,
+                successChance,
+                doubleChance,
+                targetLevel: targetEnhLevel,
+                startLevel: 0
+              });
         if (options.summaryOnly) return summary();
         const nextLevelDelta = effectiveSkillLevel + 1 - roomLevel;
         const nextLevelBonus = nextLevelDelta >= 0 ? nextLevelDelta * 0.005 : nextLevelDelta * 0.01;
@@ -381,26 +616,33 @@
           rewardPreview
         };
       } else {
-        workPower = Math.max(0, effectiveSkillLevel * (1 + efficiencyBonus));
-        progressPerSuccess = ctx.getEffectiveSkillingProgressPerSuccess(workPower);
+        workPower = profile ? profile.workPower : Math.max(0, effectiveSkillLevel * (1 + efficiencyBonus));
+        progressPerSuccess = profile
+          ? profile.progressPerSuccess
+          : ctx.getEffectiveSkillingProgressPerSuccess(workPower);
         targetProgress = roomLevel * 10;
         const neededUnits = progressPerSuccess > 0 ? Math.ceil(targetProgress / progressPerSuccess - 1e-9) : 0;
-        const efficiencyDeltaForOneLessProgressUnit = ctx.computeEfficiencyDeltaForOneLessProgressUnit(
-          targetProgress,
-          effectiveSkillLevel,
-          efficiencyBonus,
-          neededUnits
-        );
-        clearStats = ctx.computeNonEnhancingClearStats(
-          {
-            attempts,
-            successChance,
-            doubleChance,
-            progressPerSuccess,
-            targetProgress
-          },
-          options.clearStatsCache
-        );
+        const efficiencyDeltaForOneLessProgressUnit = options.summaryOnly
+          ? null
+          : ctx.computeEfficiencyDeltaForOneLessProgressUnit(
+              targetProgress,
+              effectiveSkillLevel,
+              efficiencyBonus,
+              neededUnits
+            );
+        clearStats =
+          profile && integerRoomLevel
+            ? ctx.lookupSkillingCurveStats(profile, integerRoomLevel)
+            : ctx.computeNonEnhancingClearStats(
+                {
+                  attempts,
+                  successChance,
+                  doubleChance,
+                  progressPerSuccess,
+                  targetProgress
+                },
+                options.clearStatsCache
+              );
         if (options.summaryOnly) return summary();
         const nextLevelEffectiveSkillLevel = effectiveSkillLevel + 1;
         const nextLevelDelta = nextLevelEffectiveSkillLevel - roomLevel;

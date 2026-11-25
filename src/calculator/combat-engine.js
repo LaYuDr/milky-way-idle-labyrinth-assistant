@@ -7,6 +7,13 @@
     const slots = [];
     const queue = [];
     const persistentCache = root.MwiLabyrinthSimulationCache?.create({ indexedDB: ctx.window.indexedDB });
+    const pendingCacheWrites = new Set();
+    if (typeof ctx.window?.addEventListener === "function")
+      ctx.listen(ctx.window, "pagehide", () => void persistentCache?.flush?.());
+    if (typeof ctx.window?.document?.addEventListener === "function")
+      ctx.listen(ctx.window.document, "visibilitychange", () => {
+        if (ctx.window.document.hidden) void persistentCache?.flush?.();
+      });
     let fingerprintSource = null,
       fingerprintPromise = null,
       engineFingerprint = null;
@@ -166,6 +173,212 @@
       }
     }
     ctx.COMBAT_WORKER_TIMEOUT_MS = 180000;
+    ctx.COMBAT_JOB_MAX_RETRIES = 1;
+
+    function tagError(error, retryable) {
+      const err = error instanceof Error ? error : new Error(String(error || "战斗引擎运行失败"));
+      if (err.combatRetryable === undefined) err.combatRetryable = retryable;
+      return err;
+    }
+    function backoffOnFailure() {
+      const nextLimit = Math.max(1, Math.floor(currentLimit() / 2));
+      adaptiveLimit = nextLimit;
+      healthyCompletions = 0;
+      healthyTicks = 0;
+      backoffs++;
+      lastChange = now();
+      saveConcurrency(nextLimit);
+    }
+    function failSlot(index, worker, error) {
+      const slot = slots[index];
+      if (!slot || (worker && slot.worker !== worker)) return;
+      const targetWorker = worker || slot.worker;
+      backoffOnFailure();
+      if (targetWorker) {
+        for (const [id, pending] of ctx.combatWorkerPendingRequests.entries()) {
+          if (pending.worker !== targetWorker) continue;
+          ctx.clearTimeout(pending.timeout);
+          ctx.combatWorkerPendingRequests.delete(id);
+          pending.reject(error);
+        }
+        targetWorker.terminate();
+      }
+      if (slot.url) URL.revokeObjectURL(slot.url);
+      slot.worker = null;
+      slot.url = "";
+      slot.initialization = null;
+      slot.gameKey = null;
+      if (index === 0) {
+        ctx.combatSimulatorWorker = null;
+        ctx.combatSimulatorWorkerUrl = "";
+      }
+    }
+
+    let idleReleaseTimer = null;
+    let jobSeq = 0;
+    const WORKER_SHIM_PREAMBLE = `(function () {
+  var _rawPost = self.postMessage.bind(self);
+  var _innerOnMessage = null;
+  var _batchCapture = null;
+  var _batchSubSeq = 0;
+  var _lastProgAt = 0;
+  var _lastProgId = null;
+  var _lastProgSent = -1;
+  var _SKILLS = ["stamina", "intelligence", "attack", "melee", "defense", "ranged", "magic"];
+
+  function _outerOnMessage(ev) {
+    var m = ev && ev.data;
+    if (!m || m.type !== "runBatch") {
+      return _innerOnMessage ? _innerOnMessage(ev) : undefined;
+    }
+    return _runBatch(m);
+  }
+
+  if (typeof self.addEventListener === "function") {
+    self.addEventListener("message", _outerOnMessage);
+    Object.defineProperty(self, "onmessage", {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return _innerOnMessage;
+      },
+      set: function (fn) {
+        if (typeof fn === "function") _innerOnMessage = fn;
+      }
+    });
+  } else {
+    Object.defineProperty(self, "onmessage", {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return _outerOnMessage;
+      },
+      set: function (fn) {
+        if (typeof fn === "function") _innerOnMessage = fn;
+      }
+    });
+  }
+
+  self.postMessage = function (msg, transfer) {
+    if (_batchCapture && msg && msg.id === _batchCapture.subId) {
+      if (msg.type === "progress") {
+        _batchCapture.onSubProgress(msg.completed);
+        return;
+      }
+      if (msg.type === "result") {
+        _batchCapture.resolve(msg.result);
+        return;
+      }
+      if (msg.type === "error") {
+        _batchCapture.reject(new Error(msg.error || "战斗引擎运行失败"));
+        return;
+      }
+    }
+    if (msg && msg.type === "ready") {
+      _rawPost({ ...msg, capabilities: { batch: true, throttledProgress: true } });
+      return;
+    }
+    if (msg && msg.type === "progress") {
+      var now = performance.now();
+      var done = msg.completed === msg.target;
+      if (!done && msg.id === _lastProgId && now - _lastProgAt < 80) {
+        return;
+      }
+      _lastProgId = msg.id;
+      _lastProgAt = now;
+      _lastProgSent = msg.completed;
+      _rawPost(msg);
+      return;
+    }
+    if (msg && msg.type === "result" && msg.result) {
+      var t = msg.result.trials;
+      if (_lastProgId !== msg.id || _lastProgSent !== t) {
+        _lastProgId = msg.id;
+        _lastProgSent = t;
+        _rawPost({ id: msg.id, type: "progress", completed: t, target: t });
+      }
+    }
+    if (transfer) _rawPost(msg, transfer);
+    else _rawPost(msg);
+  };
+
+  async function _runBatch(m) {
+    try {
+      if (!_innerOnMessage) throw new Error("战斗引擎尚未加载");
+      var jobs = Array.isArray(m.jobs) ? m.jobs : [];
+      var baseParams = m.baseParams || {};
+      var stride = 16;
+      var out = new Float64Array(jobs.length * stride);
+      var totalTarget = 0;
+      for (var k = 0; k < jobs.length; k++) totalTarget += jobs[k].trials || 0;
+      var doneBeforeJob = 0;
+      var lastBatchProgAt = performance.now();
+      for (var i = 0; i < jobs.length; i++) {
+        var job = jobs[i];
+        var subId = -(++_batchSubSeq);
+        var r = await new Promise(function (resolve, reject) {
+          _batchCapture = {
+            subId: subId,
+            resolve: resolve,
+            reject: reject,
+            onSubProgress: function (c) {
+              var tNow = performance.now();
+              if (tNow - lastBatchProgAt >= 100) {
+                lastBatchProgAt = tNow;
+                _rawPost({ id: m.id, type: "batchProgress", completed: doneBeforeJob + c, target: totalTarget });
+              }
+            }
+          };
+          Promise.resolve(
+            _innerOnMessage({
+              data: {
+                type: "run",
+                id: subId,
+                params: {
+                  playerDto: baseParams.playerDto,
+                  monsterHrid: baseParams.monsterHrid,
+                  mazeCrateItemHrids: baseParams.mazeCrateItemHrids || [],
+                  mazeDifficulty: job.level,
+                  trials: job.trials,
+                  seed: job.seed
+                }
+              }
+            })
+          ).catch(reject);
+        });
+        _batchCapture = null;
+        if (!r || r.trials !== job.trials || r.completedTrials !== job.trials) {
+          throw new Error("战斗引擎未完成批次请求场数");
+        }
+        var off = i * stride;
+        out[off + 0] = r.trials;
+        out[off + 1] = r.successes;
+        out[off + 2] = r.failedByDeath;
+        out[off + 3] = r.failedByTimeout;
+        out[off + 4] = r.totalSpentSeconds;
+        out[off + 5] = r.minElapsedSeconds || 0;
+        out[off + 6] = r.maxElapsedSeconds || 0;
+        out[off + 7] = Number.isFinite(r.durationM2SecondsSquared) ? r.durationM2SecondsSquared : 0;
+        out[off + 8] = Number.isFinite(r.durationSuccessComomentSeconds) ? r.durationSuccessComomentSeconds : 0;
+        var xpMap = r.experienceGained && Object.values(r.experienceGained)[0];
+        for (var s = 0; s < 7; s++) {
+          out[off + 9 + s] = xpMap && Number.isFinite(xpMap[_SKILLS[s]]) ? xpMap[_SKILLS[s]] : 0;
+        }
+        doneBeforeJob += job.trials || 0;
+        var tJob = performance.now();
+        if (i === jobs.length - 1 || tJob - lastBatchProgAt >= 100) {
+          lastBatchProgAt = tJob;
+          _rawPost({ id: m.id, type: "batchProgress", completed: doneBeforeJob, target: totalTarget });
+        }
+      }
+      _rawPost({ id: m.id, type: "batchResult", count: jobs.length, buffer: out.buffer }, [out.buffer]);
+    } catch (err) {
+      _batchCapture = null;
+      _rawPost({ id: m.id, type: "error", error: err && err.message ? err.message : String(err) });
+    }
+  }
+})();
+`;
 
     ctx.unpackEmbeddedAsset = async function (base64) {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -181,10 +394,47 @@
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", wasmBuffer)), (n) =>
         n.toString(16).padStart(2, "0")
       ).join("");
-      if (hash !== ctx.MWISIM_WASM_SHA256) throw new Error("内置战斗引擎校验失败");
-      return { workerBuffer, wasmBuffer, data: await new Response(dataBuffer).json() };
+      if (hash !== ctx.MWISIM_WASM_SHA256) throw tagError(new Error("内置战斗引擎校验失败"), false);
+      const wasmModule =
+        typeof WebAssembly?.compile === "function" ? await WebAssembly.compile(wasmBuffer).catch(() => null) : null;
+      const shimBytes = new TextEncoder().encode(WORKER_SHIM_PREAMBLE);
+      const enhancedWorkerBytes = new Uint8Array(shimBytes.byteLength + workerBuffer.byteLength);
+      enhancedWorkerBytes.set(shimBytes, 0);
+      enhancedWorkerBytes.set(new Uint8Array(workerBuffer), shimBytes.byteLength);
+      return {
+        workerBuffer,
+        enhancedWorkerBuffer: enhancedWorkerBytes.buffer,
+        wasmBuffer,
+        wasmModule,
+        data: await new Response(dataBuffer).json()
+      };
+    };
+    ctx.cancelScheduledIdleWorkerRelease = function cancelScheduledIdleWorkerRelease() {
+      if (idleReleaseTimer !== null) {
+        ctx.clearTimeout(idleReleaseTimer);
+        idleReleaseTimer = null;
+      }
+    };
+    ctx.scheduleIdleCombatWorkerRelease = function scheduleIdleCombatWorkerRelease(delayMs = 60000) {
+      ctx.cancelScheduledIdleWorkerRelease();
+      if (ctx.destroyed) return;
+      const hasExtraSlots = slots.slice(1).some((slot) => Boolean(slot));
+      if (!hasExtraSlots) return;
+      const ms = Math.max(0, Math.floor(ctx.finiteNumber(delayMs, 60000)));
+      if (ms === 0) {
+        ctx.releaseIdleCombatWorkers();
+        return;
+      }
+      idleReleaseTimer = ctx.setTimeout(() => {
+        idleReleaseTimer = null;
+        if (!ctx.destroyed && !queue.length && !slots.some((slot) => slot?.busy)) {
+          ctx.releaseIdleCombatWorkers();
+        }
+      }, ms);
+      if (typeof idleReleaseTimer?.unref === "function") idleReleaseTimer.unref();
     };
     ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消"), { failed = false } = {}) {
+      ctx.cancelScheduledIdleWorkerRelease();
       if (failed) saveConcurrency(Math.max(1, Math.floor(currentLimit() / 2)));
       generation++;
       if (monitor !== null) ctx.clearTimeout(monitor);
@@ -213,16 +463,17 @@
       }
       ctx.combatWorkerPendingRequests.clear();
     };
-    function request(worker, type, data, trials = 0, progressTracker = null) {
+    function request(worker, index, type, data, trials = 0, progressTracker = null) {
       const id = ++ctx.combatWorkerRequestId;
       return new Promise((resolve, reject) => {
         const timeout = ctx.setTimeout(
-          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试"), { failed: true }),
+          () => failSlot(index, worker, tagError(new Error("战斗计算超时，请重试"), true)),
           ctx.COMBAT_WORKER_TIMEOUT_MS
         );
         ctx.combatWorkerPendingRequests.set(id, {
           type,
           worker,
+          index,
           resolve,
           reject,
           timeout,
@@ -233,11 +484,11 @@
         try {
           worker.postMessage({ type, id, ...data });
         } catch (error) {
-          ctx.resetCombatSimulatorWorker(error, { failed: true });
+          failSlot(index, worker, tagError(error, true));
         }
       });
     }
-    function receive(worker, { data: message = {} }) {
+    function receive(worker, index, { data: message = {} }) {
       const pending = ctx.combatWorkerPendingRequests.get(message.id);
       if (!pending || pending.worker !== worker) return;
       try {
@@ -249,15 +500,38 @@
             message.completed < pending.completed ||
             message.completed > pending.trials
           )
-            throw new Error("战斗模拟场数进度无效");
+            throw tagError(new Error("战斗模拟场数进度无效"), false);
           const delta = message.completed - pending.completed;
           pending.completed = message.completed;
           if (delta > 0) pending.progressTracker?.add(delta);
           return;
         }
-        if (message.type === "error") throw new Error(String(message.error || "战斗引擎运行失败"));
+        if (message.type === "batchProgress") {
+          if (pending.type !== "runBatch") return;
+          const completedUnits = Math.max(pending.completed, Math.min(pending.trials, Number(message.completed) || 0));
+          const delta = completedUnits - pending.completed;
+          pending.completed = completedUnits;
+          if (delta > 0) pending.progressTracker?.add(delta);
+          return;
+        }
+        if (message.type === "error") throw tagError(new Error(String(message.error || "战斗引擎运行失败")), true);
         if (pending.type === "init") {
-          if (message.type !== "ready") throw new Error("战斗引擎初始化响应无效");
+          if (message.type !== "ready") throw tagError(new Error("战斗引擎初始化响应无效"), false);
+          slotAt(index).capabilities = message.capabilities || {};
+        } else if (pending.type === "runBatch") {
+          const isBuf = Boolean(
+            message.buffer &&
+            (message.buffer instanceof ArrayBuffer ||
+              Object.prototype.toString.call(message.buffer) === "[object ArrayBuffer]")
+          );
+          if (message.type !== "batchResult" || !isBuf) {
+            throw tagError(new Error("战斗引擎批次结果无效"), false);
+          }
+          const remaining = Math.max(0, pending.trials - pending.completed);
+          if (remaining > 0) {
+            pending.completed = pending.trials;
+            pending.progressTracker?.add(remaining);
+          }
         } else {
           const r = message.result;
           if (
@@ -267,82 +541,104 @@
             r.completedTrials !== pending.trials ||
             pending.completed !== pending.trials
           )
-            throw new Error("战斗引擎未完成请求场数");
+            throw tagError(new Error("战斗引擎未完成请求场数"), false);
           if (
             ![r.successes, r.failedByDeath, r.failedByTimeout].every((n) => Number.isSafeInteger(n) && n >= 0) ||
             r.successes + r.failedByDeath + r.failedByTimeout !== pending.trials
           )
-            throw new Error("战斗模拟结果计数不一致");
+            throw tagError(new Error("战斗模拟结果计数不一致"), false);
           if (
             !Number.isFinite(r.totalSpentSeconds) ||
             r.totalSpentSeconds < 0 ||
             r.totalSpentSeconds > pending.trials * 120 + 1e-6
           )
-            throw new Error("战斗模拟累计耗时无效");
+            throw tagError(new Error("战斗模拟累计耗时无效"), false);
         }
         ctx.clearTimeout(pending.timeout);
         ctx.combatWorkerPendingRequests.delete(message.id);
         pending.resolve(message.result || message);
       } catch (error) {
-        ctx.resetCombatSimulatorWorker(error, { failed: true });
+        failSlot(index, worker, error);
       }
     }
     function slotAt(index) {
-      return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false });
+      return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false, capabilities: {} });
     }
     function ensureSlot(
       index,
       gameData = ctx.getInitClientData(),
       gameKey = ctx.cachedInitClientDataRaw || JSON.stringify(gameData)
     ) {
-      if (ctx.destroyed) return Promise.reject(new Error("计算已停止"));
+      if (ctx.destroyed) return Promise.reject(tagError(new Error("计算已停止"), false));
       const slot = slotAt(index);
       if (slot.initialization && slot.gameKey !== gameKey) {
         slot.worker?.terminate();
         if (slot.url) URL.revokeObjectURL(slot.url);
+        slot.worker = null;
+        slot.url = "";
         slot.initialization = null;
+        slot.capabilities = {};
       }
       slot.gameKey = gameKey;
       if (slot.initialization) return slot.initialization;
       const token = generation;
-      slot.initialization = (async () => {
+      let worker = null;
+      let assetsReady = false;
+      const initPromise = (async () => {
         ctx.combatWorkerScriptPromise ||= ctx.prepareMwisimWorkerAssets();
         const assets = await ctx.combatWorkerScriptPromise;
-        if (ctx.destroyed) throw new Error("计算已停止");
-        if (token !== generation) throw new Error("战斗引擎初始化已取消");
-        if (!gameData) throw new Error("游戏数据尚未就绪");
-        slot.url = URL.createObjectURL(new Blob([assets.workerBuffer], { type: "text/javascript" }));
-        const worker = new Worker(slot.url);
+        assetsReady = true;
+        if (ctx.destroyed) throw tagError(new Error("计算已停止"), false);
+        if (token !== generation) throw tagError(new Error("战斗引擎初始化已取消"), false);
+        if (!gameData) throw tagError(new Error("游戏数据尚未就绪"), false);
+        const scriptBytes = assets.enhancedWorkerBuffer || assets.workerBuffer;
+        slot.url = URL.createObjectURL(new Blob([scriptBytes], { type: "text/javascript" }));
+        worker = new Worker(slot.url);
         slot.worker = worker;
         if (index === 0) {
           ctx.combatSimulatorWorker = worker;
           ctx.combatSimulatorWorkerUrl = slot.url;
         }
-        ctx.listen(worker, "message", (event) => receive(worker, event));
+        ctx.listen(worker, "message", (event) => receive(worker, index, event));
         ctx.listen(worker, "error", (event) => {
-          if (token === generation)
-            ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"), { failed: true });
+          if (token === generation) failSlot(index, worker, tagError(new Error(event.message || "战斗引擎崩溃"), true));
         });
-        await request(worker, "init", {
-          wasm: assets.wasmBuffer.slice(0),
+        await request(worker, index, "init", {
+          wasm: assets.wasmModule || assets.wasmBuffer.slice(0),
           hash: ctx.MWISIM_WASM_SHA256,
           gameData: gameData.maps || gameData,
           fallbackData: assets.data?.fallbackData,
           originalMaps: assets.data?.originalMaps
         });
-        if (ctx.destroyed || token !== generation) throw new Error("战斗引擎初始化已取消");
+        if (ctx.destroyed || token !== generation) throw tagError(new Error("战斗引擎初始化已取消"), false);
         return worker;
       })().catch((error) => {
         if (token === generation) {
-          ctx.resetCombatSimulatorWorker(error, { failed: true });
-          ctx.combatWorkerScriptPromise = null;
+          if (worker && slot.worker === worker) {
+            failSlot(index, worker, error);
+          } else if (slot.initialization === initPromise) {
+            if (assetsReady && !ctx.destroyed) backoffOnFailure();
+            if (slot.url) URL.revokeObjectURL(slot.url);
+            slot.url = "";
+            slot.worker = null;
+            slot.initialization = null;
+            slot.gameKey = null;
+            slot.capabilities = {};
+            if (index === 0) {
+              ctx.combatSimulatorWorker = null;
+              ctx.combatSimulatorWorkerUrl = "";
+            }
+            if (!assetsReady) ctx.combatWorkerScriptPromise = null;
+          }
         }
         throw error;
       });
-      return slot.initialization;
+      slot.initialization = initPromise;
+      return initPromise;
     }
     ctx.ensureCombatSimulatorWorker = () => ensureSlot(0);
     ctx.releaseIdleCombatWorkers = () => {
+      ctx.cancelScheduledIdleWorkerRelease();
       if (!queue.length && !slots.some((slot) => slot?.busy)) {
         if (monitor !== null) ctx.clearTimeout(monitor);
         monitor = null;
@@ -360,12 +656,32 @@
         slots[i] = null;
       }
     };
+    function insertJobByPriority(job) {
+      let pos = queue.length;
+      while (pos > 0) {
+        const prev = queue[pos - 1];
+        if (prev.priority < job.priority || (prev.priority === job.priority && prev.seq <= job.seq)) break;
+        pos--;
+      }
+      queue.splice(pos, 0, job);
+    }
+    function effectiveJobLimit(job) {
+      const cap = currentLimit();
+      // Background P2 precomputation leaves 1 core for UI responsiveness on 3+ core devices.
+      const priorityCap = job.priority >= 2 && cap >= 3 ? cap - 1 : cap;
+      return Math.min(job.limit, priorityCap);
+    }
     function pump() {
       for (let j = 0; j < queue.length;) {
         // Drain excess in-flight samples before replacing slots after a backoff.
-        if (slots.filter((slot) => slot?.busy).length >= currentLimit()) break;
+        const activeCount = slots.filter((slot) => slot?.busy).length;
+        if (activeCount >= currentLimit()) break;
         const job = queue[j];
-        const limit = Math.min(job.limit, currentLimit());
+        const limit = effectiveJobLimit(job);
+        if (activeCount >= limit) {
+          j++;
+          continue;
+        }
         let index = 0;
         while (index < limit && slotAt(index).busy) index++;
         if (index === limit) {
@@ -373,40 +689,249 @@
           continue;
         }
         queue.splice(j, 1);
+        ctx.cancelScheduledIdleWorkerRelease();
         const slot = slotAt(index),
           token = generation;
         slot.busy = true;
         (async () => {
           const worker = await ensureSlot(index, job.gameData, job.gameKey);
-          if (token !== generation || ctx.destroyed) throw new Error("战斗计算已取消");
-          return request(worker, "run", { params: job.payload }, job.payload.trials, job.progressTracker);
+          if (token !== generation || ctx.destroyed) throw tagError(new Error("战斗计算已取消"), false);
+          const attemptTracker = job.createAttemptTracker?.() || null;
+          if (job.kind === "batch") {
+            const totalTrials = job.jobs.reduce((sum, item) => sum + item.trials, 0);
+            if (slot.capabilities?.batch) {
+              const resp = await request(
+                worker,
+                index,
+                "runBatch",
+                { baseParams: job.baseParams, jobs: job.jobs },
+                totalTrials,
+                attemptTracker
+              );
+              const view = new Float64Array(resp.buffer);
+              const statsMod = root.MwiLabyrinthCombatStats;
+              const results = [];
+              for (let i = 0; i < job.jobs.length; i++) {
+                const stats = statsMod.readLevel(view, i + 1);
+                if (!stats || stats.trials !== job.jobs[i].trials) {
+                  throw tagError(new Error("战斗批次统计不完整"), true);
+                }
+                results.push({ level: job.jobs[i].level, stats });
+              }
+              return results;
+            }
+            // Fallback for test harnesses using legacy mock Workers without the batch shim.
+            const statsMod = root.MwiLabyrinthCombatStats;
+            const results = [];
+            for (const sub of job.jobs) {
+              if (token !== generation || ctx.destroyed) throw tagError(new Error("战斗计算已取消"), false);
+              const single = await request(
+                worker,
+                index,
+                "run",
+                {
+                  params: {
+                    playerDto: job.baseParams.playerDto,
+                    monsterHrid: job.baseParams.monsterHrid,
+                    mazeCrateItemHrids: job.baseParams.mazeCrateItemHrids || [],
+                    mazeDifficulty: sub.level,
+                    trials: sub.trials,
+                    seed: sub.seed
+                  }
+                },
+                sub.trials,
+                attemptTracker
+              );
+              results.push({ level: sub.level, stats: statsMod.normalizeStats(single) });
+            }
+            return results;
+          }
+          return request(worker, index, "run", { params: job.payload }, job.payload.trials, attemptTracker);
         })()
-          .then((value) => {
-            completedJob();
-            job.resolve(value);
-          }, job.reject)
+          .then(
+            (value) => {
+              completedJob();
+              job.resolve(value);
+            },
+            (error) => {
+              if (token === generation && !ctx.destroyed && error?.combatRetryable && job.retriesLeft > 0) {
+                job.retriesLeft--;
+                insertJobByPriority(job);
+                return;
+              }
+              job.reject(error);
+            }
+          )
           .finally(() => {
             slot.busy = false;
-            if (token === generation) pump();
+            if (token === generation) {
+              pump();
+              if (queue.length || slots.some((entry) => entry?.busy)) startMonitor();
+            }
           });
       }
     }
-    function dispatch(payload, progressTracker, parallel, gameData, gameKey) {
+    function createRetrySafeTracker(progressTracker) {
+      if (!progressTracker) return null;
+      let reportedProgress = 0;
+      return () => {
+        let attemptProgress = 0;
+        return {
+          add(units = 1, message) {
+            const n = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
+            attemptProgress += n;
+            if (attemptProgress > reportedProgress) {
+              const delta = attemptProgress - reportedProgress;
+              reportedProgress = attemptProgress;
+              progressTracker.add(delta, message);
+            }
+          }
+        };
+      };
+    }
+    function dispatch(payload, progressTracker, parallel, gameData, gameKey, priority = 0) {
       if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
+      const createAttemptTracker = createRetrySafeTracker(progressTracker);
       return new Promise((resolve, reject) => {
-        queue.push({
+        insertJobByPriority({
+          kind: "run",
+          priority: Math.max(0, Math.min(2, Math.floor(ctx.finiteNumber(priority, 0)))),
+          seq: ++jobSeq,
           payload,
-          progressTracker,
+          createAttemptTracker,
           resolve,
           reject,
           gameData,
           gameKey,
+          retriesLeft: Math.max(0, Math.floor(ctx.finiteNumber(ctx.COMBAT_JOB_MAX_RETRIES, 1))),
           limit: parallel ? ctx.getCombatParallelism() : 1
         });
         pump();
         startMonitor();
       });
     }
+    function dispatchBatch(baseParams, jobs, progressTracker, parallel, gameData, gameKey, priority = 1) {
+      if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
+      const createAttemptTracker = createRetrySafeTracker(progressTracker);
+      return new Promise((resolve, reject) => {
+        insertJobByPriority({
+          kind: "batch",
+          priority: Math.max(0, Math.min(2, Math.floor(ctx.finiteNumber(priority, 1)))),
+          seq: ++jobSeq,
+          baseParams,
+          jobs,
+          createAttemptTracker,
+          resolve,
+          reject,
+          gameData,
+          gameKey,
+          retriesLeft: Math.max(0, Math.floor(ctx.finiteNumber(ctx.COMBAT_JOB_MAX_RETRIES, 1))),
+          limit: parallel ? ctx.getCombatParallelism() : 1
+        });
+        pump();
+        startMonitor();
+      });
+    }
+    ctx.simulateCombatBatchWithWorker = async function (params, progressTracker) {
+      const token = generation;
+      const owner = ctx.storageIdentity?.();
+      const cancelled = () => ctx.destroyed || token !== generation || ctx.storageIdentity?.() !== owner;
+      if (ctx.simulationCacheClearing) await ctx.simulationCacheClearing;
+      if (cancelled()) throw new Error("战斗计算已取消");
+      const jobs = Array.isArray(params?.jobs)
+        ? params.jobs
+            .map((j) => ({
+              level: Math.max(1, Math.floor(ctx.finiteNumber(j.level, 1))),
+              trials: Math.max(1, Math.min(3000, Math.floor(ctx.finiteNumber(j.trials, 1)))),
+              seed: Number(j.seed ?? 173) >>> 0
+            }))
+            .filter((j) => j.trials > 0)
+        : [];
+      if (!jobs.length) return [];
+      const gameData = ctx.getInitClientData();
+      if (!gameData) throw new Error("游戏数据尚未就绪");
+      const gameSource = ctx.cachedInitClientDataRaw || JSON.stringify(gameData);
+      const baseParams = {
+        playerDto: ctx.deepCloneJson(params.playerDto),
+        monsterHrid: params.monsterHrid,
+        mazeCrateItemHrids: ctx.deepCloneJson(params.mazeCrateItemHrids || [])
+      };
+      return dispatchBatch(
+        baseParams,
+        jobs,
+        progressTracker,
+        params.parallel !== false,
+        gameData,
+        gameSource,
+        params.priority ?? 1
+      );
+    };
+    ctx.simulateCombatChunkedWithWorker = async function (params, progressTracker) {
+      const statsMod = root.MwiLabyrinthCombatStats;
+      if (!statsMod) return ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      const existingTrials = Math.max(0, Math.floor(ctx.finiteNumber(params?.existingTrials, 0)));
+      const targetTrials = Math.max(1, Math.floor(ctx.finiteNumber(params?.trials, 1)));
+      const baseSeed = Number.isSafeInteger(params?.seed) ? params.seed : 173;
+      const chunkSize = Math.max(1, Math.floor(ctx.finiteNumber(params?.chunkSize, statsMod.DEFAULT_CHUNK_TRIALS)));
+      const plan = statsMod.buildChunkPlan(existingTrials, targetTrials, { baseSeed, chunkSize });
+      if (!plan.length) return null;
+      // Single small chunk can run directly without extra fan-out overhead.
+      if (plan.length === 1) {
+        const res = await ctx.simulateCombatBatchWithWorker(
+          {
+            playerDto: params.playerDto,
+            monsterHrid: params.monsterHrid,
+            mazeCrateItemHrids: params.mazeCrateItemHrids,
+            jobs: [{ level: params.mazeDifficulty, trials: plan[0].trials, seed: plan[0].seed }],
+            parallel: params.parallel !== false,
+            priority: params.priority ?? 0
+          },
+          progressTracker
+        );
+        return res[0]?.stats || null;
+      }
+      // Multi-chunk fan-out across all available cores for fast single-room / refinement solves.
+      const chunkResults = await Promise.all(
+        plan.map((chunk) =>
+          ctx
+            .simulateCombatBatchWithWorker(
+              {
+                playerDto: params.playerDto,
+                monsterHrid: params.monsterHrid,
+                mazeCrateItemHrids: params.mazeCrateItemHrids,
+                jobs: [{ level: params.mazeDifficulty, trials: chunk.trials, seed: chunk.seed }],
+                parallel: true,
+                priority: params.priority ?? 0
+              },
+              progressTracker
+            )
+            .then((rows) => rows[0]?.stats || null)
+        )
+      );
+      let merged = null;
+      for (const chunkStats of chunkResults) {
+        if (chunkStats) merged = statsMod.mergeStats(merged, chunkStats);
+      }
+      return merged;
+    };
+    function persistSampleInBackground(diskKey, result) {
+      if (!diskKey || !persistentCache?.put) return;
+      let write;
+      write = (async () => {
+        try {
+          await persistentCache.put(diskKey, result);
+        } catch {
+          /* Cache persistence is best-effort and must never fail calculation. */
+        }
+      })().finally(() => {
+        pendingCacheWrites.delete(write);
+      });
+      pendingCacheWrites.add(write);
+    }
+    ctx.flushSimulationCache = async () => {
+      if (pendingCacheWrites.size) await Promise.allSettled([...pendingCacheWrites]);
+      await persistentCache?.flush?.();
+    };
     ctx.simulateCombatRoomWithWorker = async function (params, progressTracker) {
       const token = generation,
         owner = ctx.storageIdentity?.();
@@ -431,7 +956,7 @@
         gameSource = fingerprintSource;
       const [gameKey, engineKey] = await Promise.all([pendingGameKey, engineFingerprint]);
       if (cancelled()) throw new Error("战斗计算已取消");
-      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource);
+      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource, params.priority ?? 0);
       // Explicit opt-out remains available to benchmarks and fresh simulations.
       if (!params.reuseSimulation || !Number.isSafeInteger(params.seed)) return run();
       const key = JSON.stringify([
@@ -473,8 +998,7 @@
         if (cancelled()) throw new Error("战斗计算已取消");
         validateCachedResult(result, trials);
         remember(key, result);
-        if (diskKey) await persistentCache?.put(diskKey, result);
-        if (cancelled()) throw new Error("战斗计算已取消");
+        persistSampleInBackground(diskKey, result);
         return result;
       })();
       inFlight.set(key, pending);
@@ -484,6 +1008,7 @@
         if (inFlight.get(key) === pending) inFlight.delete(key);
       }
     };
+    ctx.simulateCombatRoomWithWorker.__mwiNative = true;
     function validateCachedResult(result, trials) {
       if (
         result.trials !== trials ||
@@ -512,7 +1037,10 @@
         return false;
       ctx.resetCombatSimulatorWorker();
       ctx.clearSkillingSimulationCache?.();
-      ctx.simulationCacheClearing = Promise.resolve(persistentCache?.clear());
+      ctx.simulationCacheClearing = (async () => {
+        if (pendingCacheWrites.size) await Promise.allSettled([...pendingCacheWrites]);
+        return persistentCache?.clear();
+      })();
       try {
         const cleared = await ctx.simulationCacheClearing;
         return !persistentCache || cleared === true;

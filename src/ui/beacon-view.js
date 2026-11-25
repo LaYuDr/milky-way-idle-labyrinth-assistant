@@ -53,8 +53,10 @@
       analysis = null,
       key = null,
       quantity = 1,
-      markers = [],
-      ranges = [];
+      lastPinZoom = "";
+    const pinMap = new Map(),
+      rangeMap = new Map();
+    let hoverState = { cell: null, id: null, count: null, zoom: "", siblingCount: -1, pinMarker: null, placed: false };
     let currentPlan = null,
       activePoint = null;
     // The override is local to this floor and beacon type; it never changes game inventory.
@@ -173,48 +175,101 @@
     hoverPreview.setAttribute("aria-live", "polite");
     hoverPreview.hidden = true;
     container.append(card, error);
+    function isBeaconOverlayNode(node) {
+      return (
+        node === hoverPreview ||
+        node.classList.contains("mwi-lab-beacon-best") ||
+        node.classList.contains("mwi-lab-beacon-pin") ||
+        node.classList.contains("mwi-lab-beacon-range")
+      );
+    }
+    function nonBeaconChildCount(cell) {
+      let count = 0;
+      for (const child of cell.children) {
+        if (!isBeaconOverlayNode(child)) count++;
+      }
+      return count;
+    }
     function clearRanges() {
-      ranges.forEach((n) => {
-        n.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
-        n.remove();
-      });
-      ranges = [];
+      for (const entry of rangeMap.values()) {
+        entry.cell?.removeAttribute("data-mwi-lab-beacon-fill");
+        entry.range.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
+        entry.range.remove();
+      }
+      rangeMap.clear();
+    }
+    function clearPins() {
+      for (const entry of pinMap.values()) entry.marker?.remove();
+      pinMap.clear();
+      lastPinZoom = "";
+    }
+    function clearHover() {
+      if (hoverPreview.parentElement) hoverPreview.remove();
+      hoverPreview.hidden = true;
+      hoverState = { cell: null, id: null, count: null, zoom: "", siblingCount: -1, pinMarker: null, placed: false };
     }
     function clearMarkers() {
       clearRanges();
-      markers.forEach((n) => n.remove());
-      markers = [];
+      clearPins();
     }
     function highlight(index = null) {
       activePoint = index;
-      clearRanges();
-      if (!currentPlan || !map || map.beaconMode) return;
-      const seen = new Set();
-      const activeTargets = new Set();
-      currentPlan.points.forEach((point, i) => {
-        for (const target of analysis.candidates[point.id].targets) {
-          if (!seen.has(target) && i === index) activeTargets.add(target);
-          seen.add(target);
+      const desired = new Map();
+      if (currentPlan && map && !map.beaconMode) {
+        const seen = new Set();
+        currentPlan.points.forEach((point, i) => {
+          for (const target of analysis.candidates[point.id].targets) {
+            if (!seen.has(target)) {
+              seen.add(target);
+              desired.set(target, i === index ? "active" : "preview");
+            }
+          }
+        });
+      }
+      for (const [id, entry] of rangeMap.entries()) {
+        const nextCell = map?.nodes[id];
+        if (!desired.has(id) || entry.cell !== nextCell || !entry.range.isConnected) {
+          entry.cell?.removeAttribute("data-mwi-lab-beacon-fill");
+          entry.range.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
+          entry.range.remove();
+          rangeMap.delete(id);
         }
-      });
-      for (const target of seen) {
+      }
+      for (const [target, mode] of desired.entries()) {
         const cell = map.nodes[target];
         if (!cell?.isConnected) continue;
+        const existing = rangeMap.get(target);
+        if (existing && existing.cell === cell && existing.range.isConnected) {
+          if (existing.mode !== mode) {
+            existing.mode = mode;
+            existing.range.dataset.active = String(mode === "active");
+            cell.setAttribute("data-mwi-lab-beacon-fill", mode);
+          } else if (cell.getAttribute("data-mwi-lab-beacon-fill") !== mode) {
+            cell.setAttribute("data-mwi-lab-beacon-fill", mode);
+          }
+          continue;
+        }
         const range = el("span", "mwi-lab-beacon-range");
-        range.dataset.active = String(activeTargets.has(target));
+        range.dataset.active = String(mode === "active");
         range.setAttribute("aria-hidden", "true");
         // Paint the cell background, never a layer over native labels or icons.
         // A namespaced data attribute also avoids triggering the game's class observer.
-        cell.setAttribute("data-mwi-lab-beacon-fill", activeTargets.has(target) ? "active" : "preview");
+        cell.setAttribute("data-mwi-lab-beacon-fill", mode);
         cell.append(range);
-        ranges.push(range);
+        rangeMap.set(target, { range, cell, mode });
       }
     }
-    function mark(id, label, dot = false) {
+    function placePin(id, label, existingMarker = null, dot = false) {
       const cell = map.nodes[id];
-      if (!cell?.isConnected) return;
+      if (!cell?.isConnected) {
+        existingMarker?.remove();
+        return null;
+      }
       const rect = cell.getBoundingClientRect();
-      if (!cell.offsetWidth || !cell.offsetHeight || !rect.width || !rect.height) return;
+      if (!cell.offsetWidth || !cell.offsetHeight || !rect.width || !rect.height) {
+        existingMarker?.remove();
+        return null;
+      }
       // Rects are viewport pixels; CSS left/top use the cell's unscaled padding box.
       const scaleX = rect.width / cell.offsetWidth,
         scaleY = rect.height / cell.offsetHeight;
@@ -226,12 +281,7 @@
         height = dot ? 4 : 16;
       // Never cover native levels, icons, queue numbers, progress or other assistants.
       const occupied = [...cell.querySelectorAll("*")]
-        .filter(
-          (n) =>
-            !n.classList.contains("mwi-lab-beacon-best") &&
-            !n.classList.contains("mwi-lab-beacon-pin") &&
-            (n.childElementCount === 0 || n.matches("svg,img,canvas"))
-        )
+        .filter((n) => !isBeaconOverlayNode(n) && (n.childElementCount === 0 || n.matches("svg,img,canvas")))
         .map((n) => n.getBoundingClientRect())
         .filter((r) => r.width && r.height)
         .map((r) => ({
@@ -255,25 +305,91 @@
           y + height <= localHeight &&
           !occupied.some((r) => x < r.right + 1 && x + width > r.left - 1 && y < r.bottom + 1 && y + height > r.top - 1)
       );
-      if (!slot) return;
-      const marker = el("span", dot ? "mwi-lab-beacon-best" : "mwi-lab-beacon-pin", label);
+      if (!slot) {
+        existingMarker?.remove();
+        return null;
+      }
+      const marker =
+        existingMarker && existingMarker.parentElement === cell
+          ? existingMarker
+          : el("span", dot ? "mwi-lab-beacon-best" : "mwi-lab-beacon-pin", label);
       marker.id = `mwi-labyrinth-beacon-${dot ? "best" : "pin"}-${id}`;
       marker.setAttribute("aria-hidden", "true");
+      if (marker.textContent !== label) marker.textContent = label;
       marker.style.left = `${slot[0]}px`;
       marker.style.top = `${slot[1]}px`;
       marker.style.right = "auto";
-      cell.append(marker);
-      markers.push(marker);
+      if (marker.parentElement !== cell) cell.append(marker);
+      return marker;
     }
-    function placeHover() {
-      hoverPreview.remove();
-      hoverPreview.hidden = true;
+    function syncPins(points, forceLayout = false) {
+      const gridZoom = map?.grid?.style?.zoom || "";
+      const zoomChanged = gridZoom !== lastPinZoom;
+      const desired = new Map(points.map((point, i) => [point.id, String(i + 1)]));
+      for (const [id, entry] of pinMap.entries()) {
+        const nextCell = map?.nodes[id];
+        if (!desired.has(id) || entry.cell !== nextCell || (entry.marker && !entry.marker.isConnected)) {
+          entry.marker?.remove();
+          pinMap.delete(id);
+        }
+      }
+      for (const [id, label] of desired.entries()) {
+        const cell = map.nodes[id];
+        if (!cell?.isConnected) continue;
+        const siblingCount = nonBeaconChildCount(cell);
+        const existing = pinMap.get(id);
+        if (
+          existing &&
+          !forceLayout &&
+          !zoomChanged &&
+          existing.cell === cell &&
+          existing.siblingCount === siblingCount &&
+          (!existing.marker || existing.marker.isConnected)
+        ) {
+          if (existing.marker && existing.label !== label) {
+            existing.marker.textContent = label;
+          }
+          existing.label = label;
+          continue;
+        }
+        const marker = placePin(id, label, existing?.marker || null);
+        pinMap.set(id, { marker, cell, label, siblingCount });
+      }
+      lastPinZoom = gridZoom;
+    }
+    function placeHover(forceLayout = false) {
       const id = map?.beaconHover,
         count = map?.beaconPreviewCount;
       const cell = Number.isInteger(id) ? map?.nodes[id] : null;
-      if (!map?.beaconMode || !cell?.isConnected || !Number.isInteger(count) || count < 0) return;
+      if (!map?.beaconMode || !cell?.isConnected || !Number.isInteger(count) || count < 0) {
+        clearHover();
+        return;
+      }
+      const gridZoom = map?.grid?.style?.zoom || "";
+      const siblingCount = nonBeaconChildCount(cell);
+      const pinMarker = pinMap.get(id)?.marker || null;
+      if (
+        !forceLayout &&
+        hoverState.cell === cell &&
+        hoverState.zoom === gridZoom &&
+        hoverState.siblingCount === siblingCount &&
+        hoverState.pinMarker === pinMarker &&
+        (!hoverState.placed || (hoverPreview.parentElement === cell && !hoverPreview.hidden))
+      ) {
+        if (hoverState.placed && hoverState.count !== count) {
+          hoverPreview.textContent = `+${count}`;
+          hoverPreview.setAttribute("aria-label", `本次可新揭示 ${count} 格`);
+          hoverState.count = count;
+        }
+        return;
+      }
+      if (hoverPreview.parentElement) hoverPreview.remove();
+      hoverPreview.hidden = true;
       const rect = cell.getBoundingClientRect();
-      if (!rect.width || !rect.height || !cell.offsetWidth || !cell.offsetHeight) return;
+      if (!rect.width || !rect.height || !cell.offsetWidth || !cell.offsetHeight) {
+        hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: false };
+        return;
+      }
       const sx = rect.width / cell.offsetWidth,
         sy = rect.height / cell.offsetHeight;
       const ox = rect.left + cell.clientLeft * sx,
@@ -322,17 +438,20 @@
       if (!slot) {
         hoverPreview.remove();
         hoverPreview.hidden = true;
+        hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: false };
         return;
       }
       hoverPreview.style.left = `${slot[0]}px`;
       hoverPreview.style.top = `${slot[1]}px`;
+      hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: true };
     }
-    function render() {
-      hoverPreview.remove();
-      clearMarkers();
-      currentPlan = null;
-      if (!map || container.hidden) return;
-      placeHover();
+    function render({ forceLayout = false } = {}) {
+      if (!map || container.hidden) {
+        currentPlan = null;
+        clearHover();
+        clearMarkers();
+        return;
+      }
       const supply = map.beaconAdvice || {};
       const available = Number.isInteger(supply.remaining) ? supply.remaining : 0;
       const previousQuantity = quantity;
@@ -342,46 +461,55 @@
         "/items/advanced_beacon": "高级",
         "/items/expert_beacon": "专家"
       }[supply.item];
-      meta.textContent = `${quantity}/${supply.remaining ?? "—"}`;
-      if (tierName) meta.title = `${tierName}探照灯 · 剩余 ${supply.remaining ?? "—"}`;
+      const nextMeta = `${quantity}/${supply.remaining ?? "—"}`;
+      if (meta.textContent !== nextMeta) meta.textContent = nextMeta;
+      if (tierName) {
+        const nextTitle = `${tierName}探照灯 · 剩余 ${supply.remaining ?? "—"}`;
+        if (meta.title !== nextTitle) meta.title = nextTitle;
+      }
       off.setAttribute("aria-pressed", String(quantity === 0));
-      input.max = String(quantityLimit());
-      if (document.activeElement !== input || quantity !== previousQuantity) input.value = String(quantity);
+      const nextMax = String(quantityLimit());
+      if (input.max !== nextMax) input.max = nextMax;
+      if (document.activeElement !== input || quantity !== previousQuantity) {
+        const nextValue = String(quantity);
+        if (input.value !== nextValue) input.value = nextValue;
+      }
       input.disabled = !analysis || !knownInventory();
       minus.disabled = quantity === 0;
       plus.disabled = !analysis || !knownInventory() || quantity >= map.cells.length;
       plus.dataset.limit = String(unlockPending);
       stepper.dataset.unlocked = String(unlocked);
       input.dataset.overstock = String(quantity > available);
-      plus.setAttribute(
-        "aria-description",
-        unlockPending ? "再次激活可超出库存规划" : "到库存上限后，激活两次可解除限制"
-      );
+      const nextDesc = unlockPending ? "再次激活可超出库存规划" : "到库存上限后，激活两次可解除限制";
+      if (plus.getAttribute("aria-description") !== nextDesc) plus.setAttribute("aria-description", nextDesc);
+
+      let nextPlan = null;
+      let nextTotalText = "";
       if (quantity === 0) {
-        total.textContent = "未启用";
-        return;
+        nextTotalText = "未启用";
+      } else {
+        const native = analysis?.candidates[map.beaconHover];
+        const mismatch =
+          map.beaconMode && native && map.beaconPreviewCount != null && native.count !== map.beaconPreviewCount;
+        if (!analysis || !knownInventory() || (!unlocked && available === 0) || mismatch) {
+          nextTotalText = mismatch
+            ? "范围不一致"
+            : !analysis
+              ? "未识别"
+              : supply.remaining === 0
+                ? "已用完"
+                : "未知余量";
+        } else {
+          if (!cache.has(quantity)) cache.set(quantity, root.MwiLabyrinthBeacons.plan(analysis, quantity));
+          nextPlan = cache.get(quantity);
+          nextTotalText = `+${nextPlan.total}格揭示`;
+        }
       }
-      const native = analysis?.candidates[map.beaconHover];
-      const mismatch =
-        map.beaconMode && native && map.beaconPreviewCount != null && native.count !== map.beaconPreviewCount;
-      if (!analysis || !knownInventory() || (!unlocked && available === 0) || mismatch) {
-        total.textContent = mismatch
-          ? "范围不一致"
-          : !analysis
-            ? "未识别"
-            : supply.remaining === 0
-              ? "已用完"
-              : "未知余量";
-        return;
-      }
-      if (!cache.has(quantity)) cache.set(quantity, root.MwiLabyrinthBeacons.plan(analysis, quantity));
-      const result = cache.get(quantity);
-      currentPlan = result;
-      total.textContent = `+${result.total}格揭示`;
-      result.points.forEach((point, i) => {
-        mark(point.id, String(i + 1));
-      });
-      highlight(activePoint);
+      if (total.textContent !== nextTotalText) total.textContent = nextTotalText;
+      currentPlan = nextPlan;
+      syncPins(currentPlan ? currentPlan.points : [], forceLayout);
+      highlight(currentPlan ? activePoint : null);
+      placeHover(forceLayout);
     }
     function update(nextMap) {
       map = nextMap;
@@ -415,18 +543,18 @@
         map.beaconAdvice?.item,
         map.cells.map((c) => Boolean(c.revealed || c.visited))
       ]);
-      if (nextKey !== key) {
+      const keyChanged = nextKey !== key;
+      if (keyChanged) {
         key = nextKey;
         activePoint = null;
         cache.clear();
         analysis = root.MwiLabyrinthBeacons.analyze(map, map.beaconAdvice?.item);
       }
-      render();
+      render({ forceLayout: keyChanged });
     }
     function hide() {
       container.hidden = true;
-      hoverPreview.hidden = true;
-      hoverPreview.remove();
+      clearHover();
       clearMarkers();
       map = null;
       unlocked = false;
@@ -437,15 +565,16 @@
       key = null;
       cache.clear();
     }
-    document.defaultView.addEventListener("resize", render);
+    const handleResize = () => render({ forceLayout: true });
+    document.defaultView.addEventListener("resize", handleResize);
     return {
       element: container,
       update,
-      layout: render,
+      layout: () => render({ forceLayout: true }),
       hide,
       destroy() {
         hide();
-        document.defaultView.removeEventListener("resize", render);
+        document.defaultView.removeEventListener("resize", handleResize);
         container.remove();
         style.remove();
       }

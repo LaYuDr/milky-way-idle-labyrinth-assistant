@@ -54,10 +54,8 @@ try {
     await page.getByRole("tab", { name: "路线与计算", exact: true }).click();
     await page.locator("#mwi-labyrinth-calc-auto-estimate-control").waitFor({ state: "visible" });
     assert.equal(await page.getByRole("tab", { name: "房间推荐", exact: true }).count(), 0);
-    assert.deepEqual(await page.locator('#mwi-labyrinth-sidebar nav [role="tab"]').allTextContents(), [
-      "路线与计算",
-      "代币规划"
-    ]);
+    assert.deepEqual(await page.locator('#mwi-labyrinth-sidebar nav [role="tab"]').allTextContents(), ["路线与计算"]);
+    assert.equal(await page.locator("#mwi-labyrinth-sidebar-tokens-tab").count(), 0);
     assert.ok(
       await page.evaluate(() => {
         const planner = document.querySelector("#mwi-labyrinth-sidebar-planner").getBoundingClientRect();
@@ -83,23 +81,18 @@ try {
       );
       assert.equal(await page.locator(".mwi-labyrinth-calc-auto-estimate-cell").count(), 3);
     }
-    await page.getByRole("tab", { name: "代币规划", exact: true }).click();
-    await page.locator("#mwi-labyrinth-calc-tokens").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#mwi-labyrinth-calc-dock").isVisible(), false);
-    assert.equal(await page.locator("#mwi-labyrinth-calc-auto-estimate-control").isVisible(), false);
-    await page.getByRole("tab", { name: "路线与计算", exact: true }).click();
-    assert.equal(await page.getByLabel("目标胜率 (%)", { exact: true }).inputValue(), "45");
     await page.getByRole("tab", { name: "公会助手", exact: true }).click();
     assert.equal(await page.locator("#mwi-labyrinth-sidebar").isVisible(), false);
     assert.equal(await page.locator("#fixture-native").isVisible(), true);
     await page.getByRole("tab", { name: "迷宫助手", exact: true }).click();
+    assert.equal(await page.getByLabel("目标胜率 (%)", { exact: true }).inputValue(), "45");
     await page.evaluate(() =>
       document.dispatchEvent(new CustomEvent("mwi:sidebar-plugin-activated", { detail: "guild" }))
     );
     assert.equal(await page.locator("#mwi-labyrinth-sidebar").isVisible(), false);
     await page.getByRole("tab", { name: "迷宫助手", exact: true }).click();
-    await page.getByRole("tab", { name: "路线与计算", exact: true }).press("ArrowRight");
-    assert.equal(await page.locator("#mwi-labyrinth-calc-tokens").isVisible(), true);
+    assert.equal(await page.locator("#mwi-labyrinth-calc-dock").isVisible(), true);
+    assert.equal(await page.locator("#mwi-labyrinth-calc-auto-estimate-control").isVisible(), true);
     assert.ok(
       await page.locator("#mwi-labyrinth-sidebar").evaluate((node) => node.scrollWidth <= node.clientWidth + 1)
     );
@@ -113,7 +106,7 @@ try {
     await page.evaluate(() => window.MwiLabyrinthSidebar.destroy());
     assert.equal(await page.locator("#fixture-native").isVisible(), true);
     await context.close();
-    console.log(`通过 ${width}px：路线/计算/推荐/代币，状态保留、插件互斥、键盘与销毁恢复。`);
+    console.log(`通过 ${width}px：路线/计算/推荐，状态保留、插件互斥、销毁恢复。`);
   }
 } finally {
   await browser.close();

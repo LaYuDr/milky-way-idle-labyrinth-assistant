@@ -122,14 +122,17 @@ try {
       window.map.beaconAdvice.remaining = 2;
       window.view.update(window.map);
     });
-    assert.equal(await quantity.inputValue(), "2");
+    assert.equal(await quantity.inputValue(), "1");
     await plus.click();
     await plus.click();
+    await plus.click();
+    assert.equal(await quantity.inputValue(), "3");
+    assert.equal(await quantity.getAttribute("data-overstock"), "true");
     await page.evaluate(() => {
       window.map.beaconAdvice.remaining = 0;
       window.view.update(window.map);
     });
-    assert.equal(await quantity.inputValue(), "3");
+    assert.equal(await quantity.inputValue(), "1");
     assert.equal(await quantity.getAttribute("data-overstock"), "true");
     await page.screenshot({ path: `.workbench/beacon-quantity-${width}.png`, fullPage: true });
     await page.evaluate(() => {
@@ -175,6 +178,7 @@ try {
     await page.evaluate(() => {
       window.map.beaconMode = true;
       window.view.update(window.map);
+      window.savedPins = [...document.querySelectorAll(".mwi-lab-beacon-pin")];
     });
     assert.equal(await page.locator("[data-mwi-lab-beacon-fill]").count(), 0);
     const hover = page.locator(".mwi-lab-beacon-hover-preview");
@@ -185,6 +189,14 @@ try {
       window.view.update(window.map);
     });
     assert.equal(await hover.textContent(), "+12");
+    assert.equal(
+      await page.evaluate(() => {
+        const current = [...document.querySelectorAll(".mwi-lab-beacon-pin")];
+        return current.length === window.savedPins.length && current.every((n, i) => n === window.savedPins[i]);
+      }),
+      true,
+      "hover updates must reuse existing beacon pin DOM nodes"
+    );
     assert.equal(await page.locator("#mwi-labyrinth-planner .mwi-lab-beacon-hover-preview").count(), 0);
     await page.addStyleTag({
       content:

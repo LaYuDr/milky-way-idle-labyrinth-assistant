@@ -61,6 +61,97 @@
       return Boolean(loadout && loadout.actionTypeHrid === "/action_types/combat");
     };
 
+    ctx.isUsableCombatRoomLoadout = function isUsableCombatRoomLoadout(loadout) {
+      return Boolean(loadout && (loadout.actionTypeHrid === "/action_types/combat" || loadout.actionTypeHrid === ""));
+    };
+
+    ctx.getSupportedCombatEquipmentLocationHrids = function getSupportedCombatEquipmentLocationHrids() {
+      const locations = [];
+      for (const equipmentType of ctx.SIMULATOR_SUPPORTED_EQUIPMENT_TYPES || []) {
+        const raw = String(equipmentType || "");
+        if (raw.startsWith("/equipment_types/")) {
+          locations.push(raw.replace("/equipment_types/", "/item_locations/"));
+        }
+      }
+      return locations;
+    };
+
+    ctx.getCurrentEquippedCombatItems = function getCurrentEquippedCombatItems(state) {
+      const locations = ctx.getSupportedCombatEquipmentLocationHrids();
+      const locationSet = new Set(locations);
+      const items = [];
+      const seenLocations = new Set();
+
+      if (state?.characterItemByLocationMap) {
+        for (const locationHrid of locations) {
+          const entry = ctx.getCurrentEquippedItemForLocation(state, locationHrid);
+          if (!entry?.itemHrid) {
+            continue;
+          }
+          seenLocations.add(locationHrid);
+          items.push({
+            ...entry,
+            locationHrid
+          });
+        }
+        return items;
+      }
+
+      const itemMap = state?.characterItemMap;
+      const rawItems = ctx.isMapObject(itemMap)
+        ? itemMap.values()
+        : itemMap && typeof itemMap === "object"
+          ? Object.values(itemMap)
+          : [];
+      for (const item of rawItems) {
+        const locationHrid = String(item?.itemLocationHrid || "");
+        if (!locationHrid || !locationSet.has(locationHrid) || seenLocations.has(locationHrid)) {
+          continue;
+        }
+        if (!item?.itemHrid || (Number.isFinite(Number(item.count)) && Number(item.count) <= 0)) {
+          continue;
+        }
+        seenLocations.add(locationHrid);
+        items.push({
+          locationHrid,
+          itemHrid: String(item.itemHrid || ""),
+          enhancementLevel: Math.max(0, ctx.finiteNumber(item.enhancementLevel, 0)),
+          fromCurrentEquipment: true
+        });
+      }
+      return items;
+    };
+
+    ctx.buildCurrentEquippedAbilityMap = function buildCurrentEquippedAbilityMap(state) {
+      const abilityMap = {};
+      for (const [key, ability] of ctx.getContainerEntries(state?.characterAbilityMap)) {
+        const slot = Number(ability?.slotNumber);
+        if (!Number.isInteger(slot) || slot < 1 || slot > ctx.COMBAT_SLOT_COUNT) {
+          continue;
+        }
+        const abilityHrid = String(ability?.abilityHrid || key || "");
+        if (!abilityHrid) {
+          continue;
+        }
+        abilityMap[slot] = abilityHrid;
+      }
+      return abilityMap;
+    };
+
+    ctx.hasCurrentCombatSetup = function hasCurrentCombatSetup(state) {
+      const locationMap = state?.characterItemByLocationMap;
+      if (ctx.isMapObject(locationMap)) {
+        return true;
+      }
+      if (locationMap && typeof locationMap === "object" && Object.keys(locationMap).length > 0) {
+        return true;
+      }
+      if (ctx.getCurrentEquippedCombatItems(state).length > 0) {
+        return true;
+      }
+      return Object.keys(ctx.buildCurrentEquippedAbilityMap(state)).length > 0;
+    };
+
     ctx.listCombatLoadouts = function listCombatLoadouts(state) {
       const loadouts = [];
       for (const value of Object.values(state?.characterLoadoutDict || {})) {
@@ -70,6 +161,21 @@
       }
       loadouts.sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0));
       return loadouts;
+    };
+
+    ctx.listUsableCombatRoomLoadouts = function listUsableCombatRoomLoadouts(state) {
+      const combatLoadouts = ctx.listCombatLoadouts(state);
+      if (combatLoadouts.length > 0) {
+        return combatLoadouts;
+      }
+      const genericLoadouts = [];
+      for (const value of Object.values(state?.characterLoadoutDict || {})) {
+        if (ctx.isUsableCombatRoomLoadout(value)) {
+          genericLoadouts.push(value);
+        }
+      }
+      genericLoadouts.sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0));
+      return genericLoadouts;
     };
 
     ctx.getMostUsedCombatLoadoutIdOnCurrentLabyrinth = function getMostUsedCombatLoadoutIdOnCurrentLabyrinth(state) {
@@ -92,7 +198,7 @@
             continue;
           }
           const loadout = ctx.getLoadoutById(state?.characterLoadoutDict, id);
-          if (!ctx.isCombatLoadout(loadout)) {
+          if (!ctx.isUsableCombatRoomLoadout(loadout)) {
             continue;
           }
           countByLoadoutId.set(id, (countByLoadoutId.get(id) || 0) + 1);
@@ -112,7 +218,7 @@
     ctx.resolveCombatRoomLoadout = function resolveCombatRoomLoadout(state, room) {
       const direct = ctx.getLabyrinthRoomLoadout(state, room);
       const selectedLoadoutId = Number(direct.loadoutId || 0);
-      if (ctx.isCombatLoadout(direct.loadout) && selectedLoadoutId > 0) {
+      if (ctx.isUsableCombatRoomLoadout(direct.loadout) && selectedLoadoutId > 0) {
         return {
           ...direct,
           source: "room",
@@ -120,10 +226,21 @@
         };
       }
 
+      // MWI enters rooms configured with "No Loadout" (0) using the character's currently equipped setup.
+      if (ctx.hasCurrentCombatSetup(state)) {
+        return {
+          ...direct,
+          loadoutId: 0,
+          loadout: null,
+          source: "current",
+          selectedLoadoutId
+        };
+      }
+
       const fallbackIdOnFloor = ctx.getMostUsedCombatLoadoutIdOnCurrentLabyrinth(state);
       if (fallbackIdOnFloor > 0) {
         const fallbackLoadout = ctx.getLoadoutById(state?.characterLoadoutDict, fallbackIdOnFloor);
-        if (ctx.isCombatLoadout(fallbackLoadout)) {
+        if (ctx.isUsableCombatRoomLoadout(fallbackLoadout)) {
           return {
             ...direct,
             loadoutId: fallbackIdOnFloor,
@@ -134,7 +251,7 @@
         }
       }
 
-      const combatLoadouts = ctx.listCombatLoadouts(state);
+      const combatLoadouts = ctx.listUsableCombatRoomLoadouts(state);
       if (combatLoadouts.length > 0) {
         const fallbackLoadout = combatLoadouts[0];
         return {
@@ -197,7 +314,7 @@
       if (!normalizedKey) {
         return false;
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.has(normalizedKey);
       }
       if (container && typeof container === "object") {
@@ -207,7 +324,7 @@
     };
 
     ctx.hasAnyContainerEntries = function hasAnyContainerEntries(container) {
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.size > 0;
       }
       if (container && typeof container === "object") {
@@ -269,6 +386,25 @@
       return true;
     };
 
+    ctx.buildCurrentCombatEquipmentDto = function buildCurrentCombatEquipmentDto(state, initClientData) {
+      const equipment = {};
+      for (const entry of ctx.getCurrentEquippedCombatItems(state)) {
+        if (!entry?.itemHrid) {
+          continue;
+        }
+        const itemDetail = ctx.getItemDetailByHrid(state, initClientData, entry.itemHrid);
+        const equipmentType = itemDetail?.equipmentDetail?.type;
+        if (!ctx.shouldIncludeCombatEquipment(entry.itemHrid, equipmentType)) {
+          continue;
+        }
+        equipment[equipmentType] = {
+          hrid: entry.itemHrid,
+          enhancementLevel: Math.max(0, Math.floor(ctx.finiteNumber(entry.enhancementLevel, 0)))
+        };
+      }
+      return equipment;
+    };
+
     ctx.buildCombatLoadoutEquipmentDto = function buildCombatLoadoutEquipmentDto(
       state,
       initClientData,
@@ -308,8 +444,12 @@
       const requirementList = Array.isArray(state?.abilitySlotsLevelRequirementList)
         ? state.abilitySlotsLevelRequirementList
         : [0, 1, 1, 20, 50, 90];
-      const loadoutAbilityMap = loadout?.abilityMap || {};
-      const loadoutTriggerMap = loadout?.abilityCombatTriggersMap;
+      const useCurrentEquippedAbilities =
+        !loadout || (loadout.actionTypeHrid === "" && !ctx.hasAnyContainerEntries(loadout.abilityMap));
+      const loadoutAbilityMap = useCurrentEquippedAbilities
+        ? ctx.buildCurrentEquippedAbilityMap(state)
+        : loadout?.abilityMap || {};
+      const loadoutTriggerMap = useCurrentEquippedAbilities ? null : loadout?.abilityCombatTriggersMap;
       const globalTriggerMap = state?.abilityCombatTriggersDict;
       const loadoutHasTriggerConfig = ctx.hasAnyContainerEntries(loadoutTriggerMap);
 
@@ -359,7 +499,8 @@
     ) {
       const loadoutInfo = ctx.resolveCombatRoomLoadout(state, room);
       const loadout = loadoutInfo.loadout;
-      if (!ctx.isCombatLoadout(loadout)) {
+      const useCurrentSetup = loadoutInfo.source === "current";
+      if (!useCurrentSetup && !ctx.isUsableCombatRoomLoadout(loadout)) {
         return {
           playerDto: null,
           loadoutInfo
@@ -368,8 +509,15 @@
 
       const levels = ctx.getCombatSkillLevelsFromState(state);
       const intelligenceLevel = ctx.positiveNumber(levels.intelligence, 1);
-      const equipment = ctx.buildCombatLoadoutEquipmentDto(state, initClientData, loadout, maxEnhancementByItem);
-      const abilities = ctx.buildCombatLoadoutAbilityDtos(state, initClientData, loadout, intelligenceLevel);
+      const equipment = useCurrentSetup
+        ? ctx.buildCurrentCombatEquipmentDto(state, initClientData)
+        : ctx.buildCombatLoadoutEquipmentDto(state, initClientData, loadout, maxEnhancementByItem);
+      const abilities = ctx.buildCombatLoadoutAbilityDtos(
+        state,
+        initClientData,
+        useCurrentSetup ? null : loadout,
+        intelligenceLevel
+      );
       const houseRooms = ctx.buildHouseRoomLevelMap(state);
       const achievements = ctx.buildAchievementCompletionMap(state);
 
@@ -440,7 +588,7 @@
         roomRecommendedLevel: Math.max(0, Math.floor(ctx.finiteNumber(room?.recommendedLevel, 0))),
         loadoutId: Number(loadoutInfo.loadoutId || 0),
         loadoutName: String(loadout?.name || ""),
-        loadoutMode: loadout?.useExactEnhancement ? "exact" : "highest",
+        loadoutMode: loadout ? (loadout.useExactEnhancement ? "exact" : "highest") : "current",
         loadoutSource: String(loadoutInfo.source || "room"),
         selectedLoadoutId: Number(loadoutInfo.selectedLoadoutId || loadoutInfo.loadoutId || 0),
         loadoutSettingKey: String(loadoutInfo.settingKey || ""),
@@ -493,7 +641,7 @@
         }
       }
 
-      if (itemMap instanceof Map) {
+      if (ctx.isMapObject(itemMap)) {
         for (const item of itemMap.values()) {
           consume(item);
         }
@@ -530,7 +678,7 @@
       }
       const locationMap = state?.characterItemByLocationMap;
       let item = null;
-      if (locationMap instanceof Map) {
+      if (ctx.isMapObject(locationMap)) {
         item = locationMap.get(location) || null;
       } else if (locationMap && typeof locationMap === "object") {
         item = locationMap[location] || null;

@@ -130,18 +130,32 @@
         !String(cell?.className || "").includes("LabyrinthPanel_clearedRoom")
       );
     };
+    ctx.invalidateSavedRoomKeys = (state, roomKeys) => {
+      if (!Array.isArray(roomKeys) || !roomKeys.length) return;
+      if (!scope || ctx.roomResultScope(state) !== scope) return;
+      let removed = false;
+      for (const roomKey of roomKeys) {
+        if (records.delete(roomKey)) removed = true;
+      }
+      if (removed) {
+        dirty = true;
+        if (saveTimer === null) saveTimer = ctx.setTimeout(ctx.flushRoomResults, 250);
+      }
+    };
     ctx.hasSavedRoomResult = (state, roomKey) => {
       if (ctx.roomResultScope(state) !== scope || !records.has(roomKey)) return false;
       const record = records.get(roomKey);
-      if (
-        record.combatPreview &&
-        (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE ||
-          !record.combatPreview.upgradeImpact ||
-          Object.values(record.combatPreview.upgradeImpact).some(
-            (impact) => impact?.cost !== null && !Number.isFinite(impact?.experiencePerHour)
-          ))
-      )
-        return false;
+      if (record.combatPreview) {
+        if (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE) return false;
+        const impact = record.combatPreview.upgradeImpact;
+        if (impact) {
+          if (Object.values(impact).some((item) => item?.cost !== null && !Number.isFinite(item?.experiencePerHour))) {
+            return false;
+          }
+        } else if (!ctx.COMBAT_UPGRADE_ON_HOVER) {
+          return false;
+        }
+      }
       const preview = record.skillingPreview;
       // Keep older badges visible while the normal incremental calculation fills new preview fields.
       return !preview || preview.type === "reward-only" || preview.upgradePreviewVersion === 1;

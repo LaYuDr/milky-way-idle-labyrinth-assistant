@@ -3,8 +3,8 @@
   root.MwiLabyrinthCalculatorModules.integration = function (ctx) {
     ctx.skillingSuccessChance = (value) => Math.max(0.05, Math.min(1, Number(value) || 0));
     ctx.inputRevision = 0;
-    ctx.UI_TEXT.zh.targetNotMet = "未找到达到目标的等级";
-    ctx.UI_TEXT.en.targetNotMet = "No level meets the target";
+    ctx.UI_TEXT.zh.targetNotMet = "未达标";
+    ctx.UI_TEXT.en.targetNotMet = "Not met";
     ctx.wilsonLower = (wins, trials) => {
       if (!(trials > 0) || !Number.isFinite(wins)) return 0;
       const p = Math.max(0, Math.min(1, wins / trials)),
@@ -35,6 +35,9 @@
         data[key] = state[key];
       data.levels = ctx.getContainerEntries(state.characterSkillMap).map(([key, value]) => [key, value?.level]);
       data.equipment = ctx.buildMaxEnhancementByItem(state);
+      data.equippedCombat = ctx
+        .getCurrentEquippedCombatItems(state)
+        .map((entry) => [entry.locationHrid, entry.itemHrid, entry.enhancementLevel]);
       data.settings = Object.fromEntries(
         // Skip thresholds select rooms; they do not change character performance or recommended levels.
         // The estimate table tracks each row's threshold separately.
@@ -60,6 +63,8 @@
       const identityChanged = identity !== previousIdentity;
       if (identityChanged) {
         previousIdentity = identity;
+        ctx.resetProfileChangeTracker?.();
+        ctx.stopBackgroundCurvePrecompute?.();
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;
         ctx.latestLabyrinthUpgradeLevels = null;

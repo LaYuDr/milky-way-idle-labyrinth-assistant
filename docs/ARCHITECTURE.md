@@ -15,7 +15,7 @@
 
 `references/`、`.workbench/` 和旧插件都不属于构建输入。正式产物不包含本机服务地址；开发加载器单独申请本机读取权限。
 
-`ui/sidebar.js` 识别右侧原生页签栏，提供路线与计算、房间推荐和代币规划三个内容槽；前两个在同一页上下排列，代币规划单独一页，并管理页签选择、其他助手激活通知及销毁恢复。`planner-view.js` 通过 `calculationHost(grid)` 提供计算区挂载位置；`userscript.js` 将这个接口传给计算实例。控制区在侧栏内正常排版，日志和分布详情窗仍按需打开。
+`ui/sidebar.js` 识别右侧原生页签栏，提供路线与计算、房间推荐两个内容槽（同页上下排列），并管理页签选择、其他助手激活通知及销毁恢复。`planner-view.js` 通过 `calculationHost(grid)` 提供计算区挂载位置；`userscript.js` 将这个接口传给计算实例。控制区在侧栏内正常排版，日志和分布详情窗仍按需打开。
 
 `experience-policy.js` 提供无 DOM 的经验效率公式与非单调等级区间扫描；`experience.js` 负责角色隔离的经验目标、界面及与原推荐流程的衔接。普通房间预览和批量扫描使用同一公式，扫描只计算必要统计量。
 
@@ -25,10 +25,21 @@
 
 `calculator/archive-model.js` 是独立的字段筛选、事件合并和压缩模型；`archive-store.js` 按层写入 IndexedDB，通过同一事务合并挑战元数据和压缩记录；`archive.js` 负责角色识别、采集和生命周期。接收消息复用 `live-progress.js` 的现有钩子，发送方向仅增加白名单命令的被动观察，不改变消息。页面隐藏时仍保留后台采集；销毁时停止采集、恢复自有钩子并尝试提交待写队列。该档案不依赖旧房间日志，不向计算和推荐提供输入。
 
-代币功能由 `tokens/model.js` 提供成本、预算和收入合并的纯计算，`tokens/store.js` 用独立 IndexedDB 原子保存角色方案与收入；`calculator/tokens.js` 读取现有游戏状态、复用接收消息钩子并管理保存重试。`ui/token-workspace.js` 负责公会建设式预算、分组队列、目录、统计和本地交互，`ui/token-view.js` 将工作区挂到共享侧栏的代币槽中，不修改 React 状态、不触发商店操作。详见 `TOKENS.md`。
+代币功能由 `tokens/model.js` 提供成本、预算和收入合并的纯计算，`tokens/store.js` 用独立 IndexedDB 原子保存角色方案与收入；`calculator/tokens.js` 读取现有游戏状态、复用接收消息钩子并管理保存重试。`ui/token-view.js` 直接挂载在游戏原生“迷宫商店”页中，提供底部吸底紧凑预算条、已选清单及原商品卡片上的加减小按钮，不修改 React 状态、不触发商店购买，不设独立页签。详见 `TOKENS.md`。
 
 ## 当前布局（2026-11-11 撤回页签迁移）
 
-默认恢复原位置：路线与计算在地图旁，房间推荐在原生自动化页，代币规划在迷宫商店旁。右侧布局实现保留，`src/ui/sidebar.js` 的 `enabled` 默认是 `false`；改为 `true` 后重建即可切回。`tools/browser-layout-restore.mjs` 检查默认布局，`tools/browser-sidebar.mjs` 显式开启右侧布局进行回归。此说明替代前文的默认右侧布局描述。
+默认恢复原位置：路线与计算在地图旁，房间推荐在原生自动化页，代币规划轻量内联在原生迷宫商店内。右侧布局实现保留，`src/ui/sidebar.js` 的 `enabled` 默认是 `false`；改为 `true` 后重建即可切回。`tools/browser-layout-restore.mjs` 检查默认布局，`tools/browser-sidebar.mjs` 显式开启右侧布局进行回归。此说明替代前文的默认右侧布局描述。
 
 0.12.5：档案保持原数据库与键，压缩值改为兼容读取旧格式的事件分块，合并过程只处理尾部数据；单事务合并相邻同层队列，提交后才移除。房间结果以所属角色快照合批保存，底层存储接口可显式指定角色供延迟提交使用。经验设置保存失败保留各角色草稿并支持读回校验与重试。代币视图提供可见性与打开通知，目录缓存按角色、升级、商店数据和原生标签变化更新；计算面板监听过滤迷宫外变动，隐藏且空闲时不执行完整刷新。
+
+## 1~300 级曲线表与高性能计算引擎
+
+新增四个独立计算模块并列入 `tools/runtime-sources.mjs`：
+
+- `src/calculator/combat-stats.js`：无 DOM 纯计算模块，定义 16 × Float64（128 字节/级）的紧凑曲线二进制布局、确定性子种子分块计划、Chan 并行二阶矩与协矩精确合并公式，以及过渡区（`±15` 级缓冲与异常跳变）自适应精化区间选择。
+- `src/calculator/curve-store.js`：独立本地 IndexedDB 仓库 `mwi-labyrinth:curve-store:v1`，按角色与怪物配装指纹直接存取整张 `ArrayBuffer` 曲线表，支持防抖合批写入、LRU 淘汰与损坏回退。
+- `src/calculator/profile-fingerprint.js`：按 10 种生活技能与 10 种迷宫怪物独立提取规范化能力快照并计算同步 128 位指纹，实现局部属性变更检测（无关技能升级、经验条小数增长、楼层切换与跳过线变化均不触发重算）。
+- `src/calculator/curve-engine.js`：统一生活与战斗 1~300+ 级曲线表管理、P0/P1/P2 三级优先级调度器、迷宫页门控的后台两阶段自适应预计算，以及战斗房四项升级收益的悬停按需多核分块计算。
+
+`skilling.js` 升级为零分配双缓冲精确 DP 与强化 +5 标量展开求解器，并维护 1~300+ 级内存生活曲线表；`combat-engine.js` 在不改动固定上游资产字节的前提下，通过前置 Worker 垫片实现进度消息节流（80ms）、`WebAssembly.Module` 主线程共享预编译、`runBatch` 零拷贝批处理、优先级队列抢占与 60 秒热保活线程池。

@@ -31,9 +31,9 @@
       if (!control) return;
       const running = ctx.automationEstimateRunning;
       const names = {
-        winRate: text("按胜率推荐", "Recommend by win rate"),
-        seconds: text("按耗时推荐", "Recommend by time"),
-        experience: text("按经验推荐", "Recommend by EXP")
+        winRate: text("按胜率推荐", "By Win %"),
+        seconds: text("按耗时推荐", "By Time"),
+        experience: text("按经验推荐", "By EXP")
       };
       for (const button of control.querySelectorAll(".mwi-labyrinth-calc-auto-primary")) {
         const active =
@@ -120,12 +120,17 @@
           }
         }
         const goals = control.querySelector("#mwi-labyrinth-calc-experience-goals");
+        const precisionToggle = goals.querySelector(".mwi-labyrinth-calc-curve-precision");
+        if (precisionToggle) actions.prepend(precisionToggle);
         const experienceHeading = document.createElement("div");
         experienceHeading.className = "mwi-labyrinth-calc-experience-heading";
-        experienceHeading.append(
-          goals.querySelector("h4"),
-          control.querySelector(".mwi-labyrinth-calc-experience-recommend")
-        );
+        const experienceTools = document.createElement("div");
+        experienceTools.className = "mwi-labyrinth-calc-experience-tools";
+        for (const toggle of goals.querySelectorAll(".mwi-labyrinth-calc-experience-scan")) {
+          experienceTools.append(toggle);
+        }
+        experienceTools.append(control.querySelector(".mwi-labyrinth-calc-experience-recommend"));
+        experienceHeading.append(goals.querySelector("h4"), experienceTools);
         goals.prepend(experienceHeading);
         const status = control.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__status`);
         status.classList.add("mwi-labyrinth-calc-auto-status");
@@ -181,7 +186,7 @@
           set(
             row.children[0],
             "data-mwi-labyrinth-room-group",
-            firstInGroup ? (entry.isCombat ? text("战斗项目", "Combat rooms") : text("生活项目", "Life rooms")) : null
+            firstInGroup ? (entry.isCombat ? text("战斗", "Combat") : text("生活", "Life")) : null
           );
         let current = NaN;
         const editing = row.children[2]?.querySelector("input");
@@ -205,8 +210,8 @@
         if (!cell) return;
         const label = adjustment
           ? text(
-              `当前 ${current}，推荐 ${adjustment.target}，需${adjustment.direction === "up" ? "调高" : "调低"} ${Math.abs(adjustment.difference)} 级`,
-              `Current ${current}, recommended ${adjustment.target}; ${adjustment.direction === "up" ? "raise" : "lower"} by ${Math.abs(adjustment.difference)}`
+              `当前 ${current} → 推荐 ${adjustment.target}（${adjustment.direction === "up" ? "+" : "-"}${Math.abs(adjustment.difference)}）`,
+              `Current ${current} → Rec ${adjustment.target} (${adjustment.direction === "up" ? "+" : "-"}${Math.abs(adjustment.difference)})`
             )
           : null;
         set(cell, "data-mwi-labyrinth-adjust-hint", label);

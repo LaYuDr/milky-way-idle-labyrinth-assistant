@@ -172,6 +172,11 @@
             upgrades.push(row);
           }
           if (upgrades.length) showUpgrades(upgrades);
+        } else if (data.upgradeImpactLoading) {
+          const note = document.createElement("div");
+          note.className = `${prefix}-loading`;
+          note.textContent = text("正在按需多核计算升级收益…", "Calculating upgrade impact on demand…");
+          section(text("升级收益", "Upgrade impact"), [note], `${prefix}-upgrades`);
         }
         section(
           text("奖励期望", "Expected rewards"),

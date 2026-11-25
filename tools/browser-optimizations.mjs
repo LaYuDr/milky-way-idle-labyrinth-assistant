@@ -44,14 +44,15 @@ try {
     const goals = page.locator("#mwi-labyrinth-calc-experience-goals");
     await goals.waitFor({ state: "visible" });
     await page.waitForFunction(() => !window.optimizationCalculator.context.manualUpdateRunning);
-    const full = goals.getByRole("checkbox", { name: "完整扫描战斗等级", exact: true });
+    const full = goals.getByRole("checkbox", { name: "完整扫描", exact: true });
+    assert.equal(await goals.locator("[data-experience-scan-note]").count(), 0);
     await full.check();
-    assert.match(await goals.locator("[data-experience-scan-note]").innerText(), /全部等级/);
+    assert.match(await full.getAttribute("title"), /全部等级/);
     await page.reload();
     await goals.waitFor({ state: "visible" });
     assert.equal(await full.isChecked(), true);
     await full.uncheck();
-    assert.match(await goals.locator("[data-experience-scan-note]").innerText(), /可能漏掉/);
+    assert.match(await full.getAttribute("title"), /可能漏掉/);
     // A real storage exception must leave the draft visible and offer a working retry.
     await page.evaluate(() => {
       window.optimizationSetItem = Storage.prototype.setItem;
@@ -95,7 +96,7 @@ try {
       ctx.autoRecalcArmed = false;
       const originalMax = ctx.AUTOMATION_RECOMMEND_MAX_DELTA;
       ctx.AUTOMATION_RECOMMEND_MAX_DELTA = 10;
-      const state = ctx.createAutomationRunSnapshot(ctx.getGameState());
+      const state = ctx.createCalculationRunSnapshot(ctx.getGameState());
       state.state.characterSkillMap["/skills/combat"].level = 1;
       const params = {
         state: state.state,
@@ -169,15 +170,14 @@ try {
     });
     assert.equal(idle.hiddenRefreshes, 0);
     assert.ok(idle.reopenedRefreshes > 0);
-    // Native token tab builds its catalog only when opened, then reuses it.
+    // Native shop inline token bar builds its catalog only when the shop tab is visible, then reuses it.
     const tokens = await page.evaluate(async () => {
       const ctx = window.optimizationCalculator.context;
       const native = document.querySelector('[class*="LabyrinthPanel_labyrinthPanel"]');
-      const tabs = document.createElement("div");
-      tabs.className = "LabyrinthPanel_tabsComponentContainer_optimization";
-      tabs.innerHTML =
-        '<div class="TabsComponent_tabsComponent__optimization"><div role="tablist"><button role="tab" aria-selected="true">商店</button></div><div class="TabsComponent_tabPanelsContainer_optimization">商店内容</div></div>';
-      native.append(tabs);
+      const shop = document.createElement("div");
+      shop.className = "LabyrinthPanel_labyrinthShopTab_optimization";
+      shop.innerHTML =
+        '<div class="LabyrinthPanel_buyableGrid_optimization"><div class="LabyrinthPanel_upgrade_optimization"><div class="LabyrinthPanel_name_optimization">入场冷却</div><div class="LabyrinthPanel_iconContainer_optimization"><svg><use href="#labyrinth_cooldown"/></svg></div><div class="LabyrinthPanel_price_optimization">800</div></div></div>';
       let catalogs = 0;
       const model = window.MwiLabyrinthTokens,
         original = model.catalog;
@@ -187,7 +187,8 @@ try {
       };
       for (let i = 0; i < 10; i++) ctx.refreshTokens();
       const closed = catalogs;
-      document.getElementById("mwi-labyrinth-token-tab").click();
+      native.append(shop);
+      ctx.refreshTokens();
       const opened = catalogs;
       await new Promise((resolve) => {
         setTimeout(resolve, 100);
@@ -197,8 +198,10 @@ try {
       const warm = catalogs;
       for (let i = 0; i < 10; i++) ctx.refreshTokens();
       const repeated = catalogs - warm;
-      const visible = document.getElementById("mwi-labyrinth-calc-tokens").getClientRects().length > 0;
-      tabs.querySelector('[role="tab"]').click();
+      const visible =
+        document.getElementById("mwi-labyrinth-calc-tokens")?.getClientRects().length > 0 &&
+        shop.querySelectorAll(".mwi-labyrinth-calc-token-ctrl").length === 1;
+      shop.remove();
       for (let i = 0; i < 10; i++) ctx.refreshTokens();
       const reclosed = catalogs - warm;
       model.catalog = original;

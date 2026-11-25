@@ -267,3 +267,93 @@ test("保留金额尚未攒够时，预测收入先补保留金额", () => {
   assert.equal(q.groups[0].shortage, 140);
   assert.equal(M.buildPlan({ ...p, futureRuns: 2 }, catalog, 100, []).projected, 100);
 });
+
+test("原生商店卡片识别：React key、图标、同物品消歧与未知拒绝", () => {
+  require("../src/ui/token-view.js");
+  const { identifyCard } = globalThis.MwiLabyrinthTokenView;
+  const init = {
+    labyrinthShopItemDetailMap: {
+      a: {
+        hrid: "/labyrinth_shop_items/shard_1",
+        itemHrid: "/items/labyrinth_shard",
+        outputCount: 1,
+        cost: { itemHrid: M.TOKEN, count: 10 }
+      },
+      b: {
+        hrid: "/labyrinth_shop_items/shard_5",
+        itemHrid: "/items/labyrinth_shard",
+        outputCount: 5,
+        cost: { itemHrid: M.TOKEN, count: 45 }
+      },
+      c: {
+        hrid: "/labyrinth_shop_items/scroll",
+        itemHrid: "/items/processing_scroll",
+        outputCount: 1,
+        cost: { itemHrid: M.TOKEN, count: 30 }
+      }
+    }
+  };
+  const catalog = M.catalog(state(), init, (hrid) => (hrid.includes("shard") ? "精炼碎片" : "加工卷轴"));
+  const fakeCard = ({ className, reactKey, href, name, price }) => {
+    const iconNode = href
+      ? {
+          closest: () => null,
+          getAttribute: (attr) => (attr === "href" ? href : null)
+        }
+      : null;
+    const node = {
+      className,
+      querySelector(selector) {
+        if (selector.includes("LabyrinthPanel_iconContainer")) {
+          return { querySelectorAll: () => (iconNode ? [iconNode] : []) };
+        }
+        if (selector.includes("LabyrinthPanel_name")) return name ? { textContent: name } : null;
+        if (selector.includes("LabyrinthPanel_price")) return price ? { textContent: price } : null;
+        return null;
+      },
+      querySelectorAll: () => (iconNode ? [iconNode] : [])
+    };
+    if (reactKey) node.__reactFiber$test = { key: reactKey };
+    return node;
+  };
+  assert.equal(
+    identifyCard(
+      fakeCard({ className: "LabyrinthPanel_upgrade__x", reactKey: "/labyrinth_upgrades/cooldown" }),
+      catalog
+    ),
+    "/labyrinth_upgrades/cooldown"
+  );
+  assert.equal(
+    identifyCard(
+      fakeCard({ className: "LabyrinthPanel_upgrade__x", href: "/static/misc.svg#labyrinth_skilling_success" }),
+      catalog
+    ),
+    "/labyrinth_upgrades/skilling_success"
+  );
+  assert.equal(
+    identifyCard(
+      fakeCard({
+        className: "LabyrinthPanel_item__x",
+        href: "/static/items.svg#labyrinth_shard",
+        name: "5 精炼碎片",
+        price: "45"
+      }),
+      catalog
+    ),
+    "/labyrinth_shop_items/shard_5"
+  );
+  assert.equal(
+    identifyCard(
+      fakeCard({ className: "LabyrinthPanel_item__x", href: "/static/items.svg#processing_scroll" }),
+      catalog
+    ),
+    "/labyrinth_shop_items/scroll"
+  );
+  assert.equal(
+    identifyCard(
+      fakeCard({ className: "LabyrinthPanel_item__x", href: "/static/items.svg#unknown_item", name: "未知商品" }),
+      catalog
+    ),
+    null
+  );
+});

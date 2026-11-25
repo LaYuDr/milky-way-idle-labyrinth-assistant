@@ -333,12 +333,11 @@
       };
     };
 
-    ctx.computeCombatRoomClearChanceFullFlow = async function computeCombatRoomClearChanceFullFlow(
+    ctx.buildCombatRoomSimulationContext = function buildCombatRoomSimulationContext(
       state,
       initClientData,
       room,
       maxEnhancementByItem,
-      progressTracker,
       combatTrials,
       roomKey = "",
       options = {}
@@ -356,7 +355,6 @@
       if (inputSnapshot) {
         inputSnapshot.roomKey = String(roomKey || "");
       }
-
       const params = {
         playerDto: playerData.playerDto,
         monsterHrid: room.monsterHrid,
@@ -370,35 +368,161 @@
         reuseSimulation: options.reuseSimulation !== false,
         parallel: options.parallel
       };
-      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
-      let upgradeImpact;
-      if (options.combatUpgrades) {
-        upgradeImpact = {};
-        const calculateUpgrade = async ({ key, buff, level, cost }) => {
-          if (options.isRunStale?.()) return null;
-          let clearChance = null;
-          let experiencePerHour = null;
-          if (cost !== null) {
-            const playerDto = {
-              ...params.playerDto,
-              labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
-            };
-            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, progressTracker);
+      return {
+        roomLevel,
+        trials,
+        combatCrate,
+        guildCombatShrineLevels,
+        combatCrateSignature,
+        playerData,
+        inputSnapshot,
+        params
+      };
+    };
+
+    ctx.computeCombatUpgradesForParams = async function computeCombatUpgradesForParams(
+      params,
+      combatUpgrades,
+      progressTracker,
+      options = {}
+    ) {
+      if (!Array.isArray(combatUpgrades)) {
+        return { upgradeImpact: undefined, failedUpgrades: [] };
+      }
+      const upgradeImpact = {};
+      const failedUpgrades = [];
+      const calculateUpgrade = async ({ key, buff, level, cost }) => {
+        if (options.isRunStale?.()) return null;
+        let clearChance = null;
+        let experiencePerHour = null;
+        if (cost !== null) {
+          let reported = 0;
+          const upgradeTracker = progressTracker
+            ? {
+                add(units = 1, message) {
+                  const n = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
+                  const delta = Math.min(Math.max(0, params.trials - reported), n);
+                  if (delta > 0) {
+                    reported += delta;
+                    progressTracker.add(delta, message);
+                  }
+                }
+              }
+            : null;
+          const playerDto = {
+            ...params.playerDto,
+            labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
+          };
+          try {
+            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, upgradeTracker);
             clearChance = upgraded.successes / upgraded.trials;
             experiencePerHour = root.MwiLabyrinthCombatExperience.summarize(
               upgraded,
               ctx.ROOM_ENTRY_SECONDS
             ).experiencePerHour;
+          } catch (error) {
+            if (!options.tolerateUpgradeErrors || options.isRunStale?.()) throw error;
+            const remaining = Math.max(0, params.trials - reported);
+            if (remaining > 0) progressTracker?.add(remaining);
+            failedUpgrades.push({ key, error });
           }
-          upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
-        };
-        if (options.parallel) {
-          const settled = await Promise.allSettled(options.combatUpgrades.map(calculateUpgrade));
+        }
+        upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
+      };
+      if (options.parallel) {
+        const settled = await Promise.allSettled(combatUpgrades.map(calculateUpgrade));
+        if (!options.tolerateUpgradeErrors) {
           const failure = settled.find((entry) => entry.status === "rejected");
           if (failure) throw failure.reason;
-        } else {
-          for (const upgrade of options.combatUpgrades) await calculateUpgrade(upgrade);
         }
+      } else {
+        for (const upgrade of combatUpgrades) await calculateUpgrade(upgrade);
+      }
+      return { upgradeImpact, failedUpgrades };
+    };
+
+    ctx.computeCombatRoomUpgradeImpact = async function computeCombatRoomUpgradeImpact(
+      state,
+      initClientData,
+      room,
+      maxEnhancementByItem,
+      progressTracker,
+      combatTrials,
+      roomKey = "",
+      options = {}
+    ) {
+      if (
+        !room ||
+        room.roomType !== ctx.LABYRINTH_COMBAT_ROOM_TYPE ||
+        !room.monsterHrid ||
+        !Array.isArray(options.combatUpgrades)
+      ) {
+        return null;
+      }
+      const trials = ctx.normalizeCombatSimTrials(combatTrials);
+      const simContext = ctx.buildCombatRoomSimulationContext(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        trials,
+        roomKey,
+        {
+          ...options,
+          labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+          seed: options.seed ?? 173,
+          reuseSimulation: options.reuseSimulation !== false
+        }
+      );
+      if (!simContext) {
+        return null;
+      }
+      return ctx.computeCombatUpgradesForParams(simContext.params, options.combatUpgrades, progressTracker, options);
+    };
+
+    ctx.computeCombatRoomClearChanceFullFlow = async function computeCombatRoomClearChanceFullFlow(
+      state,
+      initClientData,
+      room,
+      maxEnhancementByItem,
+      progressTracker,
+      combatTrials,
+      roomKey = "",
+      options = {}
+    ) {
+      const simContext = ctx.buildCombatRoomSimulationContext(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        combatTrials,
+        roomKey,
+        options
+      );
+      if (!simContext) {
+        return null;
+      }
+      const {
+        roomLevel,
+        trials,
+        combatCrate,
+        guildCombatShrineLevels,
+        combatCrateSignature,
+        playerData,
+        inputSnapshot,
+        params
+      } = simContext;
+
+      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      let upgradeImpact;
+      if (options.combatUpgrades) {
+        const outcome = await ctx.computeCombatUpgradesForParams(
+          params,
+          options.combatUpgrades,
+          progressTracker,
+          options
+        );
+        upgradeImpact = outcome.upgradeImpact;
       }
 
       const combatExperience = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
@@ -449,7 +573,11 @@
           expectedSecondsPerClearRaw: expectedSecondsPerClear,
           loadoutId: playerData.loadoutInfo.loadoutId || 0,
           loadoutName: playerData.loadoutInfo.loadout?.name || "",
-          loadoutMode: playerData.loadoutInfo.loadout?.useExactEnhancement ? "exact" : "highest",
+          loadoutMode: playerData.loadoutInfo.loadout
+            ? playerData.loadoutInfo.loadout.useExactEnhancement
+              ? "exact"
+              : "highest"
+            : "current",
           loadoutSource: playerData.loadoutInfo.source || "room",
           selectedLoadoutId: playerData.loadoutInfo.selectedLoadoutId || playerData.loadoutInfo.loadoutId || 0,
           mazeCrateItemHrid: combatCrateSignature,
@@ -472,7 +600,7 @@
           playerData.loadoutInfo.selectedLoadoutId !== playerData.loadoutInfo.loadoutId
             ? `selected=${playerData.loadoutInfo.selectedLoadoutId}`
             : "",
-          `mode=${playerData.loadoutInfo.loadout?.useExactEnhancement ? "exact" : "highest"}`,
+          `mode=${playerData.loadoutInfo.loadout ? (playerData.loadoutInfo.loadout.useExactEnhancement ? "exact" : "highest") : "current"}`,
           `crate=${combatCrateSignature || "none"}`,
           `guildLv=${Object.values(guildCombatShrineLevels).join("/")}`,
           `labLv=${Object.values(playerData.playerDto.labyrinthUpgrades).join("/")}`,
@@ -499,6 +627,7 @@
         ].join(" | ")
       };
     };
+    ctx.computeCombatRoomClearChanceFullFlow.__mwiNative = true;
 
     ctx.computeCombatRoomClearChance = async function computeCombatRoomClearChance(
       state,
@@ -514,6 +643,37 @@
         return null;
       }
       const trials = ctx.normalizeCombatSimTrials(combatTrials);
+      const canUseCurve =
+        options.useCurve !== false &&
+        options.reuseSimulation !== false &&
+        typeof ctx.queryCombatRoomViaCurve === "function" &&
+        ctx.computeCombatRoomClearChanceFullFlow.__mwiNative === true &&
+        ctx.simulateCombatRoomWithWorker?.__mwiNative === true;
+
+      if (canUseCurve) {
+        const curveResult = await ctx.queryCombatRoomViaCurve(
+          state,
+          initClientData,
+          room,
+          maxEnhancementByItem,
+          progressTracker,
+          trials,
+          roomKey,
+          {
+            ...options,
+            labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+            seed: options.seed ?? 173
+          }
+        );
+        if (!curveResult) return null;
+        return {
+          ...curveResult,
+          combatMeta: {
+            ...(curveResult.combatMeta || {}),
+            roomKey: String(roomKey || curveResult.combatMeta?.roomKey || "")
+          }
+        };
+      }
 
       const result = await ctx.computeCombatRoomClearChanceFullFlow(
         state,

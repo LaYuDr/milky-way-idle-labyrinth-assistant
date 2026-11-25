@@ -1,4 +1,4 @@
-/* global window, document, IDBObjectStore */
+/* global window, document, IDBObjectStore, IDBDatabase */
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -68,6 +68,7 @@ try {
     await boot();
     const first = await page.evaluate(async () => {
       const value = await window.calculate();
+      await window.ctx.flushSimulationCache();
       return { value, runs: window.workerRuns };
     });
     assert.equal(first.runs, 1);
@@ -107,9 +108,20 @@ try {
       await new Promise((resolve) => {
         setTimeout(resolve, 10);
       });
-      await cache.get("a");
+      const txModes = [];
+      const origTx = IDBDatabase.prototype.transaction;
+      try {
+        IDBDatabase.prototype.transaction = function (stores, mode) {
+          txModes.push(mode || "readonly");
+          return origTx.call(this, stores, mode);
+        };
+        await cache.get("a");
+      } finally {
+        IDBDatabase.prototype.transaction = origTx;
+      }
       await cache.put("c", { value: 3 });
       const lru = [await cache.get("a"), await cache.get("b"), await cache.get("c")];
+      await cache.flush();
       await cache.put("a", { value: 4 });
       const db = await new Promise((resolve) => {
         const request = window.indexedDB.open("mwi-labyrinth:simulation-cache:v1", 1);
@@ -138,25 +150,36 @@ try {
       });
       const fallback = await unavailable.get("x");
       const put = IDBObjectStore.prototype.put;
-      let quota;
+      let quota, recovered;
+      const recoverable = factory.create({ retryCooldownMs: 20, maxCooldownMs: 40 });
       try {
         IDBObjectStore.prototype.put = function () {
           throw new DOMException("quota", "QuotaExceededError");
         };
-        quota = await factory.create().put("full", { value: 1 });
+        quota = await recoverable.put("full", { value: 1 });
       } finally {
         IDBObjectStore.prototype.put = put;
       }
+      await new Promise((resolve) => {
+        setTimeout(resolve, 30);
+      });
+      await recoverable.put("recovered", { value: 9 });
+      recovered = await recoverable.get("recovered");
+      recoverable.close();
+      cache.close();
+      tiny.close();
       db.close();
       window.ctx.resetCombatSimulatorWorker();
-      return { lru, totals, bounded, oversize, fallback, quota };
+      return { txModes, lru, totals, bounded, oversize, fallback, quota, recovered };
     });
+    assert.deepEqual(storage.txModes, ["readonly"]);
     assert.deepEqual(storage.lru, [{ value: 1 }, null, { value: 3 }]);
     assert.equal(storage.totals.entries, 2);
     assert.ok(storage.bounded.bytes <= 200);
     assert.equal(storage.oversize, null);
     assert.equal(storage.fallback, null);
     assert.equal(storage.quota, null);
+    assert.deepEqual(storage.recovered, { value: 9 });
     assert.deepEqual(errors, []);
     report.push({
       width,

@@ -4468,580 +4468,6 @@ DEALINGS IN THE SOFTWARE.
   root.MwiLabyrinthTokenStore = { create };
 })(globalThis);
 
-// SOURCE: src/ui/token-workspace.js
-(function (root) {
-  "use strict";
-  const M = root.MwiLabyrinthTokens;
-  const fmt = (n) =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString("zh-CN", { maximumFractionDigits: 1 }) : "—";
-  const categories = { all: "全部", basic: "基础", life: "生活", combat: "战斗", exchange: "兑换" };
-  const states = {
-    within: "预算内",
-    partial: "部分预算内",
-    outside: "超出预算",
-    unknown: "待核对",
-    complete: "已完成"
-  };
-  function icon(name) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 16 16");
-    svg.setAttribute("aria-hidden", "true");
-    svg.classList.add("mt-icon");
-    svg.innerHTML =
-      {
-        up: '<path d="M8 13V3m-4 4 4-4 4 4"/>',
-        down: '<path d="M8 3v10m-4-4 4 4 4-4"/>',
-        add: '<path d="M8 3v10M3 8h10"/>',
-        expand: '<path d="m4 6 4 4 4-4"/>',
-        remove: '<path d="m4 4 8 8M12 4l-8 8"/>',
-        drag: '<path d="M5 3h.1M10 3h.1M5 8h.1M10 8h.1M5 13h.1M10 13h.1"/>',
-        item: '<path d="m3 5 5-3 5 3v6l-5 3-5-3Zm0 0 5 3 5-3M8 8v6"/>',
-        upgrade: '<path d="m3 8 5-5 5 5M8 3v10M3 13h10"/>'
-      }[name] || "";
-    return svg;
-  }
-  function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text != null) node.textContent = text;
-    return node;
-  }
-  function button(label, action, id, content) {
-    const b = el("button", "", content ?? label);
-    b.type = "button";
-    b.dataset.action = action;
-    if (id) b.dataset.id = id;
-    b.setAttribute("aria-label", label);
-    b.title = label;
-    return b;
-  }
-  function symbolButton(label, action, id, symbol) {
-    const b = button(label, action, id, "");
-    b.append(icon(symbol));
-    return b;
-  }
-  function itemIcon(item) {
-    const node = el("span", "mt-item-icon");
-    if (item?.iconHref) {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const use = document.createElementNS(svg.namespaceURI, "use");
-      use.setAttribute("href", item.iconHref);
-      svg.append(use);
-      svg.setAttribute("aria-hidden", "true");
-      node.append(svg);
-    } else node.append(icon(item?.kind === "item" ? "item" : "upgrade"));
-    return node;
-  }
-  function create({ section, onPlan, onRetry, onExport, onCopy }) {
-    let data,
-      owner = "",
-      result,
-      message = "",
-      undo = null,
-      undoTimer = null,
-      drag = null,
-      disposed = false;
-    const body = el("div", "mt-workspace");
-    body.innerHTML = `<style>
-#mwi-labyrinth-calc-tokens{container-type:inline-size;color:var(--ml-text);font:13px/1.5 system-ui,sans-serif;text-align:left;font-variant-numeric:tabular-nums}
-#mwi-labyrinth-calc-tokens [hidden]{display:none!important}
-#mwi-labyrinth-calc-tokens .mt-workspace{padding:14px 12px;background:var(--ml-header);min-width:0}
-#mwi-labyrinth-calc-tokens button,#mwi-labyrinth-calc-tokens input,#mwi-labyrinth-calc-tokens select{font:inherit;min-height:32px;box-sizing:border-box;color:var(--ml-text);border:1px solid var(--ml-field-line);border-radius:4px;background:var(--ml-inset);max-width:100%}
-#mwi-labyrinth-calc-tokens button{padding:4px 8px;background:var(--ml-hover);cursor:pointer}
-#mwi-labyrinth-calc-tokens button:hover{background:var(--ml-hover-active)}
-#mwi-labyrinth-calc-tokens button:disabled{opacity:.5;cursor:default}
-#mwi-labyrinth-calc-tokens input,#mwi-labyrinth-calc-tokens select{padding:4px 8px;min-width:0}
-#mwi-labyrinth-calc-tokens :focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
-#mwi-labyrinth-calc-tokens h3{font-size:16px;font-weight:650;margin:0}
-#mwi-labyrinth-calc-tokens p{margin:6px 0}
-#mwi-labyrinth-calc-tokens .mt-muted{color:var(--ml-muted)}
-#mwi-labyrinth-calc-tokens .mt-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
-#mwi-labyrinth-calc-tokens .mt-heading strong{font-size:20px;margin-left:8px}
-#mwi-labyrinth-calc-tokens .mt-savebar:has(.mt-save[hidden]):has(.mt-error[hidden]){display:none}
-#mwi-labyrinth-calc-tokens .mt-feedback:has(span:empty):has(button[hidden]){display:none}
-#mwi-labyrinth-calc-tokens .mt-actions [data-action="clear"]{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-step span{display:grid}
-#mwi-labyrinth-calc-tokens .mt-savebar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
-#mwi-labyrinth-calc-tokens .mt-error{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-feedback{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--ml-accent);margin:8px 0}
-#mwi-labyrinth-calc-tokens .mt-budget-area{display:grid;grid-template-columns:minmax(0,240px) minmax(0,1fr);gap:24px;align-items:start;padding-bottom:16px;border-bottom:1px solid var(--ml-line);margin-bottom:16px}
-#mwi-labyrinth-calc-tokens .mt-budget-area label,#mwi-labyrinth-calc-tokens .mt-balance-metric{display:grid;gap:6px;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-budget-area input{width:100%;height:36px}
-#mwi-labyrinth-calc-tokens .mt-balance{font-size:20px;line-height:36px;overflow-wrap:anywhere}
-#mwi-labyrinth-calc-tokens [data-danger="true"] .mt-balance{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
-#mwi-labyrinth-calc-tokens .mt-queue-pane,#mwi-labyrinth-calc-tokens .mt-picker{min-width:0;container-type:inline-size}
-#mwi-labyrinth-calc-tokens .mt-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
-#mwi-labyrinth-calc-tokens .mt-actions button{font-size:12px}
-#mwi-labyrinth-calc-tokens .mt-queue-heading{border-bottom:1px solid var(--ml-line);padding-bottom:10px}
-#mwi-labyrinth-calc-tokens .mt-queue{display:grid;list-style:none;margin:0;padding:0}
-#mwi-labyrinth-calc-tokens .mt-group{min-width:0;border-bottom:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-group:hover{background:var(--ml-surface)}
-#mwi-labyrinth-calc-tokens .mt-row{display:grid;grid-template-columns:24px 30px minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:6px 8px;padding:10px 0}
-#mwi-labyrinth-calc-tokens .mt-drag{grid-column:1;grid-row:1/-1;align-self:stretch;touch-action:none;cursor:grab;min-width:24px;padding:0;background:transparent;border:0}
-#mwi-labyrinth-calc-tokens .mt-identity{grid-column:3;grid-row:1;min-width:0;display:grid;gap:3px;overflow-wrap:anywhere}
-#mwi-labyrinth-calc-tokens .mt-identity strong{font-size:14px;font-weight:600}
-#mwi-labyrinth-calc-tokens .mt-item-icon{width:30px;height:30px;display:grid;place-items:center}
-#mwi-labyrinth-calc-tokens .mt-item-icon svg{width:30px;height:30px}
-#mwi-labyrinth-calc-tokens .mt-cost{grid-column:4;grid-row:1;display:grid;gap:2px;text-align:right;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-cost strong{font-size:16px;font-weight:600}
-#mwi-labyrinth-calc-tokens .mt-cost em{font-size:12px;font-style:normal;color:var(--ml-muted)}
-#mwi-labyrinth-calc-tokens [data-budget-state="within"] .mt-cost em{color:var(--ml-accent)}
-#mwi-labyrinth-calc-tokens [data-budget-state="partial"] .mt-cost em{color:var(--ml-warn)}
-#mwi-labyrinth-calc-tokens [data-budget-state="outside"] .mt-cost em{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-row-actions{grid-column:2/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0}
-#mwi-labyrinth-calc-tokens .mt-target-label{display:flex;align-items:center;gap:6px;color:var(--ml-muted)}
-#mwi-labyrinth-calc-tokens .mt-target{width:72px;height:32px}
-#mwi-labyrinth-calc-tokens .mt-order{display:flex;gap:4px;margin-left:auto}
-#mwi-labyrinth-calc-tokens .mt-order button{display:grid;place-items:center;width:30px;padding:0}
-#mwi-labyrinth-calc-tokens .mt-icon{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-#mwi-labyrinth-calc-tokens .mt-cutoff{margin:0 0 8px 32px;padding:4px 8px;background:var(--ml-notice-bg,#3a3340);color:var(--ml-warn);border-radius:4px;font-size:12px}
-#mwi-labyrinth-calc-tokens .mt-steps{margin-left:32px;border-top:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:6px 8px;border-bottom:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-step[data-over="true"] strong{color:var(--ml-danger)}
-#mwi-labyrinth-calc-tokens .mt-group[data-drop="true"]{box-shadow:inset 0 2px var(--ml-accent)}
-#mwi-labyrinth-calc-tokens .mt-group[data-drag="true"]{opacity:.6}
-#mwi-labyrinth-calc-tokens .mt-picker{background:var(--ml-surface);border-radius:6px}
-#mwi-labyrinth-calc-tokens .mt-picker-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;min-height:42px;text-align:left;border:0;background:transparent;color:var(--ml-accent)}
-#mwi-labyrinth-calc-tokens .mt-picker-body{border-top:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-catalog-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px}
-#mwi-labyrinth-calc-tokens .mt-search{flex:1 1 120px;width:100%}
-#mwi-labyrinth-calc-tokens .mt-categories{display:flex;gap:4px;flex-wrap:wrap;padding:0 10px 8px;border-bottom:1px solid var(--ml-line)}
-#mwi-labyrinth-calc-tokens .mt-categories button{border:0;background:transparent;color:var(--ml-muted)}
-#mwi-labyrinth-calc-tokens .mt-categories [aria-pressed="true"]{background:var(--ml-selected-bg,#2d4947);color:var(--ml-accent)}
-#mwi-labyrinth-calc-tokens .mt-catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,156px),1fr));gap:2px;padding:6px;max-height:340px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--ml-field-line) var(--ml-surface)}
-#mwi-labyrinth-calc-tokens .mt-tile{display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:8px;padding:6px;border:1px solid transparent;background:transparent;text-align:left;min-height:66px}
-#mwi-labyrinth-calc-tokens .mt-tile>span:last-child{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
-#mwi-labyrinth-calc-tokens .mt-tile strong{font-size:14px;font-weight:500}
-#mwi-labyrinth-calc-tokens .mt-tile[data-planned="true"]{background:var(--ml-selected-bg,#2d4947);border-color:var(--ml-selected-line,#527d73)}
-#mwi-labyrinth-calc-tokens .mt-empty{padding:16px 0;color:var(--ml-muted)}
-@container (min-width:720px){#mwi-labyrinth-calc-tokens .mt-layout[data-picker-open="true"]{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}}
-@container (max-width:370px){#mwi-labyrinth-calc-tokens .mt-row{grid-template-columns:20px 28px minmax(0,1fr);gap:6px}#mwi-labyrinth-calc-tokens .mt-drag{grid-row:1/4;min-width:20px}#mwi-labyrinth-calc-tokens .mt-cost{grid-column:2/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:4px 8px;text-align:left}#mwi-labyrinth-calc-tokens .mt-row-actions{grid-row:3}#mwi-labyrinth-calc-tokens .mt-order{margin-left:0}#mwi-labyrinth-calc-tokens .mt-budget-area{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}
-</style>
-<div class="mt-savebar"><span class="mt-save mt-muted" role="status"></span><button data-action="retry" hidden>重试保存</button><span class="mt-error" role="alert" hidden></span></div>
-<div class="mt-feedback" role="status"><span></span><button data-action="undo" hidden>撤销清空</button></div>
-<section class="mt-budget-area" aria-label="代币预算"><label>规划数量<input data-budget="budget" type="number" min="0" step="1" aria-label="规划数量" placeholder="使用当前数量"></label><div class="mt-balance-metric"><span>剩余数量</span><strong class="mt-balance" role="status"></strong></div></section>
-<div class="mt-layout"><section class="mt-queue-pane" aria-label="代币使用计划"><div class="mt-heading mt-queue-heading"><span><h3>使用计划</h3></span><div class="mt-actions"><button data-action="copy">复制计划</button><button data-action="export-plan">导出 CSV</button><button data-action="clear">清空计划</button></div></div><ol class="mt-queue"></ol><div class="mt-empty mt-queue-empty">暂无计划</div></section>
-<section class="mt-picker"><button class="mt-picker-toggle" data-action="picker" aria-controls="mwi-labyrinth-token-picker"><span class="mt-picker-title">收起商店目录</span></button><div class="mt-picker-body" id="mwi-labyrinth-token-picker"><div class="mt-catalog-heading"><input class="mt-search" type="search" placeholder="搜索升级或商品" aria-label="搜索升级或商品" maxlength="200"></div><div class="mt-categories" role="group" aria-label="商店项目分类"></div><div class="mt-catalog"></div><p class="mt-filter-empty mt-muted" hidden>没有匹配的项目。</p></div></section></div>
-
-`;
-    section.append(body);
-    const $ = (s) => body.querySelector(s);
-    for (const [key, label] of Object.entries(categories)) $(".mt-categories").append(button(label, "category", key));
-    function feedback(text = "") {
-      message = text;
-      $(".mt-feedback span").textContent = text;
-    }
-    function discardUndo() {
-      undo = null;
-      clearTimeout(undoTimer);
-      undoTimer = null;
-    }
-    function commit(next, keepUndo = false) {
-      if (!data?.loaded) return;
-      try {
-        M.validatePlan(next);
-        if (!keepUndo) discardUndo();
-        $(".mt-error").hidden = true;
-        onPlan(next);
-      } catch (e) {
-        $(".mt-error").textContent = e.message;
-        $(".mt-error").hidden = false;
-      }
-    }
-    function changeUi(patch) {
-      const plan = structuredClone(data.profile.plan);
-      plan.ui = { ...M.preferences(plan), ...patch };
-      commit(plan, true);
-    }
-    function captureFocus() {
-      const node = document.activeElement;
-      if (!body.contains(node)) return null;
-      return {
-        action: node.dataset.action,
-        id: node.dataset.id || node.dataset.target,
-        target: !!node.dataset.target,
-        value: node.value,
-        start: node.selectionStart,
-        index: [...$(".mt-queue").children].indexOf(node.closest(".mt-group"))
-      };
-    }
-    function restoreFocus(focus) {
-      if (!focus?.id) return;
-      let target = [...body.querySelectorAll(focus.target ? "[data-target]" : "[data-action]")].find(
-        (n) =>
-          !n.disabled &&
-          (n.dataset.id || n.dataset.target) === focus.id &&
-          (focus.target || n.dataset.action === focus.action)
-      );
-      if (focus.target && target) target.value = focus.value;
-      if (!target)
-        target =
-          [...body.querySelectorAll("[data-target]")].find((n) => n.dataset.target === focus.id) ||
-          body.querySelectorAll("[data-target]")[Math.max(0, Math.min(focus.index, result.groups.length - 1))] ||
-          $(".mt-search");
-      target?.focus({ preventScroll: true });
-    }
-    function filter() {
-      const prefs = M.preferences(data.profile.plan),
-        query = $(".mt-search").value.trim().toLocaleLowerCase();
-      let count = 0;
-      for (const tile of body.querySelectorAll(".mt-tile")) {
-        tile.hidden =
-          (prefs.category !== "all" && tile.dataset.category !== prefs.category) ||
-          !tile.dataset.search.includes(query);
-        if (!tile.hidden) count++;
-      }
-      $(".mt-filter-empty").hidden = count !== 0;
-    }
-    function renderQueue(prefs) {
-      $(".mt-queue").replaceChildren();
-      for (let index = 0; index < result.groups.length; index++) {
-        const g = result.groups[index],
-          item = g.item,
-          name = item?.name || g.id;
-        const group = el("li", "mt-group");
-        group.dataset.id = g.id;
-        group.dataset.budgetState = g.budgetState;
-        group.setAttribute("aria-posinset", index + 1);
-        group.setAttribute("aria-setsize", result.groups.length);
-        const row = el("div", "mt-row"),
-          handle = symbolButton(`拖动${name}排序`, "drag", g.id, "drag");
-        handle.className = "mt-drag";
-        const identity = el("span", "mt-identity");
-        identity.append(
-          el("strong", "", name),
-          el(
-            "span",
-            "",
-            item?.kind === "item" ? `共 ${fmt(g.target * item.output)} 个` : `${fmt(item?.current)} → ${g.target} 级`
-          )
-        );
-        const cost = el("span", "mt-cost");
-        cost.append(el("strong", "", `${fmt(g.cost)} 代币`), el("em", "", states[g.budgetState]));
-        row.append(handle, itemIcon(item), identity, cost);
-        const actions = el("div", "mt-row-actions"),
-          label = el("label", "mt-target-label", item?.kind === "item" ? "兑换次数" : "目标等级");
-        const input = el(item?.kind === "upgrade" && item.current !== null ? "select" : "input", "mt-target");
-        input.dataset.target = g.id;
-        input.setAttribute("aria-label", `${name}的${item?.kind === "item" ? "兑换次数" : "目标等级"}`);
-        if (input.tagName === "SELECT") {
-          for (let level = Math.min(g.target, item.current + 1); level <= item.max; level++) {
-            const option = el("option", "", `${level} 级`);
-            option.value = level;
-            input.append(option);
-          }
-        } else {
-          input.type = "number";
-          input.min = "1";
-          input.max = item?.max ?? 1000000;
-          input.step = "1";
-        }
-        input.value = g.target;
-        input.disabled = !data.loaded || !item || item.current === null;
-        label.append(input);
-        actions.append(label);
-        const order = el("span", "mt-order");
-        for (const [action, text, symbol, disabled] of [
-          ["up", "上移", "up", index === 0],
-          ["down", "下移", "down", index === result.groups.length - 1],
-          ["expand", prefs.expanded.includes(g.id) ? "收起" : "展开", "expand", false],
-          ["remove", "移除", "remove", false]
-        ]) {
-          const b = symbolButton(`${text}${name}${action === "expand" ? "费用明细" : ""}`, action, g.id, symbol);
-          b.disabled = !data.loaded || disabled;
-          if (action === "expand") {
-            b.setAttribute("aria-expanded", prefs.expanded.includes(g.id));
-            b.setAttribute("aria-controls", `mwi-labyrinth-token-steps-${index}`);
-          }
-          order.append(b);
-        }
-        actions.append(order);
-        row.append(actions);
-        group.append(row);
-        if (result.cutoff?.id === g.id)
-          group.append(
-            el(
-              "div",
-              "mt-cutoff",
-              `预算可${item.kind === "item" ? `兑换 ${g.covered} 次` : `升至 ${g.affordableTarget} 级`}；下一${item.kind === "item" ? "次" : "级"}还差 ${fmt(result.cutoff.shortfall)} 代币。`
-            )
-          );
-        const steps = el("div", "mt-steps");
-        steps.id = `mwi-labyrinth-token-steps-${index}`;
-        steps.hidden = !prefs.expanded.includes(g.id);
-        for (const step of g.steps) {
-          const node = el("div", "mt-step");
-          node.dataset.over = step.fits === false;
-          const copy = el(
-            "span",
-            "",
-            item.kind === "item" ? `${g.target} 次 × ${fmt(item.cost)} 代币` : `${step.from} → ${step.to} 级`
-          );
-          copy.append(
-            el(
-              "span",
-              "",
-              `累计 ${fmt(step.cumulative)} · ${step.fits === null ? "待核对" : step.fits ? "预算内" : "超出预算"}`
-            )
-          );
-          node.append(copy, el("strong", "", fmt(step.cost)));
-          steps.append(node);
-        }
-        group.append(steps);
-        $(".mt-queue").append(group);
-      }
-    }
-    function render() {
-      if (!data || disposed || drag) return;
-      const plan = data.profile.plan,
-        prefs = M.preferences(plan),
-        focus = captureFocus();
-      // Legacy forecast/reserve fields remain readable but no longer affect this budget-only view.
-      result = M.buildPlan(
-        { ...plan, reserve: 0, futureRuns: 0, perRun: null, forecastStart: null },
-        data.catalog,
-        data.balance,
-        []
-      );
-      $(".mt-save").textContent = data.saveError ? "未保存" : !data.loaded ? "正在读取" : "";
-      $(".mt-save").hidden = !$(".mt-save").textContent;
-      $("[data-action=retry]").hidden = !data.saveError;
-      $("[data-action=retry]").textContent = data.loaded ? "重试保存" : "重试读取";
-      $(".mt-error").textContent = data.saveError || "";
-      $(".mt-error").hidden = !data.saveError;
-      $(".mt-feedback span").textContent = message;
-      $("[data-action=undo]").hidden = !undo;
-      $('[data-budget="budget"]').placeholder = `当前 ${fmt(data.balance)}`;
-      for (const input of body.querySelectorAll("[data-budget]")) {
-        if (document.activeElement !== input) input.value = plan[input.dataset.budget] ?? "";
-        input.disabled = !data.loaded;
-      }
-      $(".mt-balance").textContent = fmt(result.remaining);
-      $(".mt-balance-metric").dataset.danger = result.remaining !== null && result.remaining < 0;
-      $(".mt-queue-empty").hidden = !!result.groups.length;
-      for (const action of ["copy", "export-plan", "clear"])
-        $(`[data-action=${action}]`).disabled = !data.loaded || !result.groups.length;
-      renderQueue(prefs);
-      $(".mt-layout").dataset.pickerOpen = prefs.pickerOpen;
-      $(".mt-picker-body").hidden = !prefs.pickerOpen;
-      $("[data-action=picker]").setAttribute("aria-expanded", prefs.pickerOpen);
-      $(".mt-picker-title").textContent = prefs.pickerOpen ? "收起商店目录" : "添加升级或商品";
-      if (document.activeElement !== $(".mt-search")) $(".mt-search").value = prefs.search;
-      for (const b of body.querySelectorAll('[data-action="category"]'))
-        b.setAttribute("aria-pressed", b.dataset.id === prefs.category);
-      const scroll = $(".mt-catalog").scrollTop;
-      $(".mt-catalog").replaceChildren();
-      for (const item of data.catalog) {
-        const existing = plan.entries.find((e) => e.id === item.id),
-          b = button(`${existing ? "查看" : "加入"}${item.name}`, "add", item.id, "");
-        b.className = "mt-tile";
-        b.dataset.planned = !!existing;
-        b.dataset.category = item.category;
-        b.dataset.search = `${item.name} ${item.id} ${item.effect}`.toLocaleLowerCase();
-        b.disabled =
-          !data.loaded ||
-          (!existing && (item.current === null || (item.kind === "upgrade" && item.current >= item.max)));
-        const text = el("span");
-        text.append(
-          el("strong", "", item.name),
-          el(
-            "span",
-            "",
-            existing
-              ? `已加入 · 目标 ${existing.target}${item.kind === "item" ? " 次" : " 级"}`
-              : item.kind === "item"
-                ? `每次兑换 ${item.output} 个`
-                : item.current === null
-                  ? "等级未读取"
-                  : `当前 ${item.current} / ${item.max} 级`
-          ),
-          el(
-            "span",
-            "",
-            item.kind === "item"
-              ? `${fmt(item.cost)} 代币 / 次`
-              : item.current === null
-                ? "费用待核对"
-                : item.current >= item.max
-                  ? "已满级"
-                  : `下一级 ${fmt(item.costs[item.current])} 代币`
-          )
-        );
-        b.append(itemIcon(item), text);
-        $(".mt-catalog").append(b);
-      }
-      $(".mt-catalog").scrollTop = scroll;
-      filter();
-      restoreFocus(focus);
-    }
-    function move(id, target) {
-      const plan = structuredClone(data.profile.plan),
-        index = plan.entries.findIndex((e) => e.id === id);
-      if (index < 0 || target < 0 || target >= plan.entries.length || index === target) return;
-      plan.entries.splice(target, 0, plan.entries.splice(index, 1)[0]);
-      commit(plan);
-      feedback(`已调整为第 ${target + 1} 项。`);
-    }
-    body.addEventListener("change", (event) => {
-      const input = event.target;
-      if (input.matches("[data-budget]")) {
-        const plan = structuredClone(data.profile.plan),
-          key = input.dataset.budget,
-          raw = input.value.trim();
-        plan[key] = input.validity.badInput ? NaN : raw === "" ? null : Number(raw);
-        commit(plan);
-      } else if (input.dataset.target) {
-        const plan = structuredClone(data.profile.plan),
-          entry = plan.entries.find((e) => e.id === input.dataset.target),
-          item = data.catalog.find((c) => c.id === entry?.id),
-          value = Number(input.value);
-        if (
-          !entry ||
-          !input.value.trim() ||
-          !Number.isSafeInteger(value) ||
-          value < 1 ||
-          value > (item?.max ?? 0) ||
-          (item?.kind === "upgrade" && value <= item.current)
-        ) {
-          feedback("请输入高于当前等级且不超过上限的目标；兑换次数需为正整数。");
-          return;
-        }
-        entry.target = value;
-        commit(plan);
-      } else if (input.matches(".mt-search")) changeUi({ search: input.value });
-    });
-    body.addEventListener("input", (e) => {
-      if (e.target.matches(".mt-search")) filter();
-    });
-    body.addEventListener("click", async (event) => {
-      const b = event.target.closest("[data-action]");
-      if (!b || b.disabled || !data) return;
-      const action = b.dataset.action,
-        id = b.dataset.id,
-        plan = structuredClone(data.profile.plan),
-        prefs = M.preferences(plan),
-        entry = plan.entries.find((e) => e.id === id),
-        item = data.catalog.find((i) => i.id === id);
-      if (action === "retry") {
-        onRetry();
-        return;
-      }
-      if (action === "export-plan") {
-        onExport({ text: M.planCsv(result), name: "迷宫代币计划" });
-        return;
-      }
-      if (action === "copy") {
-        const capturedOwner = owner;
-        try {
-          await onCopy(M.planText(result));
-          if (!disposed && owner === capturedOwner) feedback("计划已复制。");
-        } catch {
-          if (!disposed && owner === capturedOwner) feedback("复制失败，可以使用导出 CSV。");
-        }
-        return;
-      }
-      if (!data.loaded) return;
-      if (action === "picker") changeUi({ pickerOpen: !prefs.pickerOpen });
-      else if (action === "category") changeUi({ category: id });
-      else if (action === "expand")
-        changeUi({
-          expanded: prefs.expanded.includes(id) ? prefs.expanded.filter((v) => v !== id) : [...prefs.expanded, id]
-        });
-      else if (action === "add") {
-        if (!entry && item && item.current !== null) {
-          plan.entries.push({ id, target: item.kind === "item" ? 1 : item.current + 1 });
-          commit(plan);
-        } else if (entry) changeUi({ expanded: [...new Set([...prefs.expanded, id])] });
-        [...body.querySelectorAll("[data-target]")].find((n) => n.dataset.target === id)?.focus();
-      } else if (action === "up" || action === "down")
-        move(id, plan.entries.findIndex((e) => e.id === id) + (action === "up" ? -1 : 1));
-      else if (action === "remove") {
-        plan.entries = plan.entries.filter((e) => e.id !== id);
-        commit(plan);
-      } else if (action === "clear") {
-        discardUndo();
-        undo = structuredClone(plan.entries);
-        plan.entries = [];
-        plan.ui = { ...prefs, pickerOpen: true };
-        commit(plan, true);
-        feedback("计划已清空");
-        undoTimer = setTimeout(() => {
-          discardUndo();
-          feedback();
-          render();
-        }, 8000);
-        $("[data-action=undo]").focus();
-      } else if (action === "undo" && undo) {
-        plan.entries = undo;
-        discardUndo();
-        commit(plan);
-        feedback("已恢复计划。");
-      }
-    });
-    body.addEventListener("keydown", (event) => {
-      const handle = event.target.closest('[data-action="drag"]');
-      if (!handle || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
-      event.preventDefault();
-      const index = data.profile.plan.entries.findIndex((e) => e.id === handle.dataset.id);
-      move(handle.dataset.id, index + (event.key === "ArrowUp" ? -1 : 1));
-    });
-    body.addEventListener("pointerdown", (event) => {
-      const handle = event.target.closest('[data-action="drag"]');
-      if (!handle || event.button !== 0 || !data.loaded) return;
-      const group = handle.closest(".mt-group");
-      drag = { id: handle.dataset.id, pointer: event.pointerId, handle, target: null, owner };
-      handle.setPointerCapture(event.pointerId);
-      group.dataset.drag = "true";
-      event.preventDefault();
-    });
-    body.addEventListener("pointermove", (event) => {
-      if (!drag || event.pointerId !== drag.pointer) return;
-      const over = document.elementFromPoint(event.clientX, event.clientY)?.closest(".mt-group");
-      for (const row of body.querySelectorAll(".mt-group")) row.removeAttribute("data-drop");
-      if (over && body.contains(over)) {
-        drag.target = over.dataset.id;
-        over.dataset.drop = "true";
-      }
-    });
-    function finishDrag(event) {
-      if (!drag || event.pointerId !== drag.pointer) return;
-      const previous = drag;
-      drag = null;
-      if (previous.handle.hasPointerCapture(event.pointerId)) previous.handle.releasePointerCapture(event.pointerId);
-      if (event.type === "pointerup" && previous.owner === owner && previous.target)
-        move(
-          previous.id,
-          data.profile.plan.entries.findIndex((e) => e.id === previous.target)
-        );
-      render();
-      [...body.querySelectorAll('[data-action="drag"]')]
-        .find((n) => n.dataset.id === previous.id)
-        ?.focus({ preventScroll: true });
-    }
-    body.addEventListener("pointerup", finishDrag);
-    body.addEventListener("pointercancel", finishDrag);
-    return {
-      update(next) {
-        if (owner !== next.owner) {
-          owner = next.owner;
-          discardUndo();
-          message = "";
-          drag = null;
-        }
-        data = next;
-        render();
-      },
-      destroy() {
-        disposed = true;
-        discardUndo();
-        body.remove();
-      }
-    };
-  }
-  root.MwiLabyrinthTokenWorkspace = { create };
-})(globalThis);
-
 // SOURCE: src/ui/sidebar.js
 (function (root) {
   "use strict";
@@ -5091,10 +4517,7 @@ DEALINGS IN THE SOFTWARE.
       }
       document.dispatchEvent(new Event("mwi-labyrinth-sidebar-change"));
     }
-    for (const [name, label] of [
-      ["planner", "路线与计算"],
-      ["tokens", "代币规划"]
-    ]) {
+    for (const [name, label] of [["planner", "路线与计算"]]) {
       const button = document.createElement("button");
       button.type = "button";
       button.id = `mwi-labyrinth-sidebar-${name}-tab`;
@@ -5281,217 +4704,682 @@ DEALINGS IN THE SOFTWARE.
   };
 })(globalThis);
 
-// SOURCE: src/ui/token-native-view.js
+// SOURCE: src/ui/token-view.js
 (function (root) {
   "use strict";
-  function create({ onPlan, onRetry, onExport, onCopy, onOpen }) {
-    let data = null,
-      open = false,
-      owner = "";
-    const section = document.createElement("section");
-    section.id = "mwi-labyrinth-calc-tokens";
-    section.setAttribute("role", "tabpanel");
-    section.setAttribute("aria-labelledby", "mwi-labyrinth-token-tab");
-    section.hidden = true;
-    const tabButton = document.createElement("button");
-    tabButton.type = "button";
-    tabButton.id = "mwi-labyrinth-token-tab";
-    tabButton.textContent = "代币规划";
-    tabButton.setAttribute("role", "tab");
-    tabButton.setAttribute("aria-controls", section.id);
-    tabButton.setAttribute("aria-selected", "false");
-    let host = null,
-      tabList = null;
-    const nativeAttributes = new Map();
-    function restoreNativeTabs() {
-      for (const [button, attrs] of nativeAttributes) {
-        for (const [name, value] of Object.entries(attrs)) {
-          if (value === null) button.removeAttribute(name);
-          else button.setAttribute(name, value);
+  const M = root.MwiLabyrinthTokens;
+  const STYLE_ID = "mwi-labyrinth-calc-tokens-style";
+  const BAR_ID = "mwi-labyrinth-calc-tokens";
+  const CTRL_CLASS = "mwi-labyrinth-calc-token-ctrl";
+  const PLANNED_ATTR = "data-mwi-labyrinth-token-planned";
+  const FLASH_ATTR = "data-mwi-labyrinth-token-flash";
+  const UPGRADE_SYMBOLS = {
+    labyrinth_cooldown: "/labyrinth_upgrades/cooldown",
+    torch_capacity: "/labyrinth_upgrades/torch_cap",
+    shroud_capacity: "/labyrinth_upgrades/shroud_cap",
+    beacon_capacity: "/labyrinth_upgrades/beacon_cap",
+    floor_automation: "/labyrinth_upgrades/full_auto",
+    labyrinth_skilling_speed: "/labyrinth_upgrades/skill_action_speed",
+    labyrinth_skilling_efficiency: "/labyrinth_upgrades/skilling_efficiency",
+    labyrinth_skilling_success: "/labyrinth_upgrades/skilling_success",
+    labyrinth_double_progress: "/labyrinth_upgrades/skilling_double_progress",
+    labyrinth_combat_damage: "/labyrinth_upgrades/combat_damage",
+    labyrinth_attack_speed: "/labyrinth_upgrades/attack_speed",
+    labyrinth_cast_speed: "/labyrinth_upgrades/cast_speed",
+    labyrinth_critical_rate: "/labyrinth_upgrades/critical_rate",
+    labyrinth_experience: "/labyrinth_upgrades/labyrinth_experience"
+  };
+  const ICON_PATHS = {
+    plus: '<path d="M6 2.25v7.5M2.25 6h7.5"/>',
+    minus: '<path d="M2.5 6h7"/>',
+    close: '<path d="M3.25 3.25l5.5 5.5M8.75 3.25l-5.5 5.5"/>'
+  };
+  const CSS = `
+#${BAR_ID}{position:sticky;bottom:8px;z-index:5;width:fit-content;max-width:100%;margin:12px auto 0;padding:7px 12px;border:0;border-radius:12px;background:linear-gradient(180deg,rgba(36,39,60,.92),rgba(23,25,40,.96));backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2);box-shadow:0 0 0 1px rgba(255,255,255,.1),inset 0 1px 0 rgba(255,255,255,.09),0 10px 28px rgba(0,0,0,.46);font-size:12px;line-height:1.4;color:#edf0fa;font-variant-numeric:tabular-nums;text-align:left;box-sizing:border-box}
+#${BAR_ID} [hidden],.${CTRL_CLASS} [hidden]{display:none!important}
+#${BAR_ID} .mwi-labyrinth-calc-token-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;min-height:26px}
+#${BAR_ID} .mwi-labyrinth-calc-token-field{display:inline-flex;align-items:center;gap:6px;color:#96a0bc;font-size:11px;font-weight:500;margin:0}
+#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]{width:78px;height:26px;min-height:0;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;line-height:24px;border:0;border-radius:6px;background:rgba(12,14,24,.58);color:#f3f5fc;box-shadow:0 0 0 1px rgba(255,255,255,.1),inset 0 1px 2px rgba(0,0,0,.35);appearance:textfield;box-sizing:border-box;transition:background-color .15s ease,box-shadow .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]::placeholder{color:#7f8aa8;font-weight:500}
+#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]:hover:not(:disabled){box-shadow:0 0 0 1px rgba(255,255,255,.18),inset 0 1px 2px rgba(0,0,0,.35)}
+#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]:focus{outline:none;background:rgba(15,18,30,.85);box-shadow:0 0 0 1.5px rgba(145,223,203,.78),0 0 0 4px rgba(145,223,203,.14),inset 0 1px 2px rgba(0,0,0,.3)}
+#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]::-webkit-inner-spin-button,#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]::-webkit-outer-spin-button{appearance:none;margin:0}
+#${BAR_ID} .mwi-labyrinth-calc-token-divider{width:1px;height:14px;background:rgba(255,255,255,.09);flex-shrink:0}
+#${BAR_ID} .mwi-labyrinth-calc-token-metric{display:inline-flex;align-items:baseline;gap:5px;white-space:nowrap;color:#96a0bc;font-size:11px;font-weight:500}
+#${BAR_ID} .mwi-labyrinth-calc-token-metric strong{font-size:14px;font-weight:650;letter-spacing:-.01em;color:#f3f5fc;transition:color .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-metric[data-state="ok"] strong{color:#8ee3cc;text-shadow:0 0 12px rgba(142,227,204,.22)}
+#${BAR_ID} .mwi-labyrinth-calc-token-metric[data-state="over"] strong{color:#ff9aa9;text-shadow:0 0 12px rgba(255,154,169,.22)}
+#${BAR_ID} .mwi-labyrinth-calc-token-end{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+#${BAR_ID} .mwi-labyrinth-calc-token-error{color:#ff9aa9;font-size:11px;font-weight:500}
+#${BAR_ID} .mwi-labyrinth-calc-token-link{height:26px;min-height:0;padding:0 10px;border:0;border-radius:999px;background:rgba(255,255,255,.05);box-shadow:0 0 0 1px rgba(255,255,255,.08),inset 0 1px 0 rgba(255,255,255,.06);color:#b0b9d1;font-size:12px;font-weight:500;line-height:26px;cursor:pointer;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-link:hover:not(:disabled){color:#f3f5fc;background:rgba(255,255,255,.11);box-shadow:0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.1)}
+#${BAR_ID} .mwi-labyrinth-calc-token-clear:hover:not(:disabled){color:#ff9aa9;background:rgba(255,154,169,.12);box-shadow:0 0 0 1px rgba(255,154,169,.32)}
+#${BAR_ID} .mwi-labyrinth-calc-token-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.07);max-height:98px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
+#${BAR_ID} .mwi-labyrinth-calc-token-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;height:28px;padding:0 4px 0 10px;border:0;border-radius:999px;background:rgba(255,255,255,.045);box-shadow:0 0 0 1px rgba(255,255,255,.08),inset 0 1px 0 rgba(255,255,255,.06);font-size:12px;box-sizing:border-box;transition:background-color .15s ease,box-shadow .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-chip:hover{background:rgba(255,255,255,.085);box-shadow:0 0 0 1px rgba(145,223,203,.32),inset 0 1px 0 rgba(255,255,255,.1)}
+#${BAR_ID} .mwi-labyrinth-calc-token-locate{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:0;border:0;background:transparent;color:#eef1fa;font:inherit;cursor:pointer}
+#${BAR_ID} .mwi-labyrinth-calc-token-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;font-weight:500;transition:color .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-locate:hover .mwi-labyrinth-calc-token-name{color:#91dfcb}
+#${BAR_ID} .mwi-labyrinth-calc-token-qty{color:#a8b7e6;font-size:11px;font-weight:500;white-space:nowrap}
+#${BAR_ID} .mwi-labyrinth-calc-token-cost{font-size:12px;font-weight:650;color:#8ee3cc;white-space:nowrap}
+#${BAR_ID} .mwi-labyrinth-calc-token-chip[data-done="true"] .mwi-labyrinth-calc-token-cost{color:#8c96b2}
+#${BAR_ID} .mwi-labyrinth-calc-token-remove{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;border:0;border-radius:999px;background:transparent;color:#8c96b2;cursor:pointer;transition:background-color .15s ease,color .15s ease}
+#${BAR_ID} .mwi-labyrinth-calc-token-remove:hover:not(:disabled){color:#ff9aa9;background:rgba(255,154,169,.16)}
+#${BAR_ID} .mwi-labyrinth-calc-token-svg{display:block;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-svg{display:block;width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+[${PLANNED_ATTR}="true"]{box-shadow:inset 0 1px 0 rgba(145,223,203,.24),inset 0 0 24px rgba(145,223,203,.06),0 4px 12px rgba(0,0,0,.22)!important}
+[${PLANNED_ATTR}="true"]::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(145,223,203,.72) 0%,rgba(145,223,203,.24) 48%,rgba(145,223,203,.12) 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+[${FLASH_ATTR}="true"]{box-shadow:0 0 0 2px #91dfcb,0 0 18px rgba(145,223,203,.38)!important}
+.${CTRL_CLASS}{position:absolute;top:25px;right:5px;z-index:2;display:inline-flex;align-items:center;height:28px;padding:1px;border:0;border-radius:999px;background:rgba(19,21,35,.74);box-shadow:0 0 0 1px rgba(255,255,255,.15),inset 0 1px 0 rgba(255,255,255,.1),0 2px 6px rgba(0,0,0,.28);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-sizing:border-box;font:12px/1 system-ui,-apple-system,"PingFang SC",sans-serif;font-variant-numeric:tabular-nums;color:#edf0fa;transition:background-color .16s ease,box-shadow .16s ease}
+.${CTRL_CLASS}:hover{background:rgba(24,28,46,.92);box-shadow:0 0 0 1px rgba(145,223,203,.52),inset 0 1px 0 rgba(255,255,255,.14),0 3px 10px rgba(0,0,0,.35)}
+.${CTRL_CLASS}[data-planned="true"]{background:linear-gradient(180deg,rgba(31,42,58,.94),rgba(19,24,38,.96));box-shadow:0 0 0 1px rgba(145,223,203,.48),inset 0 1px 0 rgba(255,255,255,.12),0 2px 10px rgba(0,0,0,.36)}
+.${CTRL_CLASS}[data-planned="true"]:hover{box-shadow:0 0 0 1px rgba(145,223,203,.76),inset 0 1px 0 rgba(255,255,255,.16),0 3px 12px rgba(0,0,0,.4)}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn{display:grid;place-items:center;width:26px;height:26px;min-width:0;min-height:0;padding:0;margin:0;border:0;border-radius:999px;background:transparent;color:#d6def2;cursor:pointer;box-sizing:border-box;transition:background-color .14s ease,color .14s ease,transform .1s ease}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn:hover:not(:disabled){background:rgba(145,223,203,.18);color:#91dfcb}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn:active:not(:disabled){transform:scale(.88)}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn:disabled{opacity:.32;cursor:default}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn:focus-visible,.${CTRL_CLASS} .mwi-labyrinth-calc-token-num:focus-visible{outline:2px solid #91dfcb;outline-offset:-1px}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-num{width:24px;height:26px;min-width:0;min-height:0;padding:0 1px;margin:0;border:0;border-radius:4px;background:transparent;color:#f5f7fd;font:650 12px/26px system-ui,sans-serif;text-align:center;appearance:textfield;box-sizing:border-box}
+.${CTRL_CLASS} .mwi-labyrinth-calc-token-num::-webkit-inner-spin-button,.${CTRL_CLASS} .mwi-labyrinth-calc-token-num::-webkit-outer-spin-button{appearance:none;margin:0}
+@media (max-width:600px){#${BAR_ID}{width:100%;bottom:4px;padding:6px 8px;border-radius:10px}#${BAR_ID} .mwi-labyrinth-calc-token-bar{gap:4px 6px}#${BAR_ID} .mwi-labyrinth-calc-token-divider{display:none}#${BAR_ID} .mwi-labyrinth-calc-token-field,#${BAR_ID} .mwi-labyrinth-calc-token-metric{gap:3px}#${BAR_ID} .mwi-labyrinth-calc-token-metric strong{font-size:13px}#${BAR_ID} .mwi-labyrinth-calc-token-field input[type="number"]{width:50px;padding:1px 4px}#${BAR_ID} .mwi-labyrinth-calc-token-link{padding:0 8px;font-size:11px}#${BAR_ID} .mwi-labyrinth-calc-token-list{max-height:64px;margin-top:5px;padding-top:5px}.${CTRL_CLASS}{top:25px;height:30px}.${CTRL_CLASS} .mwi-labyrinth-calc-token-btn{width:28px;height:28px}.${CTRL_CLASS} .mwi-labyrinth-calc-token-svg{width:13px;height:13px}.${CTRL_CLASS} .mwi-labyrinth-calc-token-num{height:28px;line-height:28px;font-size:13px}}
+@media (prefers-reduced-motion:reduce){#${BAR_ID} *, .${CTRL_CLASS}, .${CTRL_CLASS} *{transition:none!important}}
+`;
+
+  const fmt = (n) =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString("zh-CN", { maximumFractionDigits: 1 }) : "—";
+
+  function glyph(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 12 12");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("mwi-labyrinth-calc-token-svg");
+    svg.innerHTML = ICON_PATHS[name] || "";
+    return svg;
+  }
+
+  function readReactKey(node) {
+    for (const key of Object.keys(node)) {
+      if (key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")) {
+        const fiber = node[key];
+        if (typeof fiber?.key === "string") return fiber.key;
+      }
+    }
+    return "";
+  }
+
+  function extractSlug(card) {
+    const scope = card.querySelector('[class*="LabyrinthPanel_iconContainer"]') || card;
+    for (const node of scope.querySelectorAll("use, img, image")) {
+      if (node.closest(`[class*="LabyrinthPanel_price"], .${CTRL_CLASS}`)) continue;
+      const url = node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src") || "";
+      const match = url.match(/(?:#|\/)([a-z0-9_]+)(?:\.[a-z]+)?$/i);
+      if (match) return match[1];
+    }
+    return "";
+  }
+
+  function parseInteger(text) {
+    const cleaned = String(text || "").replace(/[\s,]/g, "");
+    const match = cleaned.match(/\d+/);
+    return match ? Number(match[0]) : null;
+  }
+
+  function identifyCard(card, catalog, byId) {
+    if (!card || !Array.isArray(catalog)) return null;
+    const map = byId || new Map(catalog.map((item) => [item.id, item]));
+    const reactKey = readReactKey(card);
+    if (reactKey && map.has(reactKey)) return reactKey;
+
+    const isUpgrade = String(card.className).includes("LabyrinthPanel_upgrade");
+    const isItem = String(card.className).includes("LabyrinthPanel_item");
+    const slug = extractSlug(card);
+    if (isUpgrade && slug) {
+      const id = UPGRADE_SYMBOLS[slug];
+      if (id && map.has(id)) return id;
+    }
+    if (isItem && slug) {
+      let candidates = catalog.filter((item) => item.kind === "item" && item.itemHrid === `/items/${slug}`);
+      if (candidates.length === 1) return candidates[0].id;
+      if (candidates.length > 1) {
+        const price = parseInteger(card.querySelector('[class*="LabyrinthPanel_price"]')?.textContent);
+        if (price !== null) {
+          const byPrice = candidates.filter((item) => item.cost === price);
+          if (byPrice.length) candidates = byPrice;
         }
-      }
-      nativeAttributes.clear();
-    }
-    function revealTab(button) {
-      if (!tabList || !button) return;
-      const viewport = tabList.getBoundingClientRect(),
-        bounds = button.getBoundingClientRect();
-      if (bounds.left < viewport.left) tabList.scrollLeft -= viewport.left - bounds.left;
-      else if (bounds.right > viewport.right) tabList.scrollLeft += bounds.right - viewport.right;
-    }
-    function syncTab() {
-      section.hidden = !open;
-      host?.classList.toggle("mwi-labyrinth-token-active", open);
-      tabButton.setAttribute("aria-selected", String(open));
-      tabButton.tabIndex = open ? 0 : -1;
-      tabButton.classList.toggle("Mui-selected", open);
-      if (open && tabList) {
-        for (const button of tabList.querySelectorAll('[role="tab"]')) {
-          if (button === tabButton) continue;
-          if (!nativeAttributes.has(button))
-            nativeAttributes.set(button, {
-              "aria-selected": button.getAttribute("aria-selected"),
-              tabindex: button.getAttribute("tabindex")
-            });
-          button.setAttribute("aria-selected", "false");
-          button.tabIndex = -1;
-        }
-      } else restoreNativeTabs();
-    }
-    function activate(event) {
-      event.stopPropagation();
-      open = true;
-      syncTab();
-      revealTab(tabButton);
-      onOpen?.();
-      render();
-    }
-    function nativeClick(event) {
-      const target = event.target.closest('[role="tab"]');
-      if (target && target !== tabButton) {
-        open = false;
-        syncTab();
+        if (candidates.length === 1) return candidates[0].id;
+        const nameText = card.querySelector('[class*="LabyrinthPanel_name"]')?.textContent.trim() || "";
+        const leading = nameText.match(/^(\d+)\s+/);
+        const output = leading ? Number(leading[1]) : 1;
+        const byOutput = candidates.filter((item) => item.output === output);
+        if (byOutput.length === 1) return byOutput[0].id;
       }
     }
-    function tabKeys(event) {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      const current = event.target.closest('[role="tab"]');
-      if (!current || !tabList) return;
-      const buttons = [...tabList.querySelectorAll('[role="tab"]')].filter((b) => !b.disabled);
-      const index = buttons.indexOf(current);
-      let next =
-        event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? buttons.length - 1
-            : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-      event.preventDefault();
-      event.stopPropagation();
-      // Restore native selection before its existing focus/click handlers run.
-      if (buttons[next] !== tabButton) {
-        open = false;
-        syncTab();
-      }
-      buttons[next].focus();
-      buttons[next].click();
-      revealTab(buttons[next]);
+
+    const nameText = card.querySelector('[class*="LabyrinthPanel_name"]')?.textContent.trim() || "";
+    if (!nameText) return null;
+    const kind = isUpgrade ? "upgrade" : isItem ? "item" : "";
+    if (!kind) return null;
+    const matched = catalog.filter((item) => {
+      if (item.kind !== kind) return false;
+      if (item.name === nameText) return true;
+      return kind === "item" && item.output > 1 && `${item.output} ${item.name}` === nameText;
+    });
+    return matched.length === 1 ? matched[0].id : null;
+  }
+
+  function cardDisplayName(card, item) {
+    const raw = card?.querySelector('[class*="LabyrinthPanel_name"]')?.textContent.trim();
+    if (!raw) return item?.name || "";
+    if (item?.kind === "item" && item.output > 1 && raw.startsWith(`${item.output} `)) {
+      return raw.slice(String(item.output).length + 1).trim() || item.name;
     }
+    return raw;
+  }
+
+  function ensureStyle() {
+    let style = document.getElementById(STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = CSS;
+      (document.head || document.documentElement).append(style);
+    }
+    return style;
+  }
+
+  function findShopTab() {
+    for (const node of document.querySelectorAll('[class*="LabyrinthPanel_labyrinthShopTab"]')) {
+      if (node.isConnected && node.getClientRects().length > 0) return node;
+    }
+    return null;
+  }
+
+  function create({ onPlan, onRetry, onOpen }) {
+    let data = null;
+    let owner = "";
+    let shopTab = null;
+    let undo = null;
+    let undoTimer = null;
+    let flashTimer = null;
+    let flashedCard = null;
+    let inputError = "";
+    let disposed = false;
+    let cardById = new Map();
+
+    const bar = document.createElement("section");
+    bar.id = BAR_ID;
+    bar.setAttribute("aria-label", "代币规划");
+    bar.innerHTML = `<div class="mwi-labyrinth-calc-token-bar"><label class="mwi-labyrinth-calc-token-field"><span>预算</span><input type="number" min="0" step="1" data-token-budget aria-label="规划代币预算，留空跟随当前代币"></label><span class="mwi-labyrinth-calc-token-divider" aria-hidden="true"></span><span class="mwi-labyrinth-calc-token-metric"><span>合计</span><strong data-token-total>0</strong></span><span class="mwi-labyrinth-calc-token-metric" data-token-remaining-box><span>剩余</span><strong data-token-remaining>—</strong></span><span class="mwi-labyrinth-calc-token-end"><span class="mwi-labyrinth-calc-token-error" role="alert" hidden></span><button type="button" class="mwi-labyrinth-calc-token-link" data-token-action="retry" hidden>重试</button><button type="button" class="mwi-labyrinth-calc-token-link" data-token-action="undo" hidden>撤销</button><button type="button" class="mwi-labyrinth-calc-token-link mwi-labyrinth-calc-token-clear" data-token-action="clear" hidden>清空</button></span></div><div class="mwi-labyrinth-calc-token-list" hidden></div>`;
+
+    const $ = (selector) => bar.querySelector(selector);
+    const budgetInput = $("[data-token-budget]");
+    const totalEl = $("[data-token-total]");
+    const remainingBox = $("[data-token-remaining-box]");
+    const remainingEl = $("[data-token-remaining]");
+    const errorEl = $(".mwi-labyrinth-calc-token-error");
+    const retryBtn = $('[data-token-action="retry"]');
+    const undoBtn = $('[data-token-action="undo"]');
+    const clearBtn = $('[data-token-action="clear"]');
+    const listEl = $(".mwi-labyrinth-calc-token-list");
+
+    function clearUndo() {
+      undo = null;
+      if (undoTimer !== null) {
+        clearTimeout(undoTimer);
+        undoTimer = null;
+      }
+    }
+
+    function clearFlash() {
+      if (flashTimer !== null) {
+        clearTimeout(flashTimer);
+        flashTimer = null;
+      }
+      flashedCard?.removeAttribute(FLASH_ATTR);
+      flashedCard = null;
+    }
+
+    function cleanCard(card) {
+      card.removeAttribute(PLANNED_ATTR);
+      card.removeAttribute(FLASH_ATTR);
+      card.querySelector(`:scope > .${CTRL_CLASS}`)?.remove();
+    }
+
+    function cleanCards(rootNode) {
+      if (!rootNode) return;
+      for (const ctrl of rootNode.querySelectorAll(`.${CTRL_CLASS}`)) ctrl.remove();
+      for (const node of rootNode.querySelectorAll(`[${PLANNED_ATTR}], [${FLASH_ATTR}]`)) {
+        node.removeAttribute(PLANNED_ATTR);
+        node.removeAttribute(FLASH_ATTR);
+      }
+    }
+
     function detach() {
-      host?.classList.remove("mwi-labyrinth-token-active");
-      restoreNativeTabs();
-      tabList?.classList.remove("mwi-labyrinth-token-tab-list");
-      tabList?.removeEventListener("click", nativeClick, true);
-      tabList?.removeEventListener("keydown", tabKeys, true);
-      tabButton.remove();
-      section.remove();
-      host = tabList = null;
+      clearFlash();
+      cleanCards(shopTab);
+      bar.remove();
+      shopTab = null;
+      cardById = new Map();
     }
-    tabButton.addEventListener("click", activate);
-    section.innerHTML = `<style>
-.mwi-labyrinth-token-tab-list{max-width:100%;overflow-x:auto!important;overscroll-behavior-x:contain}
-.mwi-labyrinth-token-active > [class*="TabsComponent_tabPanelsContainer"]{display:none!important}
-.mwi-labyrinth-token-active [role="tablist"] [role="tab"][aria-selected="false"]{background:var(--ml-hover,#2c2e45)!important;color:var(--ml-text,#e4e5ef)!important}
-.mwi-labyrinth-token-active [class*="MuiTabs-indicator"]{display:none!important}
-#mwi-labyrinth-token-tab{font:inherit;flex-shrink:0;min-height:40px;padding:6px 18px;border:0;border-radius:5px 5px 0 0;background:#2c2e45;color:#e4e5ef;cursor:pointer;white-space:nowrap}
-#mwi-labyrinth-token-tab[aria-selected="true"]{background:#4558ad;color:#fff}
-#mwi-labyrinth-token-tab:focus-visible{outline:2px solid #7ce4d8;outline-offset:-3px}
-</style>`;
-    const workspace = root.MwiLabyrinthTokenWorkspace.create({ section, onPlan, onRetry, onExport, onCopy });
+
+    function computeResult(planOverride) {
+      const plan = planOverride || data.profile.plan;
+      return M.buildPlan(
+        { ...plan, reserve: 0, futureRuns: 0, perRun: null, forecastStart: null },
+        data.catalog,
+        data.balance,
+        []
+      );
+    }
+
+    function commit(nextPlan, keepUndo = false) {
+      if (!data?.loaded) return false;
+      try {
+        M.validatePlan(nextPlan);
+        if (!keepUndo) clearUndo();
+        inputError = "";
+        onPlan(nextPlan);
+        return true;
+      } catch (error) {
+        inputError = error.message || "输入无效";
+        renderSummary(computeResult());
+        return false;
+      }
+    }
+
+    function updateQuantity(id, nextCount) {
+      if (!data?.loaded) return;
+      const item = data.catalog.find((entry) => entry.id === id);
+      if (!item || item.current === null) return;
+      const limit = item.kind === "upgrade" ? Math.max(0, item.max - item.current) : item.max;
+      const clamped = Math.max(0, Math.min(limit, nextCount));
+      const plan = structuredClone(data.profile.plan);
+      const index = plan.entries.findIndex((entry) => entry.id === id);
+      if (clamped === 0) {
+        if (index >= 0) plan.entries.splice(index, 1);
+      } else {
+        const target = item.kind === "upgrade" ? item.current + clamped : clamped;
+        if (index >= 0) plan.entries[index].target = target;
+        else plan.entries.push({ id, target });
+      }
+      commit(plan);
+    }
+
+    function stepItem(id, delta, trigger) {
+      if (!data?.loaded) return;
+      const item = data.catalog.find((entry) => entry.id === id);
+      if (!item || item.current === null) return;
+      const existing = data.profile.plan.entries.find((entry) => entry.id === id);
+      const currentCount = existing
+        ? item.kind === "upgrade"
+          ? Math.max(0, existing.target - item.current)
+          : existing.target
+        : 0;
+      const limit = item.kind === "upgrade" ? Math.max(0, item.max - item.current) : item.max;
+      const nextCount = Math.max(0, Math.min(limit, currentCount + delta));
+      updateQuantity(id, nextCount);
+      if (nextCount === 0 && trigger?.dataset.tokenAction === "dec") {
+        trigger.closest(`.${CTRL_CLASS}`)?.querySelector('[data-token-action="inc"]')?.focus({ preventScroll: true });
+      }
+    }
+
+    function renderSummary(result) {
+      totalEl.textContent = fmt(result.total);
+      remainingEl.textContent = fmt(result.remaining);
+      remainingBox.dataset.state =
+        result.remaining === null ? "" : result.remaining < 0 ? "over" : result.total > 0 ? "ok" : "";
+      const hasSaveError = Boolean(data.saveError);
+      const errorText = inputError || (hasSaveError ? (data.loaded ? "未保存" : "读取失败") : "");
+      errorEl.textContent = errorText;
+      errorEl.title = hasSaveError ? data.saveError : "";
+      errorEl.hidden = !errorText;
+      retryBtn.hidden = !hasSaveError;
+      undoBtn.hidden = !undo;
+      clearBtn.hidden = !data.profile.plan.entries.length || Boolean(undo);
+      clearBtn.disabled = !data.loaded;
+      undoBtn.disabled = !data.loaded;
+    }
+
+    function buildCardControl(card, id) {
+      const ctrl = document.createElement("div");
+      ctrl.className = CTRL_CLASS;
+      ctrl.dataset.id = id;
+      ctrl.dataset.planned = "false";
+
+      const dec = document.createElement("button");
+      dec.type = "button";
+      dec.className = "mwi-labyrinth-calc-token-btn";
+      dec.dataset.tokenAction = "dec";
+      dec.dataset.id = id;
+      dec.append(glyph("minus"));
+      dec.hidden = true;
+
+      const num = document.createElement("input");
+      num.type = "number";
+      num.className = "mwi-labyrinth-calc-token-num";
+      num.dataset.tokenQty = id;
+      num.min = "0";
+      num.step = "1";
+      num.hidden = true;
+
+      const inc = document.createElement("button");
+      inc.type = "button";
+      inc.className = "mwi-labyrinth-calc-token-btn mwi-labyrinth-calc-token-add";
+      inc.dataset.tokenAction = "inc";
+      inc.dataset.id = id;
+      inc.append(glyph("plus"));
+
+      ctrl.append(dec, num, inc);
+
+      for (const type of ["mousedown", "mouseup", "pointerdown", "pointerup", "touchstart"]) {
+        ctrl.addEventListener(type, (event) => event.stopPropagation());
+      }
+      ctrl.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const button = event.target.closest("[data-token-action]");
+        if (!button || button.disabled) return;
+        const action = button.dataset.tokenAction;
+        if (action === "inc") stepItem(ctrl.dataset.id, 1, button);
+        else if (action === "dec") stepItem(ctrl.dataset.id, -1, button);
+      });
+      ctrl.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.target === num && event.key === "Escape") {
+          num.value = num.dataset.committed || "";
+          num.blur();
+        } else if (event.target === num && event.key === "Enter") {
+          num.blur();
+        }
+      });
+      num.addEventListener("focus", () => num.select());
+      num.addEventListener("change", () => {
+        const raw = num.value.trim();
+        if (!raw || !/^\d+$/.test(raw)) {
+          num.value = num.dataset.committed || "";
+          return;
+        }
+        const value = Number(raw);
+        if (!Number.isSafeInteger(value)) {
+          num.value = num.dataset.committed || "";
+          return;
+        }
+        updateQuantity(ctrl.dataset.id, value);
+      });
+
+      card.append(ctrl);
+      return ctrl;
+    }
+
+    function syncCards() {
+      const nextCardById = new Map();
+      const byId = new Map(data.catalog.map((item) => [item.id, item]));
+      const entriesById = new Map(data.profile.plan.entries.map((entry) => [entry.id, entry]));
+
+      for (const card of shopTab.querySelectorAll(
+        '[class*="LabyrinthPanel_upgrade"], [class*="LabyrinthPanel_item"]'
+      )) {
+        const id = identifyCard(card, data.catalog, byId);
+        const item = id ? byId.get(id) : null;
+        if (!item) {
+          cleanCard(card);
+          continue;
+        }
+        nextCardById.set(id, card);
+        const maxed =
+          item.kind === "upgrade" &&
+          ((item.current !== null && item.current >= item.max) ||
+            Boolean(card.querySelector('[class*="LabyrinthPanel_maxed"]')));
+        if (maxed) {
+          cleanCard(card);
+          continue;
+        }
+
+        let ctrl = card.querySelector(`:scope > .${CTRL_CLASS}`);
+        if (!ctrl) ctrl = buildCardControl(card, id);
+        ctrl.dataset.id = id;
+
+        const name = cardDisplayName(card, item);
+        const entry = entriesById.get(id);
+        const count =
+          entry && item.current !== null
+            ? item.kind === "upgrade"
+              ? Math.max(0, entry.target - item.current)
+              : entry.target
+            : 0;
+        const limit =
+          item.current === null ? 0 : item.kind === "upgrade" ? Math.max(0, item.max - item.current) : item.max;
+        const planned = count > 0;
+        const editable = data.loaded && item.current !== null;
+
+        ctrl.dataset.planned = String(planned);
+        if (planned) card.setAttribute(PLANNED_ATTR, "true");
+        else card.removeAttribute(PLANNED_ATTR);
+
+        const dec = ctrl.querySelector('[data-token-action="dec"]');
+        const num = ctrl.querySelector("[data-token-qty]");
+        const inc = ctrl.querySelector('[data-token-action="inc"]');
+
+        dec.dataset.id = id;
+        dec.hidden = !planned;
+        dec.disabled = !editable;
+        dec.setAttribute("aria-label", `减少${name}`);
+
+        num.dataset.tokenQty = id;
+        num.dataset.committed = String(count);
+        num.hidden = !planned;
+        num.disabled = !editable;
+        num.max = String(limit);
+        num.setAttribute("aria-label", `${name}${item.kind === "upgrade" ? "计划升级数" : "计划兑换次数"}`);
+        if (document.activeElement !== num) num.value = String(count);
+        num.style.width = `${Math.min(46, Math.max(22, String(count).length * 8 + 6))}px`;
+
+        inc.dataset.id = id;
+        inc.disabled = !editable || count >= limit;
+        inc.setAttribute("aria-label", `增加${name}`);
+      }
+
+      cardById = nextCardById;
+    }
+
+    function renderList(result) {
+      listEl.replaceChildren();
+      listEl.hidden = !result.groups.length;
+      for (const group of result.groups) {
+        const item = group.item;
+        const card = cardById.get(group.id);
+        const name = cardDisplayName(card, item) || group.id;
+
+        const chip = document.createElement("span");
+        chip.className = "mwi-labyrinth-calc-token-chip";
+        chip.dataset.id = group.id;
+        chip.dataset.done = String(group.budgetState === "complete");
+
+        const locate = document.createElement("button");
+        locate.type = "button";
+        locate.className = "mwi-labyrinth-calc-token-locate";
+        locate.dataset.tokenAction = "locate";
+        locate.dataset.id = group.id;
+
+        const nameEl = document.createElement("span");
+        nameEl.className = "mwi-labyrinth-calc-token-name";
+        nameEl.textContent = name;
+
+        const qtyEl = document.createElement("span");
+        qtyEl.className = "mwi-labyrinth-calc-token-qty";
+        if (item?.kind === "item") {
+          qtyEl.textContent =
+            item.output > 1 ? `×${group.target}(${fmt(group.target * item.output)})` : `×${group.target}`;
+        } else if (group.budgetState === "complete") {
+          qtyEl.textContent = "已达";
+        } else if (item?.current != null) {
+          qtyEl.textContent = `${item.current}→${group.target}`;
+        } else {
+          qtyEl.textContent = `→${group.target}`;
+        }
+        locate.append(nameEl, qtyEl);
+
+        const costEl = document.createElement("strong");
+        costEl.className = "mwi-labyrinth-calc-token-cost";
+        costEl.textContent = fmt(group.cost);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "mwi-labyrinth-calc-token-remove";
+        remove.dataset.tokenAction = "remove";
+        remove.dataset.id = group.id;
+        remove.disabled = !data.loaded;
+        remove.setAttribute("aria-label", `移除${name}`);
+        remove.append(glyph("close"));
+
+        chip.append(locate, costEl, remove);
+        listEl.append(chip);
+      }
+    }
+
     function render() {
-      if (data) workspace.update(data);
+      if (!data || !shopTab || disposed) return;
+      ensureStyle();
+      if (bar.parentElement !== shopTab || shopTab.lastElementChild !== bar) shopTab.append(bar);
+
+      budgetInput.placeholder = fmt(data.balance);
+      budgetInput.disabled = !data.loaded;
+      if (document.activeElement !== budgetInput) {
+        budgetInput.value = data.profile.plan.budget ?? "";
+      }
+
+      syncCards();
+      const result = computeResult();
+      renderSummary(result);
+      renderList(result);
     }
+
+    budgetInput.addEventListener("input", () => {
+      if (!data?.loaded) return;
+      const raw = budgetInput.value.trim();
+      if (raw === "") {
+        inputError = "";
+        renderSummary(computeResult({ ...data.profile.plan, budget: null }));
+        return;
+      }
+      if (/^\d+$/.test(raw) && Number.isSafeInteger(Number(raw))) {
+        inputError = "";
+        renderSummary(computeResult({ ...data.profile.plan, budget: Number(raw) }));
+      }
+    });
+
+    budgetInput.addEventListener("change", () => {
+      if (!data?.loaded) return;
+      const plan = structuredClone(data.profile.plan);
+      const raw = budgetInput.value.trim();
+      plan.budget = budgetInput.validity.badInput ? NaN : raw === "" ? null : Number(raw);
+      commit(plan);
+    });
+
+    budgetInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") budgetInput.blur();
+    });
+
+    bar.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-token-action]");
+      if (!button || button.disabled || !data) return;
+      const action = button.dataset.tokenAction;
+      const id = button.dataset.id;
+      if (action === "retry") {
+        inputError = "";
+        onRetry();
+        return;
+      }
+      if (action === "locate") {
+        const card = cardById.get(id);
+        if (!card) return;
+        const reduced = root.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+        card.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+        clearFlash();
+        flashedCard = card;
+        card.setAttribute(FLASH_ATTR, "true");
+        flashTimer = setTimeout(clearFlash, 800);
+        return;
+      }
+      if (!data.loaded) return;
+      if (action === "remove") {
+        const chips = [...listEl.querySelectorAll('[data-token-action="remove"]')];
+        const removeIndex = chips.indexOf(button);
+        const plan = structuredClone(data.profile.plan);
+        plan.entries = plan.entries.filter((entry) => entry.id !== id);
+        if (commit(plan)) {
+          const remainingButtons = listEl.querySelectorAll('[data-token-action="remove"]');
+          const nextFocus = remainingButtons[Math.min(removeIndex, remainingButtons.length - 1)] || budgetInput;
+          nextFocus?.focus({ preventScroll: true });
+        }
+      } else if (action === "clear") {
+        clearUndo();
+        const plan = structuredClone(data.profile.plan);
+        undo = structuredClone(plan.entries);
+        plan.entries = [];
+        if (commit(plan, true)) {
+          undoTimer = setTimeout(() => {
+            clearUndo();
+            render();
+          }, 8000);
+          undoBtn.focus({ preventScroll: true });
+        } else {
+          clearUndo();
+        }
+      } else if (action === "undo" && undo) {
+        const plan = structuredClone(data.profile.plan);
+        plan.entries = undo;
+        clearUndo();
+        commit(plan);
+      }
+    });
+
     return {
-      isVisible: () => open && section.isConnected && section.getClientRects().length > 0,
+      isVisible: () => Boolean(shopTab && shopTab.isConnected && shopTab.getClientRects().length > 0),
       setOwner(next) {
         if (owner === next) return;
         owner = next;
         data = null;
-        open = false;
-        syncTab();
+        inputError = "";
+        clearUndo();
+        clearFlash();
       },
-      mount(panel) {
-        const wrapper = panel?.querySelector('[class*="LabyrinthPanel_tabsComponentContainer"]');
-        const nextHost = wrapper?.querySelector('[class*="TabsComponent_tabsComponent__"]');
-        const nextList = nextHost?.querySelector('[role="tablist"]');
-        const panels = nextHost?.querySelector('[class*="TabsComponent_tabPanelsContainer"]');
-        if (!nextHost || !nextList || !panels) {
-          detach();
+      mount(available) {
+        const nextShop = available ? findShopTab() : null;
+        if (!nextShop) {
+          if (shopTab) detach();
           return;
         }
-        if (host !== nextHost || tabList !== nextList) {
+        const changed = shopTab !== nextShop;
+        if (changed) {
           detach();
-          host = nextHost;
-          tabList = nextList;
-          tabList.classList.add("mwi-labyrinth-token-tab-list");
-          const shop = [...tabList.querySelectorAll('[role="tab"]')].at(-1);
-          tabButton.className = [...(shop?.classList || [])].filter((c) => c !== "Mui-selected").join(" ");
-          tabList.addEventListener("click", nativeClick, true);
-          tabList.addEventListener("keydown", tabKeys, true);
+          shopTab = nextShop;
+          ensureStyle();
+          shopTab.append(bar);
+          onOpen?.();
+        } else if (bar.parentElement !== shopTab || shopTab.lastElementChild !== bar) {
+          shopTab.append(bar);
         }
-        if (tabButton.parentElement !== tabList) tabList.append(tabButton);
-        if (section.parentElement !== host) panels.after(section);
-        syncTab();
       },
       update(next) {
         if (owner !== next.owner) {
           owner = next.owner;
-          open = false;
-          syncTab();
+          inputError = "";
+          clearUndo();
+          clearFlash();
         }
         data = next;
-        if (open) render();
+        render();
       },
       destroy() {
-        workspace.destroy();
+        disposed = true;
+        clearUndo();
         detach();
+        document.getElementById(STYLE_ID)?.remove();
       }
     };
   }
-  root.MwiLabyrinthTokenNativeView = { create };
-})(globalThis);
 
-// SOURCE: src/ui/token-view.js
-(function (root) {
-  "use strict";
-  function create(options) {
-    if (!root.MwiLabyrinthSidebar.enabled) {
-      const native = root.MwiLabyrinthTokenNativeView.create(options);
-      return {
-        ...native,
-        mount(available) {
-          native.mount(available ? document.querySelector('[class*="LabyrinthPanel_labyrinthPanel"]') : null);
-        }
-      };
-    }
-    const section = document.createElement("section");
-    section.id = "mwi-labyrinth-calc-tokens";
-    const workspace = root.MwiLabyrinthTokenWorkspace.create({ section, ...options });
-    const opened = () => {
-      if (section.getClientRects().length) options.onOpen?.();
-    };
-    document.addEventListener("mwi-labyrinth-sidebar-change", opened);
-    return {
-      isVisible: () => section.isConnected && section.getClientRects().length > 0,
-      mount(available) {
-        if (!available) {
-          section.remove();
-          return;
-        }
-        const sidebar = root.MwiLabyrinthSidebar.ensure(document);
-        sidebar.mount();
-        if (section.parentElement !== sidebar.slots.tokens) sidebar.slots.tokens.append(section);
-      },
-      update(data) {
-        workspace.update(data);
-      },
-      destroy() {
-        document.removeEventListener("mwi-labyrinth-sidebar-change", opened);
-        workspace.destroy();
-        section.remove();
-      }
-    };
-  }
-  root.MwiLabyrinthTokenView = { create };
+  root.MwiLabyrinthTokenView = { create, identifyCard, UPGRADE_SYMBOLS };
 })(globalThis);
 
 // SOURCE: src/runtime/map-reader.js
@@ -5952,59 +5840,72 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-calc-clear-rate-control>.mwi-labyrinth-calc-clear-rate-control__progress{grid-column:1/-1;width:100%;margin:0;display:flex;flex-direction:column;gap:3px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__track{height:3px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__bar{background:var(--ml-action);}
-#mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__text{font-size:11px;color:var(--ml-muted);}
-/* Recommendation controls respond to their host width, including a narrow desktop sidebar. */
-#mwi-labyrinth-calc-auto-estimate-control{container-type:inline-size;container-name:mwi-lab-recommend;min-width:0;width:100%;max-width:920px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;padding:0;margin:0 0 10px;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:13px;}
-.mwi-labyrinth-calc-auto-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;padding:6px 0;background:transparent;border-bottom:1px solid var(--ml-line);border-radius:0;}
-.mwi-labyrinth-calc-auto-heading h3{font-size:14px;margin:0;font-weight:650;}
-.mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ml-muted);}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:64px;}
-.mwi-labyrinth-calc-auto-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 20px;padding:8px 0;background:transparent;}
-.mwi-labyrinth-calc-auto-method{display:flex;align-items:center;gap:6px;min-width:0;}
-.mwi-labyrinth-calc-auto-target{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:6px;min-width:0;flex:1;}
-.mwi-labyrinth-calc-auto-toolbar .mwi-labyrinth-calc-auto-target>span{font-size:12px;color:var(--ml-muted);}
-.mwi-labyrinth-calc-auto-toolbar input[type="number"]{width:64px;flex:0 0 64px;text-align:right;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary{min-height:28px;min-width:96px;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-status{margin:0;padding:6px 0;border-top:1px solid var(--ml-line);font-size:12px;color:var(--ml-accent);overflow-wrap:anywhere;}
-#mwi-labyrinth-calc-experience-goals{min-width:0;max-width:none;margin:0;padding:8px 0 0;background:transparent;border-top:1px solid var(--ml-line);font-size:13px;color:var(--ml-text);}
-.mwi-labyrinth-calc-experience-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px;}
-.mwi-labyrinth-calc-experience-heading h4{margin:0;font-size:13px;font-weight:600;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label{display:grid;grid-template-columns:minmax(0,1fr) 68px;align-items:center;gap:6px;max-width:none;min-width:0;padding:3px 0;margin:0;border-bottom:1px solid var(--ml-line);}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label:nth-last-child(-n+2){border-bottom:0;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs input{width:68px;text-align:right;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-skill{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere;}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-icon{width:20px;height:20px;flex:0 0 20px;}
-#mwi-labyrinth-calc-auto-estimate-control input[type="number"]{height:28px;padding:3px 6px;background:transparent;font-size:12px;}
-#mwi-labyrinth-calc-auto-estimate-control button{min-height:28px;padding:4px 8px;}
-#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-target>span{min-width:0;overflow-wrap:anywhere;}
-.mwi-labyrinth-calc-prefill-toggle{display:flex;align-items:center;gap:8px;max-width:100%;min-height:36px;margin:8px 0;font-size:12px;font-weight:400;line-height:1.45;cursor:pointer;color:var(--ml-muted);}
-.mwi-labyrinth-calc-prefill-toggle input{flex:0 0 16px;width:16px;height:16px;margin:0;}
+#mwi-labyrinth-calc-clear-rate-control .mwi-labyrinth-calc-clear-rate-control__text{font-size:11px;line-height:1.45;color:var(--ml-muted);white-space:normal;overflow-wrap:anywhere;}
+/* Recommendation controls: concise, zero-fluff, compact, transparent host integration. */
+#mwi-labyrinth-calc-auto-estimate-control{container-type:inline-size;container-name:mwi-lab-recommend;min-width:0;width:100%;max-width:920px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;padding:0;margin:0 0 6px;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:12px;}
+#mwi-labyrinth-calc-auto-estimate-control input[type="number"]{height:26px;padding:2px 6px;background:transparent;font-size:12px;text-align:right;appearance:textfield;}
+#mwi-labyrinth-calc-auto-estimate-control input[type="number"]::-webkit-inner-spin-button,#mwi-labyrinth-calc-auto-estimate-control input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+#mwi-labyrinth-calc-auto-estimate-control button{min-height:26px;height:26px;padding:0 7px;font-size:12px;line-height:1;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control button:not(.mwi-labyrinth-calc-experience-stop){min-width:74px;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary{background:var(--ml-action);color:var(--ml-action-text);border-color:transparent;font-weight:700;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary:hover:not(:disabled){background:var(--ml-action-hover);border-color:transparent;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-primary:active:not(:disabled){background:var(--ml-accent);border-color:transparent;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-experience-stop{color:var(--ml-danger);border-color:rgba(255,167,181,.45);}
+.mwi-labyrinth-calc-auto-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 8px;padding:4px 0 6px;background:transparent;border-bottom:1px solid var(--ml-line);border-radius:0;}
+.mwi-labyrinth-calc-auto-heading h3{font-size:13px;margin:0;font-weight:650;color:var(--ml-text);}
+.mwi-labyrinth-calc-auto-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-width:0;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-curve-precision{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-auto-estimate-control [data-curve-full-precision]{width:14px;min-width:14px;height:14px;margin:0;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ml-muted);}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-budget input{width:50px;}
+.mwi-labyrinth-calc-auto-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 8px;padding:6px 0;background:transparent;}
+.mwi-labyrinth-calc-auto-method{display:flex;align-items:center;gap:4px;min-width:0;}
+.mwi-labyrinth-calc-auto-target{display:flex;flex-direction:row;align-items:center;gap:4px;min-width:0;}
+.mwi-labyrinth-calc-auto-toolbar .mwi-labyrinth-calc-auto-target>span{font-size:12px;color:var(--ml-muted);white-space:nowrap;}
+.mwi-labyrinth-calc-auto-toolbar input[type="number"]{width:50px;flex:0 0 50px;}
+#mwi-labyrinth-calc-auto-estimate-control .mwi-labyrinth-calc-auto-status{margin:0;padding:4px 0 0;border-top:1px solid var(--ml-line);font-size:11px;color:var(--ml-accent);overflow-wrap:anywhere;}
+#mwi-labyrinth-calc-experience-goals{min-width:0;max-width:none;margin:0;padding:6px 0 4px;background:transparent;border-top:1px solid var(--ml-line);font-size:12px;color:var(--ml-text);}
+.mwi-labyrinth-calc-experience-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px 8px;margin-bottom:5px;}
+.mwi-labyrinth-calc-experience-heading h4{margin:0;font-size:12px;font-weight:650;color:var(--ml-text);}
+.mwi-labyrinth-calc-experience-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-scan{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;color:var(--ml-muted);cursor:pointer;white-space:nowrap;}
+#mwi-labyrinth-calc-experience-goals :is([data-experience-full-scan],[data-curve-full-precision]){width:14px;min-width:14px;height:14px;margin:0;}
+#mwi-labyrinth-calc-experience-goals [data-experience-save-error]{margin:4px 0 6px;font-size:11px;gap:6px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-group{min-width:0;}
+#mwi-labyrinth-calc-experience-goals :is(.mwi-labyrinth-calc-life-goals-heading,.mwi-labyrinth-calc-combat-goals-heading){padding:0 0 2px;margin:0 0 3px;background:transparent;border-radius:0;border-bottom:1px solid rgba(65,70,95,.65);font-size:11px;font-weight:600;color:var(--ml-muted);line-height:1.35;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list label{display:grid;grid-template-columns:minmax(0,1fr) 54px;align-items:center;gap:4px;max-width:none;min-width:0;padding:1px 0;margin:0;border-bottom:0;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input{width:54px;height:22px;padding:1px 5px;font-size:12px;border-color:rgba(98,107,134,.45);border-radius:3px;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input::placeholder{color:rgba(183,191,212,.38);}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input:not(:placeholder-shown){border-color:#527d73;color:var(--ml-accent);font-weight:600;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list input:focus{border-color:var(--ml-accent);}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-skill{display:flex;align-items:center;gap:5px;min-width:0;font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-icon{width:16px;height:16px;flex:0 0 16px;}
+.mwi-labyrinth-calc-prefill-toggle{display:flex;align-items:center;gap:6px;max-width:100%;min-height:24px;margin:4px 0 6px;font-size:12px;font-weight:400;line-height:1.35;cursor:pointer;color:var(--ml-muted);}
+.mwi-labyrinth-calc-prefill-toggle input{flex:0 0 14px;width:14px;height:14px;margin:0;}
 .mwi-labyrinth-calc-prefill-toggle span{min-width:0;overflow-wrap:anywhere;}
-/* Compact secondary columns while keeping room names readable. */
-#mwi-labyrinth-calc-experience-goals :is(.mwi-labyrinth-calc-combat-goals-heading,.mwi-labyrinth-calc-life-goals-heading){grid-column:1/-1;padding:7px 9px;margin-top:8px;background:var(--ml-inset);border-radius:3px;font-size:12px;font-weight:650;color:var(--ml-text);}
-#mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-life-goals-heading{margin-top:0;}
+/* Keep native table appearance; only align assistant columns and stabilize edit geometry. */
 .mwi-labyrinth-auto-table :is(td,th){padding:6px 4px!important;}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_roomLabel"]{min-width:7rem;white-space:nowrap;}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_roomLabel"]>*{flex-shrink:0;}
 .mwi-labyrinth-auto-table td:nth-child(2) select{width:5.5rem!important;min-width:0!important;max-width:5.5rem;}
 .mwi-labyrinth-auto-table :is(td,th):nth-child(2){width:5.5rem;}
-.mwi-labyrinth-auto-table :is(td,th)[class*="mwi-labyrinth-calc-auto-"]{width:4rem;min-width:4rem;max-width:5rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-floor-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-floor-cell{width:3.75rem;min-width:3.75rem;max-width:4.5rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-estimate-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-estimate-cell{width:5.5rem;min-width:5.5rem;max-width:6.25rem;}
+.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-recommend-header,.mwi-labyrinth-auto-table :is(td,th).mwi-labyrinth-calc-auto-recommend-cell{width:4.5rem;min-width:4.5rem;max-width:5.25rem;}
 .mwi-labyrinth-auto-table th{overflow-wrap:normal;word-break:normal;text-wrap:balance;}
-.mwi-labyrinth-auto-table td:is(.mwi-labyrinth-calc-auto-estimate-cell,.mwi-labyrinth-calc-auto-recommend-cell){font-size:13px;text-align:right;padding:6px 4px;background:var(--ml-surface);}
-.mwi-labyrinth-auto-table th[class*="mwi-labyrinth-calc-"]{font-size:12px;font-weight:500;color:var(--ml-muted);text-align:right;padding:6px 4px;background:var(--ml-header);}
-.mwi-labyrinth-auto-table .mwi-labyrinth-calc-experience-result{font-size:11px;color:var(--ml-muted);margin:3px 0 0;}
-.mwi-labyrinth-auto-table td[data-mwi-labyrinth-calc-recommend-setting]{font-size:16px;color:var(--ml-accent);font-weight:650;}
-.mwi-labyrinth-auto-table td.mwi-labyrinth-calc-auto-recommend-cell:not([data-mwi-labyrinth-calc-recommend-setting]){white-space:normal;overflow-wrap:anywhere;}
+.mwi-labyrinth-auto-table :is(td,th)[class*="mwi-labyrinth-calc-auto-"]{text-align:right!important;padding-left:10px!important;padding-right:8px!important;}
+.mwi-labyrinth-auto-table th[class*="mwi-labyrinth-calc-"]{font-size:13px;font-weight:600;color:inherit;white-space:nowrap;}
+.mwi-labyrinth-auto-table td:is(.mwi-labyrinth-calc-auto-floor-cell,.mwi-labyrinth-calc-auto-estimate-cell,.mwi-labyrinth-calc-auto-recommend-cell){font-size:13px;white-space:nowrap;}
+.mwi-labyrinth-auto-table .mwi-labyrinth-calc-experience-result{font-size:11px;color:var(--ml-muted);margin:2px 0 0;}
+.mwi-labyrinth-auto-table td[data-mwi-labyrinth-calc-recommend-setting]{font-size:15px;color:var(--ml-accent);font-weight:650;}
+.mwi-labyrinth-auto-table td.mwi-labyrinth-calc-auto-recommend-cell:not([data-mwi-labyrinth-calc-recommend-setting]){color:var(--ml-muted);white-space:normal;overflow-wrap:anywhere;}
 .mwi-labyrinth-auto-table .mwi-labyrinth-calc-auto-recommend-cell>strong{font:inherit;}
 .mwi-labyrinth-auto-table tr[data-mwi-labyrinth-adjust] td[data-mwi-labyrinth-calc-recommend-setting]{color:var(--ml-warn);}
-.mwi-labyrinth-auto-table tr:has([data-mwi-labyrinth-room-group])>td{border-top:34px solid var(--ml-inset)!important;}
+.mwi-labyrinth-auto-table tr:has([data-mwi-labyrinth-room-group])>td{border-top:22px solid var(--ml-inset)!important;}
 .mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]{position:relative;}
-.mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]::before{content:attr(data-mwi-labyrinth-room-group);position:absolute;left:8px;top:-28px;white-space:nowrap;font-size:13px;line-height:22px;font-weight:650;color:var(--ml-text);}
-
-
-.mwi-labyrinth-auto-table :is(td,th){border-bottom:1px solid var(--ml-line);}
+.mwi-labyrinth-auto-table td[data-mwi-labyrinth-room-group]::before{content:attr(data-mwi-labyrinth-room-group);position:absolute;left:6px;top:-19px;white-space:nowrap;font-size:12px;line-height:16px;font-weight:600;color:var(--ml-muted);}
 /* Reserve the native editor's footprint in both modes so names and action buttons stay put. */
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_skipThreshold"]{display:grid!important;grid-template-columns:1.625rem 1.625rem 2rem 2.75rem;gap:.1875rem!important;align-items:center;width:8.5625rem;min-width:8.5625rem;min-height:var(--button-height-small,1.5rem);}
 .mwi-labyrinth-auto-table [class*="LabyrinthPanel_skipThreshold"]>span{grid-column:1/4;text-align:right;min-width:0;}
@@ -6115,13 +6016,14 @@ DEALINGS IN THE SOFTWARE.
 #mwi-labyrinth-calc-room-distribution-floating [class$="__bar"]{height:8px;background:var(--ml-inset);border-radius:2px;}
 #mwi-labyrinth-calc-room-distribution-floating [class$="__bar"]>span{background:var(--ml-action);border-radius:2px;}
 #mwi-labyrinth-calc-room-distribution-floating [class$="__meta"]{color:var(--ml-muted);font-size:12px;line-height:1.5;margin:0 0 12px;}
-@container mwi-lab-recommend (max-width:560px){
- .mwi-labyrinth-calc-auto-toolbar{grid-template-columns:1fr;gap:6px;}
+@container mwi-lab-recommend (min-width:680px){
+ #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;}
 }
-@container mwi-lab-recommend (max-width:359px){
- .mwi-labyrinth-calc-auto-actions{justify-content:space-between;width:100%;}
- #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}
- #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs label:nth-last-child(2){border-bottom:1px solid var(--ml-line);}
+@container mwi-lab-recommend (max-width:349px){
+ .mwi-labyrinth-calc-auto-toolbar{display:grid;grid-template-columns:1fr;gap:5px;}
+ .mwi-labyrinth-calc-auto-method{justify-content:space-between;}
+ .mwi-labyrinth-calc-auto-target{flex:1;justify-content:space-between;}
+ #mwi-labyrinth-calc-experience-goals .mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;gap:6px;}
 }
 @media(prefers-reduced-motion:reduce){:is(#mwi-labyrinth-planner,[id^="mwi-labyrinth-calc-"]) *{transition:none!important;}}
 `;
@@ -6194,8 +6096,10 @@ DEALINGS IN THE SOFTWARE.
       analysis = null,
       key = null,
       quantity = 1,
-      markers = [],
-      ranges = [];
+      lastPinZoom = "";
+    const pinMap = new Map(),
+      rangeMap = new Map();
+    let hoverState = { cell: null, id: null, count: null, zoom: "", siblingCount: -1, pinMarker: null, placed: false };
     let currentPlan = null,
       activePoint = null;
     // The override is local to this floor and beacon type; it never changes game inventory.
@@ -6314,48 +6218,101 @@ DEALINGS IN THE SOFTWARE.
     hoverPreview.setAttribute("aria-live", "polite");
     hoverPreview.hidden = true;
     container.append(card, error);
+    function isBeaconOverlayNode(node) {
+      return (
+        node === hoverPreview ||
+        node.classList.contains("mwi-lab-beacon-best") ||
+        node.classList.contains("mwi-lab-beacon-pin") ||
+        node.classList.contains("mwi-lab-beacon-range")
+      );
+    }
+    function nonBeaconChildCount(cell) {
+      let count = 0;
+      for (const child of cell.children) {
+        if (!isBeaconOverlayNode(child)) count++;
+      }
+      return count;
+    }
     function clearRanges() {
-      ranges.forEach((n) => {
-        n.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
-        n.remove();
-      });
-      ranges = [];
+      for (const entry of rangeMap.values()) {
+        entry.cell?.removeAttribute("data-mwi-lab-beacon-fill");
+        entry.range.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
+        entry.range.remove();
+      }
+      rangeMap.clear();
+    }
+    function clearPins() {
+      for (const entry of pinMap.values()) entry.marker?.remove();
+      pinMap.clear();
+      lastPinZoom = "";
+    }
+    function clearHover() {
+      if (hoverPreview.parentElement) hoverPreview.remove();
+      hoverPreview.hidden = true;
+      hoverState = { cell: null, id: null, count: null, zoom: "", siblingCount: -1, pinMarker: null, placed: false };
     }
     function clearMarkers() {
       clearRanges();
-      markers.forEach((n) => n.remove());
-      markers = [];
+      clearPins();
     }
     function highlight(index = null) {
       activePoint = index;
-      clearRanges();
-      if (!currentPlan || !map || map.beaconMode) return;
-      const seen = new Set();
-      const activeTargets = new Set();
-      currentPlan.points.forEach((point, i) => {
-        for (const target of analysis.candidates[point.id].targets) {
-          if (!seen.has(target) && i === index) activeTargets.add(target);
-          seen.add(target);
+      const desired = new Map();
+      if (currentPlan && map && !map.beaconMode) {
+        const seen = new Set();
+        currentPlan.points.forEach((point, i) => {
+          for (const target of analysis.candidates[point.id].targets) {
+            if (!seen.has(target)) {
+              seen.add(target);
+              desired.set(target, i === index ? "active" : "preview");
+            }
+          }
+        });
+      }
+      for (const [id, entry] of rangeMap.entries()) {
+        const nextCell = map?.nodes[id];
+        if (!desired.has(id) || entry.cell !== nextCell || !entry.range.isConnected) {
+          entry.cell?.removeAttribute("data-mwi-lab-beacon-fill");
+          entry.range.parentElement?.removeAttribute("data-mwi-lab-beacon-fill");
+          entry.range.remove();
+          rangeMap.delete(id);
         }
-      });
-      for (const target of seen) {
+      }
+      for (const [target, mode] of desired.entries()) {
         const cell = map.nodes[target];
         if (!cell?.isConnected) continue;
+        const existing = rangeMap.get(target);
+        if (existing && existing.cell === cell && existing.range.isConnected) {
+          if (existing.mode !== mode) {
+            existing.mode = mode;
+            existing.range.dataset.active = String(mode === "active");
+            cell.setAttribute("data-mwi-lab-beacon-fill", mode);
+          } else if (cell.getAttribute("data-mwi-lab-beacon-fill") !== mode) {
+            cell.setAttribute("data-mwi-lab-beacon-fill", mode);
+          }
+          continue;
+        }
         const range = el("span", "mwi-lab-beacon-range");
-        range.dataset.active = String(activeTargets.has(target));
+        range.dataset.active = String(mode === "active");
         range.setAttribute("aria-hidden", "true");
         // Paint the cell background, never a layer over native labels or icons.
         // A namespaced data attribute also avoids triggering the game's class observer.
-        cell.setAttribute("data-mwi-lab-beacon-fill", activeTargets.has(target) ? "active" : "preview");
+        cell.setAttribute("data-mwi-lab-beacon-fill", mode);
         cell.append(range);
-        ranges.push(range);
+        rangeMap.set(target, { range, cell, mode });
       }
     }
-    function mark(id, label, dot = false) {
+    function placePin(id, label, existingMarker = null, dot = false) {
       const cell = map.nodes[id];
-      if (!cell?.isConnected) return;
+      if (!cell?.isConnected) {
+        existingMarker?.remove();
+        return null;
+      }
       const rect = cell.getBoundingClientRect();
-      if (!cell.offsetWidth || !cell.offsetHeight || !rect.width || !rect.height) return;
+      if (!cell.offsetWidth || !cell.offsetHeight || !rect.width || !rect.height) {
+        existingMarker?.remove();
+        return null;
+      }
       // Rects are viewport pixels; CSS left/top use the cell's unscaled padding box.
       const scaleX = rect.width / cell.offsetWidth,
         scaleY = rect.height / cell.offsetHeight;
@@ -6367,12 +6324,7 @@ DEALINGS IN THE SOFTWARE.
         height = dot ? 4 : 16;
       // Never cover native levels, icons, queue numbers, progress or other assistants.
       const occupied = [...cell.querySelectorAll("*")]
-        .filter(
-          (n) =>
-            !n.classList.contains("mwi-lab-beacon-best") &&
-            !n.classList.contains("mwi-lab-beacon-pin") &&
-            (n.childElementCount === 0 || n.matches("svg,img,canvas"))
-        )
+        .filter((n) => !isBeaconOverlayNode(n) && (n.childElementCount === 0 || n.matches("svg,img,canvas")))
         .map((n) => n.getBoundingClientRect())
         .filter((r) => r.width && r.height)
         .map((r) => ({
@@ -6396,25 +6348,91 @@ DEALINGS IN THE SOFTWARE.
           y + height <= localHeight &&
           !occupied.some((r) => x < r.right + 1 && x + width > r.left - 1 && y < r.bottom + 1 && y + height > r.top - 1)
       );
-      if (!slot) return;
-      const marker = el("span", dot ? "mwi-lab-beacon-best" : "mwi-lab-beacon-pin", label);
+      if (!slot) {
+        existingMarker?.remove();
+        return null;
+      }
+      const marker =
+        existingMarker && existingMarker.parentElement === cell
+          ? existingMarker
+          : el("span", dot ? "mwi-lab-beacon-best" : "mwi-lab-beacon-pin", label);
       marker.id = `mwi-labyrinth-beacon-${dot ? "best" : "pin"}-${id}`;
       marker.setAttribute("aria-hidden", "true");
+      if (marker.textContent !== label) marker.textContent = label;
       marker.style.left = `${slot[0]}px`;
       marker.style.top = `${slot[1]}px`;
       marker.style.right = "auto";
-      cell.append(marker);
-      markers.push(marker);
+      if (marker.parentElement !== cell) cell.append(marker);
+      return marker;
     }
-    function placeHover() {
-      hoverPreview.remove();
-      hoverPreview.hidden = true;
+    function syncPins(points, forceLayout = false) {
+      const gridZoom = map?.grid?.style?.zoom || "";
+      const zoomChanged = gridZoom !== lastPinZoom;
+      const desired = new Map(points.map((point, i) => [point.id, String(i + 1)]));
+      for (const [id, entry] of pinMap.entries()) {
+        const nextCell = map?.nodes[id];
+        if (!desired.has(id) || entry.cell !== nextCell || (entry.marker && !entry.marker.isConnected)) {
+          entry.marker?.remove();
+          pinMap.delete(id);
+        }
+      }
+      for (const [id, label] of desired.entries()) {
+        const cell = map.nodes[id];
+        if (!cell?.isConnected) continue;
+        const siblingCount = nonBeaconChildCount(cell);
+        const existing = pinMap.get(id);
+        if (
+          existing &&
+          !forceLayout &&
+          !zoomChanged &&
+          existing.cell === cell &&
+          existing.siblingCount === siblingCount &&
+          (!existing.marker || existing.marker.isConnected)
+        ) {
+          if (existing.marker && existing.label !== label) {
+            existing.marker.textContent = label;
+          }
+          existing.label = label;
+          continue;
+        }
+        const marker = placePin(id, label, existing?.marker || null);
+        pinMap.set(id, { marker, cell, label, siblingCount });
+      }
+      lastPinZoom = gridZoom;
+    }
+    function placeHover(forceLayout = false) {
       const id = map?.beaconHover,
         count = map?.beaconPreviewCount;
       const cell = Number.isInteger(id) ? map?.nodes[id] : null;
-      if (!map?.beaconMode || !cell?.isConnected || !Number.isInteger(count) || count < 0) return;
+      if (!map?.beaconMode || !cell?.isConnected || !Number.isInteger(count) || count < 0) {
+        clearHover();
+        return;
+      }
+      const gridZoom = map?.grid?.style?.zoom || "";
+      const siblingCount = nonBeaconChildCount(cell);
+      const pinMarker = pinMap.get(id)?.marker || null;
+      if (
+        !forceLayout &&
+        hoverState.cell === cell &&
+        hoverState.zoom === gridZoom &&
+        hoverState.siblingCount === siblingCount &&
+        hoverState.pinMarker === pinMarker &&
+        (!hoverState.placed || (hoverPreview.parentElement === cell && !hoverPreview.hidden))
+      ) {
+        if (hoverState.placed && hoverState.count !== count) {
+          hoverPreview.textContent = `+${count}`;
+          hoverPreview.setAttribute("aria-label", `本次可新揭示 ${count} 格`);
+          hoverState.count = count;
+        }
+        return;
+      }
+      if (hoverPreview.parentElement) hoverPreview.remove();
+      hoverPreview.hidden = true;
       const rect = cell.getBoundingClientRect();
-      if (!rect.width || !rect.height || !cell.offsetWidth || !cell.offsetHeight) return;
+      if (!rect.width || !rect.height || !cell.offsetWidth || !cell.offsetHeight) {
+        hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: false };
+        return;
+      }
       const sx = rect.width / cell.offsetWidth,
         sy = rect.height / cell.offsetHeight;
       const ox = rect.left + cell.clientLeft * sx,
@@ -6463,17 +6481,20 @@ DEALINGS IN THE SOFTWARE.
       if (!slot) {
         hoverPreview.remove();
         hoverPreview.hidden = true;
+        hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: false };
         return;
       }
       hoverPreview.style.left = `${slot[0]}px`;
       hoverPreview.style.top = `${slot[1]}px`;
+      hoverState = { cell, id, count, zoom: gridZoom, siblingCount, pinMarker, placed: true };
     }
-    function render() {
-      hoverPreview.remove();
-      clearMarkers();
-      currentPlan = null;
-      if (!map || container.hidden) return;
-      placeHover();
+    function render({ forceLayout = false } = {}) {
+      if (!map || container.hidden) {
+        currentPlan = null;
+        clearHover();
+        clearMarkers();
+        return;
+      }
       const supply = map.beaconAdvice || {};
       const available = Number.isInteger(supply.remaining) ? supply.remaining : 0;
       const previousQuantity = quantity;
@@ -6483,46 +6504,55 @@ DEALINGS IN THE SOFTWARE.
         "/items/advanced_beacon": "高级",
         "/items/expert_beacon": "专家"
       }[supply.item];
-      meta.textContent = `${quantity}/${supply.remaining ?? "—"}`;
-      if (tierName) meta.title = `${tierName}探照灯 · 剩余 ${supply.remaining ?? "—"}`;
+      const nextMeta = `${quantity}/${supply.remaining ?? "—"}`;
+      if (meta.textContent !== nextMeta) meta.textContent = nextMeta;
+      if (tierName) {
+        const nextTitle = `${tierName}探照灯 · 剩余 ${supply.remaining ?? "—"}`;
+        if (meta.title !== nextTitle) meta.title = nextTitle;
+      }
       off.setAttribute("aria-pressed", String(quantity === 0));
-      input.max = String(quantityLimit());
-      if (document.activeElement !== input || quantity !== previousQuantity) input.value = String(quantity);
+      const nextMax = String(quantityLimit());
+      if (input.max !== nextMax) input.max = nextMax;
+      if (document.activeElement !== input || quantity !== previousQuantity) {
+        const nextValue = String(quantity);
+        if (input.value !== nextValue) input.value = nextValue;
+      }
       input.disabled = !analysis || !knownInventory();
       minus.disabled = quantity === 0;
       plus.disabled = !analysis || !knownInventory() || quantity >= map.cells.length;
       plus.dataset.limit = String(unlockPending);
       stepper.dataset.unlocked = String(unlocked);
       input.dataset.overstock = String(quantity > available);
-      plus.setAttribute(
-        "aria-description",
-        unlockPending ? "再次激活可超出库存规划" : "到库存上限后，激活两次可解除限制"
-      );
+      const nextDesc = unlockPending ? "再次激活可超出库存规划" : "到库存上限后，激活两次可解除限制";
+      if (plus.getAttribute("aria-description") !== nextDesc) plus.setAttribute("aria-description", nextDesc);
+
+      let nextPlan = null;
+      let nextTotalText = "";
       if (quantity === 0) {
-        total.textContent = "未启用";
-        return;
+        nextTotalText = "未启用";
+      } else {
+        const native = analysis?.candidates[map.beaconHover];
+        const mismatch =
+          map.beaconMode && native && map.beaconPreviewCount != null && native.count !== map.beaconPreviewCount;
+        if (!analysis || !knownInventory() || (!unlocked && available === 0) || mismatch) {
+          nextTotalText = mismatch
+            ? "范围不一致"
+            : !analysis
+              ? "未识别"
+              : supply.remaining === 0
+                ? "已用完"
+                : "未知余量";
+        } else {
+          if (!cache.has(quantity)) cache.set(quantity, root.MwiLabyrinthBeacons.plan(analysis, quantity));
+          nextPlan = cache.get(quantity);
+          nextTotalText = `+${nextPlan.total}格揭示`;
+        }
       }
-      const native = analysis?.candidates[map.beaconHover];
-      const mismatch =
-        map.beaconMode && native && map.beaconPreviewCount != null && native.count !== map.beaconPreviewCount;
-      if (!analysis || !knownInventory() || (!unlocked && available === 0) || mismatch) {
-        total.textContent = mismatch
-          ? "范围不一致"
-          : !analysis
-            ? "未识别"
-            : supply.remaining === 0
-              ? "已用完"
-              : "未知余量";
-        return;
-      }
-      if (!cache.has(quantity)) cache.set(quantity, root.MwiLabyrinthBeacons.plan(analysis, quantity));
-      const result = cache.get(quantity);
-      currentPlan = result;
-      total.textContent = `+${result.total}格揭示`;
-      result.points.forEach((point, i) => {
-        mark(point.id, String(i + 1));
-      });
-      highlight(activePoint);
+      if (total.textContent !== nextTotalText) total.textContent = nextTotalText;
+      currentPlan = nextPlan;
+      syncPins(currentPlan ? currentPlan.points : [], forceLayout);
+      highlight(currentPlan ? activePoint : null);
+      placeHover(forceLayout);
     }
     function update(nextMap) {
       map = nextMap;
@@ -6556,18 +6586,18 @@ DEALINGS IN THE SOFTWARE.
         map.beaconAdvice?.item,
         map.cells.map((c) => Boolean(c.revealed || c.visited))
       ]);
-      if (nextKey !== key) {
+      const keyChanged = nextKey !== key;
+      if (keyChanged) {
         key = nextKey;
         activePoint = null;
         cache.clear();
         analysis = root.MwiLabyrinthBeacons.analyze(map, map.beaconAdvice?.item);
       }
-      render();
+      render({ forceLayout: keyChanged });
     }
     function hide() {
       container.hidden = true;
-      hoverPreview.hidden = true;
-      hoverPreview.remove();
+      clearHover();
       clearMarkers();
       map = null;
       unlocked = false;
@@ -6578,15 +6608,16 @@ DEALINGS IN THE SOFTWARE.
       key = null;
       cache.clear();
     }
-    document.defaultView.addEventListener("resize", render);
+    const handleResize = () => render({ forceLayout: true });
+    document.defaultView.addEventListener("resize", handleResize);
     return {
       element: container,
       update,
-      layout: render,
+      layout: () => render({ forceLayout: true }),
       hide,
       destroy() {
         hide();
-        document.defaultView.removeEventListener("resize", render);
+        document.defaultView.removeEventListener("resize", handleResize);
         container.remove();
         style.remove();
       }
@@ -8000,6 +8031,8 @@ SOFTWARE.
 
     ctx.COMBAT_MODEL_SIGNATURE = "labyrinth-clear-rate-1.8.2-e30f758841ba-completed-xp-v1";
 
+    ctx.COMBAT_UPGRADE_ON_HOVER = true;
+
     ctx.LABYRINTH_ABILITY_NAME_ZH_MAP = {
       "/abilities/critical_aura": "暴击光环",
       "/abilities/elusiveness": "闪避",
@@ -8467,15 +8500,15 @@ SOFTWARE.
         level: "Level",
         maxFloor: "Max Floor",
         chanceEta: "Chance / ETA",
-        targetWinRate: "Target Win %",
-        recommendDelta: "Recommend by Win %",
-        recommendBySeconds: "Recommend by Time",
-        targetSeconds: "Target Time (s)",
+        targetWinRate: "Win %",
+        recommendDelta: "By Win %",
+        recommendBySeconds: "By Time",
+        targetSeconds: "Time s",
         targetSecondsHint: "Upper limit of the expected clear time in seconds (failed runs included)",
-        recommendSettingLevel: "Recommend Setting Level",
+        recommendSettingLevel: "Rec. Level",
         skipLevel: "Skip Level",
         skipLevelLong: "Skip if above level",
-        combatTrials: "Completed Battles",
+        combatTrials: "Battles",
         calcChance: "Calculate",
         calculating: "Calculating...",
         calcMaze: "Calculate Labyrinth",
@@ -8484,7 +8517,7 @@ SOFTWARE.
         missingClientData: "Missing client data",
         preparing: "Preparing...",
         calculatingProgressFmt: "Calculating {current}/{total}",
-        skipRoom: "Skip Room",
+        skipRoom: "Skip",
         calcFailed: "Calculation failed",
         calcDone: "Calculation complete",
         roomLog: "Logs",
@@ -8526,6 +8559,7 @@ SOFTWARE.
         noNewTiles: "No new tiles",
         roomFmt: "Room {current}/{total}",
         combatFmt: "Combat {current}/{total}",
+        combatUpgradeFmt: "Upgrades {current}/{total}",
         autoNewTiles: "New tiles found, auto calculating",
         readGameDataFailed: "Unable to read game data. Refresh and try again.",
         exportableCombatRoomNotFound: "Could not identify an exportable combat room.",
@@ -8603,26 +8637,26 @@ SOFTWARE.
         automationPreview: "自动化预览",
         status: "状态",
         level: "等级",
-        maxFloor: "最高层数",
+        maxFloor: "最高层",
         chanceEta: "胜率/耗时",
-        targetWinRate: "目标胜率 (%)",
+        targetWinRate: "胜率 %",
         recommendDelta: "按胜率推荐",
         recommendBySeconds: "按耗时推荐",
-        targetSeconds: "目标耗时(秒)",
+        targetSeconds: "耗时 秒",
         targetSecondsHint: "预计通关耗时上限（秒，含失败场次）",
-        recommendSettingLevel: "推荐设置等级",
+        recommendSettingLevel: "推荐等级",
         skipLevel: "跳过等级",
         skipLevelLong: "跳过如果高出等级",
         combatTrials: "战斗场数",
         calcChance: "计算胜率",
         calculating: "计算中...",
         calcMaze: "计算迷宫",
-        automationListNotFound: "请先打开迷宫的自动化页，再在这里计算",
+        automationListNotFound: "请先打开迷宫自动化页",
         noCalculableRooms: "无可计算房间",
         missingClientData: "缺少客户端数据",
         preparing: "准备中...",
         calculatingProgressFmt: "计算中 {current}/{total}",
-        skipRoom: "跳过房间",
+        skipRoom: "跳过",
         calcFailed: "计算失败",
         calcDone: "计算完成",
         roomLog: "日志",
@@ -8664,6 +8698,7 @@ SOFTWARE.
         noNewTiles: "无新增地块",
         roomFmt: "房间 {current}/{total}",
         combatFmt: "战斗 {current}/{total}",
+        combatUpgradeFmt: "升级收益 {current}/{total}",
         autoNewTiles: "发现新地块，自动计算",
         readGameDataFailed: "无法读取游戏数据，请刷新页面后重试。",
         exportableCombatRoomNotFound: "未识别到可导出的战斗房间。",
@@ -9074,11 +9109,15 @@ SOFTWARE.
       return null;
     };
 
+    ctx.isMapObject = function isMapObject(value) {
+      return Boolean(value && (value instanceof Map || Object.prototype.toString.call(value) === "[object Map]"));
+    };
+
     ctx.getContainerValue = function getContainerValue(container, key) {
       if (!container || key === undefined || key === null) {
         return undefined;
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.get(key);
       }
       return container[key];
@@ -9088,7 +9127,7 @@ SOFTWARE.
       if (!container) {
         return [];
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return Array.from(container.entries());
       }
       if (typeof container === "object") {
@@ -9125,7 +9164,7 @@ SOFTWARE.
       if (Array.isArray(value)) {
         return `[${value.map((item) => ctx.stableStringify(item)).join(",")}]`;
       }
-      if (value instanceof Map) {
+      if (ctx.isMapObject(value)) {
         const entries = Array.from(value.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
         return ctx.stableStringify(entries);
       }
@@ -9444,7 +9483,7 @@ SOFTWARE.
       if (!skillMap) {
         return 0;
       }
-      if (skillMap instanceof Map) {
+      if (ctx.isMapObject(skillMap)) {
         return Number(skillMap.get(skillHrid)?.level || 0);
       }
       return Number(skillMap[skillHrid]?.level || 0);
@@ -9658,7 +9697,7 @@ SOFTWARE.
       if (!skillMap || !hrid) {
         return NaN;
       }
-      if (skillMap instanceof Map) {
+      if (ctx.isMapObject(skillMap)) {
         const entry = skillMap.get(hrid);
         if (Number.isFinite(entry?.experience)) {
           return Number(entry.experience);
@@ -11402,16 +11441,295 @@ SOFTWARE.
   root.MwiLabyrinthCalculatorModules ||= {};
   root.MwiLabyrinthCalculatorModules["skilling"] = function (ctx) {
     const sharedStats = new Map(),
-      enhancingStats = new Map();
+      enhancingStats = new Map(),
+      skillingCurves = new Map();
+    let dpBufA = new Float64Array(512);
+    let dpBufB = new Float64Array(512);
+    let enhBufA = new Float64Array(16);
+    let enhBufB = new Float64Array(16);
+
     ctx.clearSkillingSimulationCache = () => {
       sharedStats.clear();
       enhancingStats.clear();
+      skillingCurves.clear();
     };
     function rememberStats(cache, key, result) {
       cache.set(key, result);
       if (cache.size > 2048) cache.delete(cache.keys().next().value);
       return { ...result };
     }
+    function ensureDpBuffers(size) {
+      if (size > dpBufA.length) {
+        const nextSize = Math.max(size + 64, dpBufA.length * 2);
+        dpBufA = new Float64Array(nextSize);
+        dpBufB = new Float64Array(nextSize);
+      }
+    }
+    function ensureEnhBuffers(size) {
+      if (size > enhBufA.length) {
+        const nextSize = Math.max(size + 8, enhBufA.length * 2);
+        enhBufA = new Float64Array(nextSize);
+        enhBufB = new Float64Array(nextSize);
+      }
+    }
+
+    // Zero-allocation double-buffered exact DP with active upper-bound pruning.
+    ctx.solveNonEnhancingClearStats = function solveNonEnhancingClearStats(
+      attempts,
+      successChance,
+      doubleChance,
+      neededUnits
+    ) {
+      if (!Number.isFinite(neededUnits) || neededUnits <= 0) {
+        return { clearChance: 1, expectedAttemptsOnClear: 0 };
+      }
+      if (!Number.isFinite(attempts) || attempts <= 0) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+      const p = ctx.clamp01(successChance);
+      const d = ctx.clamp01(doubleChance);
+      if (p <= 0 || neededUnits > attempts * 2) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+      if (p >= 1 && d <= 0) {
+        return neededUnits <= attempts
+          ? { clearChance: 1, expectedAttemptsOnClear: neededUnits }
+          : { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+
+      ensureDpBuffers(neededUnits);
+      const q0 = 1 - p;
+      const q1 = p * (1 - d);
+      const q2 = p * d;
+      const q12 = q1 + q2;
+      const uMinus1 = neededUnits - 1;
+      const uMinus2 = neededUnits - 2;
+
+      let cur = dpBufA;
+      let nxt = dpBufB;
+      cur[0] = 1;
+      let cleared = 0;
+      let expectedAttemptsNumerator = 0;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const prevMax = Math.min(uMinus1, (attempt - 1) * 2);
+        const nextMax = Math.min(uMinus1, attempt * 2);
+        nxt.fill(0, 0, nextMax + 1);
+        let reachedNow = 0;
+
+        for (let units = 0; units <= prevMax; units += 1) {
+          const prob = cur[units];
+          if (prob <= 0) continue;
+          if (q0 > 0) nxt[units] += prob * q0;
+          if (units < uMinus2) {
+            nxt[units + 1] += prob * q1;
+            nxt[units + 2] += prob * q2;
+          } else if (units === uMinus2) {
+            nxt[uMinus1] += prob * q1;
+            reachedNow += prob * q2;
+          } else {
+            reachedNow += prob * q12;
+          }
+        }
+
+        if (reachedNow > 0) {
+          cleared += reachedNow;
+          expectedAttemptsNumerator += attempt * reachedNow;
+        }
+        const tmp = cur;
+        cur = nxt;
+        nxt = tmp;
+      }
+
+      const clearChance = ctx.clamp01(cleared);
+      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
+      return { clearChance, expectedAttemptsOnClear };
+    };
+
+    // Scalar-unrolled exact DP for the standard +5 enhancing target (zero allocations),
+    // falling back to double-buffered DP for arbitrary targets/start levels.
+    ctx.solveEnhancingClearStats = function solveEnhancingClearStats(
+      attempts,
+      successChance,
+      doubleChance,
+      targetLevel,
+      startLevel
+    ) {
+      const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
+      const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
+      if (target <= 0 || start >= target) {
+        return { clearChance: 1, expectedAttemptsOnClear: 0 };
+      }
+      if (!Number.isFinite(attempts) || attempts <= 0) {
+        return { clearChance: 0, expectedAttemptsOnClear: null };
+      }
+
+      const p = ctx.clamp01(successChance);
+      const d = ctx.clamp01(doubleChance);
+      const q0 = 1 - p;
+      const q1 = p * (1 - d);
+      const q2 = p * d;
+      const q12 = q1 + q2;
+
+      if (target === 5 && start === 0) {
+        let s0 = 1,
+          s1 = 0,
+          s2 = 0,
+          s3 = 0,
+          s4 = 0,
+          cleared = 0,
+          expectedAttemptsNumerator = 0;
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+          const n0 = (s0 + s1) * q0;
+          const n1 = s0 * q1 + s2 * q0;
+          const n2 = s0 * q2 + s1 * q1 + s3 * q0;
+          const n3 = s1 * q2 + s2 * q1 + s4 * q0;
+          const n4 = s2 * q2 + s3 * q1;
+          const reachedNow = s3 * q2 + s4 * q12;
+          if (reachedNow > 0) {
+            cleared += reachedNow;
+            expectedAttemptsNumerator += attempt * reachedNow;
+          }
+          s0 = n0;
+          s1 = n1;
+          s2 = n2;
+          s3 = n3;
+          s4 = n4;
+        }
+        const clearChance = ctx.clamp01(cleared);
+        return {
+          clearChance,
+          expectedAttemptsOnClear: clearChance > 0 ? expectedAttemptsNumerator / clearChance : null
+        };
+      }
+
+      ensureEnhBuffers(target + 1);
+      let cur = enhBufA;
+      let nxt = enhBufB;
+      cur.fill(0, 0, target + 1);
+      cur[Math.min(start, target)] = 1;
+      let cleared = 0;
+      let expectedAttemptsNumerator = 0;
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        nxt.fill(0, 0, target);
+        let reachedNow = 0;
+        for (let level = 0; level < target; level += 1) {
+          const prob = cur[level];
+          if (prob <= 0) continue;
+          nxt[level > 0 ? level - 1 : 0] += prob * q0;
+          if (level + 1 >= target) {
+            reachedNow += prob * q12;
+          } else if (level + 2 >= target) {
+            nxt[level + 1] += prob * q1;
+            reachedNow += prob * q2;
+          } else {
+            nxt[level + 1] += prob * q1;
+            nxt[level + 2] += prob * q2;
+          }
+        }
+        if (reachedNow > 0) {
+          cleared += reachedNow;
+          expectedAttemptsNumerator += attempt * reachedNow;
+        }
+        const tmp = cur;
+        cur = nxt;
+        nxt = tmp;
+      }
+
+      const clearChance = ctx.clamp01(cleared);
+      return {
+        clearChance,
+        expectedAttemptsOnClear: clearChance > 0 ? expectedAttemptsNumerator / clearChance : null
+      };
+    };
+
+    // Build and cache a full 1..maxLevel exact lookup table for a normalized skilling profile (~0.3ms/skill).
+    ctx.getOrBuildSkillingCurve = function getOrBuildSkillingCurve(profile, requestedMaxLevel = 300) {
+      if (!profile || !profile.coreProfileKey) return null;
+      const targetMax = Math.max(300, Math.ceil(ctx.finiteNumber(requestedMaxLevel, 300)));
+      const existing = skillingCurves.get(profile.coreProfileKey);
+      if (existing && existing.maxLevel >= targetMax) {
+        skillingCurves.delete(profile.coreProfileKey);
+        skillingCurves.set(profile.coreProfileKey, existing);
+        return existing;
+      }
+
+      const startLevel = existing ? existing.maxLevel + 1 : 1;
+      const clearChanceArr = new Float64Array(targetMax);
+      const expectedAttemptsArr = new Float64Array(targetMax);
+      expectedAttemptsArr.fill(NaN);
+      if (existing) {
+        clearChanceArr.set(existing.clearChance);
+        expectedAttemptsArr.set(existing.expectedAttempts);
+      }
+
+      const { isEnhancing, effectiveSkillLevel, successBonus, doubleChance, attempts, progressPerSuccess } = profile;
+      let prevP = NaN;
+      let prevUnits = -1;
+      let prevStats = null;
+
+      for (let lv = startLevel; lv <= targetMax; lv += 1) {
+        const levelDelta = effectiveSkillLevel - lv;
+        const levelBonus = levelDelta >= 0 ? levelDelta * 0.005 : levelDelta * 0.01;
+        const successChance = ctx.skillingSuccessChance(0.8 * (1 + levelBonus + successBonus));
+        let stats;
+        if (isEnhancing) {
+          const targetEnh = ctx.getEnhancingTargetLevelByRoomLevel(lv);
+          if (successChance === prevP && targetEnh === prevUnits && prevStats) {
+            stats = prevStats;
+          } else {
+            stats = ctx.solveEnhancingClearStats(attempts, successChance, doubleChance, targetEnh, 0);
+            prevP = successChance;
+            prevUnits = targetEnh;
+            prevStats = stats;
+          }
+        } else {
+          const targetProgress = lv * 10;
+          const neededUnits = progressPerSuccess > 0 ? Math.ceil(targetProgress / progressPerSuccess - 1e-9) : Infinity;
+          if (successChance === prevP && neededUnits === prevUnits && prevStats) {
+            stats = prevStats;
+          } else {
+            stats =
+              progressPerSuccess > 0 && Number.isFinite(neededUnits)
+                ? ctx.solveNonEnhancingClearStats(attempts, successChance, doubleChance, neededUnits)
+                : { clearChance: 0, expectedAttemptsOnClear: null };
+            prevP = successChance;
+            prevUnits = neededUnits;
+            prevStats = stats;
+          }
+        }
+        clearChanceArr[lv - 1] = stats.clearChance;
+        expectedAttemptsArr[lv - 1] = stats.expectedAttemptsOnClear === null ? NaN : stats.expectedAttemptsOnClear;
+      }
+
+      const entry = {
+        coreProfileKey: profile.coreProfileKey,
+        maxLevel: targetMax,
+        clearChance: clearChanceArr,
+        expectedAttempts: expectedAttemptsArr
+      };
+      skillingCurves.delete(profile.coreProfileKey);
+      skillingCurves.set(profile.coreProfileKey, entry);
+      if (skillingCurves.size > 256) {
+        skillingCurves.delete(skillingCurves.keys().next().value);
+      }
+      return entry;
+    };
+
+    ctx.lookupSkillingCurveStats = function lookupSkillingCurveStats(profile, roomLevel) {
+      const lv = Math.floor(ctx.finiteNumber(roomLevel, 0));
+      if (!profile || lv < 1) return null;
+      const curve = ctx.getOrBuildSkillingCurve(profile, lv);
+      if (!curve) return null;
+      const clearChance = curve.clearChance[lv - 1];
+      const expected = curve.expectedAttempts[lv - 1];
+      return {
+        clearChance,
+        expectedAttemptsOnClear: Number.isFinite(expected) ? expected : null
+      };
+    };
+
     // Only distribution inputs are shared; live labels and rewards are rebuilt.
     ctx.computeNonEnhancingClearStats = function computeNonEnhancingClearStats(params, cache) {
       cache ||= sharedStats;
@@ -11444,62 +11762,8 @@ SOFTWARE.
         return { clearChance: 0, expectedAttemptsOnClear: null };
       }
 
-      const p = ctx.clamp01(successChance);
-      const d = ctx.clamp01(doubleChance);
-      if (p <= 0) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
       const neededUnits = Math.ceil(targetProgress / effectiveProgressPerSuccess - 1e-9);
-      if (neededUnits <= 0) {
-        return { clearChance: 1, expectedAttemptsOnClear: 0 };
-      }
-      if (neededUnits > attempts * 2) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
-      const q0 = 1 - p;
-      const q1 = p * (1 - d);
-      const q2 = p * d;
-
-      let stateDist = new Float64Array(neededUnits + 1);
-      stateDist[0] = 1;
-      let expectedAttemptsNumerator = 0;
-
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const nextDist = new Float64Array(neededUnits + 1);
-
-        for (let units = 0; units <= neededUnits; units += 1) {
-          const prob = stateDist[units];
-          if (prob <= 0) {
-            continue;
-          }
-
-          if (units === neededUnits) {
-            nextDist[neededUnits] += prob;
-            continue;
-          }
-
-          nextDist[units] += prob * q0;
-          nextDist[Math.min(neededUnits, units + 1)] += prob * q1;
-          nextDist[Math.min(neededUnits, units + 2)] += prob * q2;
-        }
-
-        const reachedNow = nextDist[neededUnits] - stateDist[neededUnits];
-        if (reachedNow > 0) {
-          expectedAttemptsNumerator += attempt * reachedNow;
-        }
-
-        stateDist = nextDist;
-      }
-
-      const clearChance = ctx.clamp01(stateDist[neededUnits]);
-      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
-
-      return {
-        clearChance,
-        expectedAttemptsOnClear
-      };
+      return ctx.solveNonEnhancingClearStats(attempts, successChance, doubleChance, neededUnits);
     }
 
     ctx.computeEnhancingClearStats = function computeEnhancingClearStats(params) {
@@ -11515,53 +11779,7 @@ SOFTWARE.
     };
     function calculateEnhancingClearStats(params) {
       const { attempts, successChance, doubleChance, targetLevel, startLevel } = params;
-      const target = Math.max(0, Math.floor(ctx.finiteNumber(targetLevel, 0)));
-      const start = Math.max(0, Math.floor(ctx.finiteNumber(startLevel, 0)));
-      if (target <= 0 || start >= target) {
-        return { clearChance: 1, expectedAttemptsOnClear: 0 };
-      }
-      if (!Number.isFinite(attempts) || attempts <= 0) {
-        return { clearChance: 0, expectedAttemptsOnClear: null };
-      }
-
-      const p = ctx.clamp01(successChance);
-      const d = ctx.clamp01(doubleChance);
-      const failChance = 1 - p;
-      const singleSuccessChance = p * (1 - d);
-      const doubleSuccessChance = p * d;
-
-      let stateDist = new Float64Array(target + 1);
-      stateDist[Math.min(start, target)] = 1;
-      let expectedAttemptsNumerator = 0;
-
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const nextDist = new Float64Array(target + 1);
-        for (let level = 0; level <= target; level += 1) {
-          const prob = stateDist[level];
-          if (prob <= 0) {
-            continue;
-          }
-          if (level === target) {
-            nextDist[target] += prob;
-            continue;
-          }
-          nextDist[Math.max(0, level - 1)] += prob * failChance;
-          nextDist[Math.min(target, level + 1)] += prob * singleSuccessChance;
-          nextDist[Math.min(target, level + 2)] += prob * doubleSuccessChance;
-        }
-        const reachedNow = nextDist[target] - stateDist[target];
-        if (reachedNow > 0) {
-          expectedAttemptsNumerator += attempt * reachedNow;
-        }
-        stateDist = nextDist;
-      }
-
-      const clearChance = ctx.clamp01(stateDist[target]);
-      const expectedAttemptsOnClear = clearChance > 0 ? expectedAttemptsNumerator / clearChance : null;
-      return {
-        clearChance,
-        expectedAttemptsOnClear
-      };
+      return ctx.solveEnhancingClearStats(attempts, successChance, doubleChance, targetLevel, startLevel);
     }
 
     ctx.getEnhancingTargetLevelByRoomLevel = function getEnhancingTargetLevelByRoomLevel(_roomLevel) {
@@ -11595,74 +11813,125 @@ SOFTWARE.
         return null;
       }
 
-      const skillId = ctx.skillHridToSkillId(room.skillHrid);
-      if (!skillId) {
-        return null;
+      const roomLevel = Number(room.recommendedLevel || 0);
+      const profile =
+        options.profile && options.profile.skillHrid === room.skillHrid
+          ? options.profile
+          : typeof ctx.extractSkillingProfile === "function"
+            ? ctx.extractSkillingProfile(state, initClientData, room.skillHrid, maxEnhancementByItem, options)
+            : null;
+
+      let skillId;
+      let actionTypeHrid;
+      let isEnhancingRoom;
+      let labyrinthUpgradeLevels;
+      let labyrinthUpgradeMetrics;
+      let labyrinthExperienceBonus;
+      let globalMetrics;
+      let roomLoadout;
+      let baseSkillLevel;
+      let skillLevelBonus;
+      let efficiencyBonus;
+      let actionSpeedBonus;
+      let successBonus;
+      let experienceBonusDetail;
+      let experienceBonus;
+      let doubleChance;
+      let effectiveSkillLevel;
+      let baseActionSeconds;
+      let actionSeconds;
+      let attempts;
+      let experienceMultiplier;
+
+      if (profile) {
+        skillId = profile.skillId;
+        actionTypeHrid = profile.actionTypeHrid;
+        isEnhancingRoom = profile.isEnhancing;
+        labyrinthUpgradeLevels = profile.labyrinthUpgradeLevels;
+        labyrinthUpgradeMetrics = profile.labyrinthUpgradeMetrics;
+        labyrinthExperienceBonus = profile.labyrinthExperienceBonus;
+        globalMetrics = profile.globalMetrics;
+        roomLoadout = profile.roomLoadout;
+        baseSkillLevel = profile.baseSkillLevel;
+        skillLevelBonus = profile.skillLevelBonus;
+        efficiencyBonus = profile.efficiencyBonus;
+        actionSpeedBonus = profile.actionSpeedBonus;
+        successBonus = profile.successBonus;
+        experienceBonusDetail = profile.experienceBonusDetail;
+        experienceBonus = profile.experienceBonus;
+        doubleChance = profile.doubleChance;
+        effectiveSkillLevel = profile.effectiveSkillLevel;
+        baseActionSeconds = profile.baseActionSeconds;
+        actionSeconds = profile.actionSeconds;
+        attempts = profile.attempts;
+        experienceMultiplier = profile.experienceMultiplier;
+      } else {
+        skillId = ctx.skillHridToSkillId(room.skillHrid);
+        if (!skillId) {
+          return null;
+        }
+        actionTypeHrid = ctx.skillIdToActionTypeHrid(skillId);
+        isEnhancingRoom = skillId === "enhancing";
+        const crateSelection = ctx.getLabyrinthCrateSelection(state);
+        labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
+        const teaCrateItemHrid = String(crateSelection?.teaCrateItemHrid || "");
+        const crateBuffs = ctx.getCrateBuffs(initClientData, teaCrateItemHrid);
+        labyrinthUpgradeMetrics = ctx.buildLabyrinthUpgradeSkillingMetrics(labyrinthUpgradeLevels);
+        labyrinthExperienceBonus = ctx.getLabyrinthUpgradeExperienceBonus(labyrinthUpgradeLevels);
+        const includePersonalBuffs = false;
+        const globalPair = ctx.getSkillingGlobalMetrics(state, skillId, actionTypeHrid, {
+          includePersonalBuffs
+        });
+        globalMetrics = globalPair.globalMetrics;
+
+        const fallbackMetrics = ctx.createEmptySkillingMetrics();
+        ctx.addSkillingMetrics(fallbackMetrics, globalPair.equipmentMetrics);
+
+        roomLoadout = ctx.getSkillingRoomLoadoutMetrics(
+          state,
+          initClientData,
+          room,
+          skillId,
+          actionTypeHrid,
+          maxEnhancementByItem,
+          fallbackMetrics
+        );
+        const crateMetrics = ctx.getSkillingBuffMetrics(skillId, crateBuffs);
+        const combinedMetrics = ctx.createEmptySkillingMetrics();
+        ctx.addSkillingMetrics(combinedMetrics, globalMetrics);
+        ctx.addSkillingMetrics(combinedMetrics, roomLoadout.metrics);
+        ctx.addSkillingMetrics(combinedMetrics, crateMetrics);
+        ctx.addSkillingMetrics(combinedMetrics, labyrinthUpgradeMetrics);
+
+        baseSkillLevel = ctx.getSkillLevel(state.characterSkillMap, room.skillHrid);
+        skillLevelBonus = combinedMetrics.skillLevelBonus;
+        efficiencyBonus = combinedMetrics.efficiencyBonus;
+        actionSpeedBonus = combinedMetrics.actionSpeedBonus;
+        successBonus = combinedMetrics.successBonus;
+        experienceBonusDetail = ctx.computeSkillingExperienceBonusForRoom(
+          state,
+          skillId,
+          actionTypeHrid,
+          roomLoadout.metrics,
+          crateMetrics,
+          includePersonalBuffs,
+          labyrinthExperienceBonus
+        );
+        experienceBonus = ctx.finiteNumber(experienceBonusDetail?.totalBonus, 0);
+        doubleChance = ctx.clamp01(combinedMetrics.crateDoubleProgressBonus + combinedMetrics.gatheringBonus);
+        effectiveSkillLevel = baseSkillLevel + skillLevelBonus;
+        baseActionSeconds = isEnhancingRoom ? ctx.BASE_ENHANCING_ACTION_SECONDS : ctx.BASE_ACTION_SECONDS;
+        actionSeconds = baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus);
+        attempts = Math.max(1, Math.floor(ctx.ROOM_DURATION_SECONDS / actionSeconds));
+        experienceMultiplier = Math.max(0, ctx.finiteNumber(experienceBonusDetail?.multiplier, 1));
       }
 
-      const actionTypeHrid = ctx.skillIdToActionTypeHrid(skillId);
-      const isEnhancingRoom = skillId === "enhancing";
-      const crateSelection = ctx.getLabyrinthCrateSelection(state);
-      const labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
-      const teaCrateItemHrid = String(crateSelection?.teaCrateItemHrid || "");
-      const crateBuffs = ctx.getCrateBuffs(initClientData, teaCrateItemHrid);
-      const labyrinthUpgradeMetrics = ctx.buildLabyrinthUpgradeSkillingMetrics(labyrinthUpgradeLevels);
-      const labyrinthExperienceBonus = ctx.getLabyrinthUpgradeExperienceBonus(labyrinthUpgradeLevels);
-      const includePersonalBuffs = false;
-      const { equipmentMetrics, globalMetrics } = ctx.getSkillingGlobalMetrics(state, skillId, actionTypeHrid, {
-        includePersonalBuffs
-      });
-
-      const fallbackMetrics = ctx.createEmptySkillingMetrics();
-      ctx.addSkillingMetrics(fallbackMetrics, equipmentMetrics);
-
-      const roomLoadout = ctx.getSkillingRoomLoadoutMetrics(
-        state,
-        initClientData,
-        room,
-        skillId,
-        actionTypeHrid,
-        maxEnhancementByItem,
-        fallbackMetrics
-      );
-      const crateMetrics = ctx.getSkillingBuffMetrics(skillId, crateBuffs);
-      const combinedMetrics = ctx.createEmptySkillingMetrics();
-      ctx.addSkillingMetrics(combinedMetrics, globalMetrics);
-      ctx.addSkillingMetrics(combinedMetrics, roomLoadout.metrics);
-      ctx.addSkillingMetrics(combinedMetrics, crateMetrics);
-      ctx.addSkillingMetrics(combinedMetrics, labyrinthUpgradeMetrics);
-
-      const baseSkillLevel = ctx.getSkillLevel(state.characterSkillMap, room.skillHrid);
-      const skillLevelBonus = combinedMetrics.skillLevelBonus;
-      const efficiencyBonus = combinedMetrics.efficiencyBonus;
-      const actionSpeedBonus = combinedMetrics.actionSpeedBonus;
-      const successBonus = combinedMetrics.successBonus;
-      const experienceBonusDetail = ctx.computeSkillingExperienceBonusForRoom(
-        state,
-        skillId,
-        actionTypeHrid,
-        roomLoadout.metrics,
-        crateMetrics,
-        includePersonalBuffs,
-        labyrinthExperienceBonus
-      );
-      const experienceBonus = ctx.finiteNumber(experienceBonusDetail?.totalBonus, 0);
-      const crateDoubleProgressBonus = combinedMetrics.crateDoubleProgressBonus;
-      const gatheringBonus = combinedMetrics.gatheringBonus;
-
-      const effectiveSkillLevel = baseSkillLevel + skillLevelBonus;
-      const roomLevel = Number(room.recommendedLevel || 0);
       const levelDelta = effectiveSkillLevel - roomLevel;
       const levelBonus = levelDelta >= 0 ? levelDelta * 0.005 : levelDelta * 0.01;
       const successChance = ctx.skillingSuccessChance(0.8 * (1 + levelBonus + successBonus));
-      const doubleChance = ctx.clamp01(crateDoubleProgressBonus + gatheringBonus);
       const rewardPreview = options.summaryOnly ? null : ctx.createRoomRewardPreview(state, room);
 
-      const baseActionSeconds = isEnhancingRoom ? ctx.BASE_ENHANCING_ACTION_SECONDS : ctx.BASE_ACTION_SECONDS;
-      const actionSeconds = baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus);
-      const attempts = Math.max(1, Math.floor(ctx.ROOM_DURATION_SECONDS / actionSeconds));
       const baseExperiencePerRoom = Math.max(0, roomLevel * 50);
-      const experienceMultiplier = Math.max(0, ctx.finiteNumber(experienceBonusDetail?.multiplier, 1));
       const experiencePerRoom = Math.max(0, baseExperiencePerRoom * experienceMultiplier);
       const experiencePerAction = attempts > 0 ? Math.max(0, experiencePerRoom / attempts) : experiencePerRoom;
       const speedDeltaForOneMoreAttempt = ctx.computeActionSpeedDeltaForOneMoreAttempt(
@@ -11692,15 +11961,20 @@ SOFTWARE.
         ? baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus + speedDeltaForOneMoreAttempt)
         : actionSeconds;
 
+      const integerRoomLevel = Number.isInteger(roomLevel) && roomLevel >= 1 ? roomLevel : 0;
+
       if (isEnhancingRoom) {
         targetEnhLevel = ctx.getEnhancingTargetLevelByRoomLevel(roomLevel);
-        clearStats = ctx.computeEnhancingClearStats({
-          attempts,
-          successChance,
-          doubleChance,
-          targetLevel: targetEnhLevel,
-          startLevel: 0
-        });
+        clearStats =
+          profile && integerRoomLevel
+            ? ctx.lookupSkillingCurveStats(profile, integerRoomLevel)
+            : ctx.computeEnhancingClearStats({
+                attempts,
+                successChance,
+                doubleChance,
+                targetLevel: targetEnhLevel,
+                startLevel: 0
+              });
         if (options.summaryOnly) return summary();
         const nextLevelDelta = effectiveSkillLevel + 1 - roomLevel;
         const nextLevelBonus = nextLevelDelta >= 0 ? nextLevelDelta * 0.005 : nextLevelDelta * 0.01;
@@ -11779,26 +12053,33 @@ SOFTWARE.
           rewardPreview
         };
       } else {
-        workPower = Math.max(0, effectiveSkillLevel * (1 + efficiencyBonus));
-        progressPerSuccess = ctx.getEffectiveSkillingProgressPerSuccess(workPower);
+        workPower = profile ? profile.workPower : Math.max(0, effectiveSkillLevel * (1 + efficiencyBonus));
+        progressPerSuccess = profile
+          ? profile.progressPerSuccess
+          : ctx.getEffectiveSkillingProgressPerSuccess(workPower);
         targetProgress = roomLevel * 10;
         const neededUnits = progressPerSuccess > 0 ? Math.ceil(targetProgress / progressPerSuccess - 1e-9) : 0;
-        const efficiencyDeltaForOneLessProgressUnit = ctx.computeEfficiencyDeltaForOneLessProgressUnit(
-          targetProgress,
-          effectiveSkillLevel,
-          efficiencyBonus,
-          neededUnits
-        );
-        clearStats = ctx.computeNonEnhancingClearStats(
-          {
-            attempts,
-            successChance,
-            doubleChance,
-            progressPerSuccess,
-            targetProgress
-          },
-          options.clearStatsCache
-        );
+        const efficiencyDeltaForOneLessProgressUnit = options.summaryOnly
+          ? null
+          : ctx.computeEfficiencyDeltaForOneLessProgressUnit(
+              targetProgress,
+              effectiveSkillLevel,
+              efficiencyBonus,
+              neededUnits
+            );
+        clearStats =
+          profile && integerRoomLevel
+            ? ctx.lookupSkillingCurveStats(profile, integerRoomLevel)
+            : ctx.computeNonEnhancingClearStats(
+                {
+                  attempts,
+                  successChance,
+                  doubleChance,
+                  progressPerSuccess,
+                  targetProgress
+                },
+                options.clearStatsCache
+              );
         if (options.summaryOnly) return summary();
         const nextLevelEffectiveSkillLevel = effectiveSkillLevel + 1;
         const nextLevelDelta = nextLevelEffectiveSkillLevel - roomLevel;
@@ -12030,6 +12311,13 @@ SOFTWARE.
   color: ${ctx.LIVE_ACTION_RATE_MWITOOLS_COLOR};
   white-space: nowrap;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+/* Native entered/failure labels occupy the same bottom row. Keep their status
+   visible immediately, including before the next calculator refresh. Details
+   remain available through the room's existing hover handler. */
+[data-room-x][data-room-y]:has([class*="LabyrinthPanel_roomEntered"], [class*="LabyrinthPanel_roomFailCount"]) > .${ctx.BADGE_CLASS},
+[data-room-x][data-room-y][class*="LabyrinthPanel_clearedRoom"] > .${ctx.BADGE_CLASS} {
+  display: none;
 }
 .${ctx.CONTROL_CLASS} {
   position: relative;
@@ -13376,6 +13664,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         rewardPreview,
         failureReason: String(result?.combatMeta?.failureReason || ""),
         combatModelSignature: result?.combatMeta?.modelSignature || null,
+        profileHash: String(result?.combatMeta?.profileHash || ""),
+        roomKey: String(result?.combatMeta?.roomKey || ""),
         abilities
       };
     };
@@ -13383,15 +13673,21 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.getLoadoutWeaponCombatMetaForRoom = function getLoadoutWeaponCombatMetaForRoom(state, initClientData, room) {
       const loadoutInfo = ctx.resolveCombatRoomLoadout(state, room);
       const loadout = loadoutInfo?.loadout;
-      if (!ctx.isCombatLoadout(loadout)) {
+      const useCurrentSetup = loadoutInfo?.source === "current";
+      if (!useCurrentSetup && !ctx.isUsableCombatRoomLoadout(loadout)) {
         return null;
       }
-      const wearableMap = loadout.wearableMap || {};
       const weaponSlots = ["/item_locations/two_hand", "/item_locations/main_hand"];
+      const currentItemsByLocation = useCurrentSetup
+        ? new Map(ctx.getCurrentEquippedCombatItems(state).map((item) => [item.locationHrid, item]))
+        : null;
+      const wearableMap = loadout?.wearableMap || {};
       let styleHrid = "";
       let damageTypeHrid = "";
       for (const slotKey of weaponSlots) {
-        const entry = ctx.parseWearableReference(wearableMap[slotKey]);
+        const entry = useCurrentSetup
+          ? currentItemsByLocation.get(slotKey) || null
+          : ctx.parseWearableReference(wearableMap[slotKey]);
         if (!entry || !entry.itemHrid) {
           continue;
         }
@@ -13476,12 +13772,60 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       tooltip.style.top = `${Math.max(margin, Math.min(top, ctx.window.innerHeight - height - margin))}px`;
     };
 
+    function requestHoverCombatUpgrades(cell, preview) {
+      if (
+        !ctx.COMBAT_UPGRADE_ON_HOVER ||
+        preview?.type !== "combat" ||
+        preview.upgradeImpact !== undefined ||
+        preview.upgradeImpactLoading ||
+        typeof ctx.ensureCombatUpgradeImpactOnHover !== "function"
+      ) {
+        return;
+      }
+      const state = ctx.getGameState?.();
+      const initClientData = ctx.getInitClientData?.();
+      if (!state || !initClientData) return;
+      const room = ctx.getRoomFromCell?.(state, cell) || {
+        roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+        monsterHrid: preview.monsterHrid,
+        recommendedLevel: preview.baseCombatLevel
+      };
+      if (!room?.monsterHrid) return;
+      const upgradeOptions = ctx.getCombatUpgradeOptions?.(ctx.resolveLabyrinthUpgradeLevels?.()) || [];
+      if (!upgradeOptions.some((u) => u.cost !== null)) {
+        preview.upgradeImpact = {};
+        return;
+      }
+      preview.upgradeImpactLoading = true;
+      void ctx
+        .ensureCombatUpgradeImpactOnHover(state, initClientData, room)
+        .then((outcome) => {
+          preview.upgradeImpactLoading = false;
+          if (ctx.destroyed || !outcome?.upgradeImpact) return;
+          if (ctx.combatPreviewByCell.get(cell) !== preview) return;
+          preview.upgradeImpact = outcome.upgradeImpact;
+          renderedPreview = null;
+          if (hoveredCell === cell && pointer) {
+            ctx.showSkillingPreviewTooltip(cell, pointer);
+          }
+        })
+        .catch(() => {
+          preview.upgradeImpactLoading = false;
+          if (ctx.destroyed || ctx.combatPreviewByCell.get(cell) !== preview) return;
+          renderedPreview = null;
+          if (hoveredCell === cell && pointer) {
+            ctx.showSkillingPreviewTooltip(cell, pointer);
+          }
+        });
+    }
+
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
         return;
       }
+      requestHoverCombatUpgrades(cell, preview);
       const scrollTop = hoveredCell === cell ? ctx.getPreviewTooltip()?.scrollTop || 0 : 0;
       hoveredCell = cell;
       const existing = ctx.getPreviewTooltip();
@@ -14478,7 +14822,20 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return;
       }
       if (estimate.status !== "ready") {
-        cell.textContent = String(estimate.message || ctx.t("pending"));
+        const rawMessage = String(estimate.message || ctx.t("pending"));
+        const isNotMet =
+          estimate.status === "error" &&
+          [
+            ctx.t("targetNotMet"),
+            "扫描范围内未达标",
+            "未找到达到目标的等级",
+            "No level in range exceeds goal",
+            "No level meets the target"
+          ].includes(rawMessage);
+        cell.textContent = isNotMet ? ctx.t("targetNotMet") : rawMessage;
+        if (isNotMet) {
+          cell.title = ctx.isChineseUi() ? "扫描范围内未达到目标" : "No level in range meets target";
+        }
         return;
       }
       const settingLevel = Math.floor(ctx.finiteNumber(estimate.levelDelta, 0)) + 1;
@@ -14532,6 +14889,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const table = ctx.getAutomationEstimateTable();
         let anchor = table;
         while (anchor && anchor.parentElement !== section) anchor = anchor.parentElement;
+        if (anchor?.previousElementSibling?.classList.contains("mwi-labyrinth-calc-prefill-toggle")) {
+          anchor = anchor.previousElementSibling;
+        }
         section.insertBefore(root, anchor || null);
       }
       const settingsLabel = root.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__settings-label`);
@@ -14898,10 +15258,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             null,
             combatTrials,
             `auto:recommend:${params.entry.key}:${safeRoomLevel}:target${Math.round(params.targetChance * 1000)}`,
-            { includePersonalBuffs: false, parallel: true, labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            {
+              includePersonalBuffs: false,
+              parallel: true,
+              priority: 1,
+              profile: params.cachedProfile || null,
+              labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
+            }
           )
         : ctx.computeRoomClearChance(params.state, params.initClientData, room, params.maxEnhancementByItem, {
             includePersonalBuffs: false,
+            profile: params.cachedProfile || null,
             labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
           });
 
@@ -14956,6 +15323,27 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const maxDelta = Math.max(0, Math.floor(ctx.AUTOMATION_RECOMMEND_MAX_DELTA));
       const isCombatEntry = Boolean(params?.entry?.isCombat);
       const minRoomLevel = isCombatEntry ? ctx.COMBAT_MIN_ROOM_LEVEL : 1;
+      if (!params.cachedProfile) {
+        params.cachedProfile = isCombatEntry
+          ? typeof ctx.extractCombatProfile === "function"
+            ? ctx.extractCombatProfile(
+                params.state,
+                params.initClientData,
+                params.entry.monsterHrid,
+                params.maxEnhancementByItem,
+                { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+              )
+            : null
+          : typeof ctx.extractSkillingProfile === "function"
+            ? ctx.extractSkillingProfile(
+                params.state,
+                params.initClientData,
+                params.entry.skillHrid,
+                params.maxEnhancementByItem,
+                { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+              )
+            : null;
+      }
       const minDelta = Math.min(
         -1,
         Math.max(Math.floor(ctx.AUTOMATION_RECOMMEND_MIN_DELTA), Math.ceil(minRoomLevel - effectiveLevel))
@@ -15195,8 +15583,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           finished++;
           const pool = ctx.getCombatConcurrencyState();
           ctx.automationEstimateStatusText = ctx.isChineseUi()
-            ? `已完成 ${finished}/${entries.length} 项${pool.active > 1 ? ` · ${pool.active} 路并行` : ""}`
-            : `Completed ${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active} workers` : ""}`;
+            ? `计算中 ${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active}路` : ""}`
+            : `${finished}/${entries.length}${pool.active > 1 ? ` · ${pool.active}w` : ""}`;
           ctx.setAutomationEstimateControlStatus({ running: true, message: ctx.automationEstimateStatusText });
           await ctx.nextFrame();
         }
@@ -15222,15 +15610,15 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.finishAutomationStatus = (reason, completed, total, errors) => {
       ctx.automationEstimateStatusText = ctx.isChineseUi()
         ? reason
-          ? `${reason}，已完成 ${completed}/${total} 项，结果已保留`
+          ? `${reason} · ${completed}/${total}`
           : errors
-            ? `已处理 ${completed}/${total} 项，${errors} 项失败，请查看对应行`
-            : `计算完成 · ${completed}/${total} 项`
+            ? `完成 ${completed}/${total} · ${errors} 项失败`
+            : `计算完成 · ${completed}/${total}`
         : reason
-          ? `Stopped: ${reason}; ${completed}/${total} completed, results kept`
+          ? `${reason} · ${completed}/${total}`
           : errors
-            ? `Processed ${completed}/${total}; ${errors} failed, see affected rows`
-            : `Calculation complete · ${completed}/${total}`;
+            ? `Done ${completed}/${total} · ${errors} failed`
+            : `Done · ${completed}/${total}`;
     };
 
     ctx.runAutomationRecommendCalculation = async function runAutomationRecommendCalculation(basis = "winRate") {
@@ -15349,12 +15737,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
                 experienceAnalysis,
                 roomLabel,
                 isCombat: entry.isCombat,
-                message:
-                  basis === "experience"
-                    ? ctx.isChineseUi()
-                      ? "扫描范围内未达标"
-                      : "No level in range exceeds goal"
-                    : ctx.t("targetNotMet")
+                message: ctx.t("targetNotMet")
               });
             } else {
               const recommendedRoomLevel = Math.max(1, Math.floor(ctx.finiteNumber(match.roomLevel, 1)));
@@ -15403,7 +15786,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ctx.automationEstimateStatusText = `${ctx.t("calcFailed")}：${String(error?.message || error)}`;
       } finally {
         ctx.automationRunSnapshot = null;
-        ctx.releaseIdleCombatWorkers();
+        if (typeof ctx.scheduleIdleCombatWorkerRelease === "function") ctx.scheduleIdleCombatWorkerRelease(60000);
+        else ctx.releaseIdleCombatWorkers();
         ctx.automationEstimateRunning = false;
         ctx.automationEstimateRunningMode = "";
         if (!ctx.destroyed) ctx.renderAutomationEstimateTable(entries);
@@ -15593,7 +15977,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ctx.automationEstimateStatusText = `${ctx.t("calcFailed")}：${String(error?.message || error)}`;
       } finally {
         ctx.automationRunSnapshot = null;
-        ctx.releaseIdleCombatWorkers();
+        if (typeof ctx.scheduleIdleCombatWorkerRelease === "function") ctx.scheduleIdleCombatWorkerRelease(60000);
+        else ctx.releaseIdleCombatWorkers();
         ctx.automationEstimateRunning = false;
         ctx.automationEstimateRunningMode = "";
         ctx.setAutomationEstimateControlStatus({
@@ -16540,15 +16925,80 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ctx.getRoomDistributionContext()?.labyrinthSignature !== context.labyrinthSignature;
 
       try {
+        let lastUiAt = 0;
+        const syncDistributionUi = (force = false) => {
+          const now = ctx.window.performance?.now?.() ?? Date.now();
+          if (!force && now - lastUiAt < 80) return;
+          lastUiAt = now;
+          ctx.roomDistributionProgress = {
+            labyrinthSignature: context.labyrinthSignature,
+            current: completedCount,
+            total: totalCount
+          };
+          ctx.setControlStatus({
+            running: true,
+            ratio: completedCount / totalCount,
+            message: ctx.t("roomDistributionCalculatingFmt", { current: completedCount, total: totalCount })
+          });
+          ctx.renderRoomDistributionPanel();
+        };
+
+        const combatTasks = [];
         for (const entry of entries) {
-          for (const roomLevel of levels) {
-            if (isRunStale()) {
-              return false;
+          if (isRunStale()) return false;
+          if (!entry.isCombat) {
+            const skProfile =
+              typeof ctx.extractSkillingProfile === "function"
+                ? ctx.extractSkillingProfile(state, initClientData, entry.skillHrid, maxEnhancementByItem, {
+                    labyrinthUpgradeLevels
+                  })
+                : null;
+            for (const roomLevel of levels) {
+              if (isRunStale()) return false;
+              const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
+              try {
+                const result = ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
+                  labyrinthUpgradeLevels,
+                  summaryOnly: true,
+                  profile: skProfile
+                });
+                if (result && Number.isFinite(Number(result.clearChance))) {
+                  chances.push(ctx.clamp01(Number(result.clearChance)));
+                } else {
+                  failedCount += 1;
+                }
+              } catch (error) {
+                if (isRunStale()) return false;
+                failedCount += 1;
+                console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
+              }
+              completedCount += 1;
             }
-            const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
-            try {
-              const result = entry.isCombat
-                ? await ctx.computeCombatRoomClearChance(
+            syncDistributionUi();
+            continue;
+          }
+
+          const cbProfile =
+            typeof ctx.extractCombatProfile === "function"
+              ? ctx.extractCombatProfile(state, initClientData, entry.monsterHrid, maxEnhancementByItem, {
+                  labyrinthUpgradeLevels
+                })
+              : null;
+          for (const roomLevel of levels) {
+            combatTasks.push({ entry, roomLevel, cbProfile });
+          }
+        }
+
+        if (combatTasks.length > 0 && !isRunStale()) {
+          let nextTask = 0;
+          const lanes = Math.max(1, Math.min(combatTasks.length, ctx.getCombatParallelism?.() || 1));
+          await Promise.all(
+            Array.from({ length: lanes }, async () => {
+              while (nextTask < combatTasks.length && !isRunStale()) {
+                const { entry, roomLevel, cbProfile } = combatTasks[nextTask++];
+                const room = ctx.createAutomationRoomFromEntry(entry, roomLevel);
+                try {
+                  const result = await ctx.computeCombatRoomClearChance(
                     state,
                     initClientData,
                     room,
@@ -16556,43 +17006,37 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
                     null,
                     combatTrials,
                     `distribution:${context.labyrinthSignature}:${entry.key}:${roomLevel}`,
-                    { labyrinthUpgradeLevels }
-                  )
-                : ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
-                    labyrinthUpgradeLevels
-                  });
-              if (isRunStale()) return false;
-              if (result && Number.isFinite(Number(result.clearChance))) {
-                chances.push(ctx.clamp01(Number(result.clearChance)));
-              } else {
-                failedCount += 1;
+                    {
+                      labyrinthUpgradeLevels,
+                      profile: cbProfile,
+                      parallel: true,
+                      allowBaseCurveHit: true,
+                      priority: 1,
+                      isRunStale
+                    }
+                  );
+                  if (isRunStale()) return;
+                  if (result && Number.isFinite(Number(result.clearChance))) {
+                    chances.push(ctx.clamp01(Number(result.clearChance)));
+                  } else {
+                    failedCount += 1;
+                  }
+                } catch (error) {
+                  if (isRunStale()) return;
+                  failedCount += 1;
+                  console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
+                }
+                completedCount += 1;
+                syncDistributionUi();
               }
-            } catch (error) {
-              if (isRunStale()) return false;
-              failedCount += 1;
-              console.warn(`[Lab Clear Rate] distribution sample failed: ${entry.key} Lv.${roomLevel}`, error);
-            }
-            completedCount += 1;
-            ctx.roomDistributionProgress = {
-              labyrinthSignature: context.labyrinthSignature,
-              current: completedCount,
-              total: totalCount
-            };
-            ctx.setControlStatus({
-              running: true,
-              ratio: completedCount / totalCount,
-              message: ctx.t("roomDistributionCalculatingFmt", { current: completedCount, total: totalCount })
-            });
-            ctx.renderRoomDistributionPanel();
-            if (!entry.isCombat && completedCount % 10 === 0) {
-              await ctx.nextFrame();
-            }
-          }
+            })
+          );
         }
 
         if (isRunStale()) {
           return false;
         }
+        syncDistributionUi(true);
         ctx.roomDistributionSnapshot = {
           inputSignature,
           labyrinthSignature: context.labyrinthSignature,
@@ -16934,8 +17378,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.createProgressTracker = function createProgressTracker(totalUnits) {
       const safeTotal = Math.max(1, Math.floor(ctx.finiteNumber(totalUnits, 1)));
       let completed = 0;
+      let lastPaintAt = 0;
+      let pendingMessage = null;
+      let paintTimer = null;
 
-      function update(message) {
+      function paint(message) {
+        if (paintTimer !== null) {
+          ctx.window.clearTimeout(paintTimer);
+          paintTimer = null;
+        }
+        pendingMessage = null;
+        lastPaintAt = ctx.window.performance?.now?.() ?? Date.now();
         const ratio = ctx.clamp01(completed / safeTotal);
         const percent = Math.round(ratio * 100);
         const msg = message || ctx.t("progressFmt", { percent });
@@ -16946,42 +17399,943 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         });
       }
 
-      update(ctx.t("preparing"));
+      function schedulePaint(message) {
+        pendingMessage = message;
+        const now = ctx.window.performance?.now?.() ?? Date.now();
+        const elapsed = now - lastPaintAt;
+        if (elapsed >= 60 || completed >= safeTotal) {
+          paint(pendingMessage);
+          return;
+        }
+        if (paintTimer === null) {
+          paintTimer = ctx.window.setTimeout(() => {
+            paintTimer = null;
+            paint(pendingMessage);
+          }, 60 - elapsed);
+        }
+      }
+
+      paint(ctx.t("preparing"));
 
       return {
         add(units = 1, message) {
           const value = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
           completed = Math.min(safeTotal, completed + value);
-          update(message);
+          schedulePaint(message);
         },
         finish(message) {
           completed = safeTotal;
-          update(message || ctx.t("calcDone"));
+          paint(message || ctx.t("calcDone"));
         }
       };
     };
   };
 })(globalThis);
 
-// SOURCE: src/calculator/simulation-cache.js
-// Local, disposable simulation samples. Never stores credentials or uploads data.
+// SOURCE: src/calculator/combat-stats.js
+// Pure compact combat curve statistics, deterministic chunking, and Chan parallel moment merging.
 (function (root) {
   "use strict";
-  function create({ indexedDB = root.indexedDB, maxEntries = 8192, maxBytes = 32 * 1024 * 1024 } = {}) {
-    let opening,
-      disabled = false;
+
+  const SKILLS = Object.freeze(["stamina", "intelligence", "attack", "melee", "defense", "ranged", "magic"]);
+  const STRIDE = 16;
+  const DEFAULT_MAX_LEVEL = 300;
+  const DEFAULT_BASE_TRIALS = 250;
+  const DEFAULT_CHUNK_TRIALS = 250;
+  const DEFAULT_REFINEMENT_BUFFER = 15;
+  const DEFAULT_ANOMALY_BUFFER = 5;
+
+  const IDX_TRIALS = 0;
+  const IDX_SUCCESSES = 1;
+  const IDX_FAILED_DEATH = 2;
+  const IDX_FAILED_TIMEOUT = 3;
+  const IDX_TOTAL_SPENT = 4;
+  const IDX_MIN_ELAPSED = 5;
+  const IDX_MAX_ELAPSED = 6;
+  const IDX_DURATION_M2 = 7;
+  const IDX_DURATION_COMOMENT = 8;
+  const IDX_XP_BASE = 9;
+
+  function finite(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function nonNegativeInt(value) {
+    const n = Math.floor(finite(value, 0));
+    return n > 0 ? n : 0;
+  }
+
+  function clamp01(value) {
+    const n = finite(value, 0);
+    return n < 0 ? 0 : n > 1 ? 1 : n;
+  }
+
+  // Deterministic 32-bit SplitMix/Murmur finalizer for independent i.i.d. chunk seeds.
+  // Chunk 0 preserves baseSeed so small single-chunk probes align with legacy baseSeed.
+  function chunkSeed(baseSeed, chunkIndex) {
+    const base = Number(baseSeed) >>> 0 || 173;
+    const index = Math.max(0, Math.floor(finite(chunkIndex, 0))) >>> 0;
+    if (index === 0) return base;
+    let h = (base ^ Math.imul(index, 0x9e3779b1)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+
+  // Split delta trials into deterministic chunks starting from existingTrials.
+  function buildChunkPlan(existingTrials, targetTrials, { baseSeed = 173, chunkSize = DEFAULT_CHUNK_TRIALS } = {}) {
+    const current = nonNegativeInt(existingTrials);
+    const target = nonNegativeInt(targetTrials);
+    if (target <= current) return [];
+    const quantum = Math.max(1, Math.min(3000, nonNegativeInt(chunkSize) || DEFAULT_CHUNK_TRIALS));
+    const plan = [];
+    let covered = current;
+    let chunkIndex = Math.floor(current / quantum);
+    // If existingTrials is not aligned on a chunk boundary, advance to the next unused chunk index.
+    if (current > 0 && current % quantum !== 0) chunkIndex += 1;
+    while (covered < target) {
+      const remaining = target - covered;
+      const trials = Math.min(quantum, remaining);
+      plan.push({
+        chunkIndex,
+        trials,
+        seed: chunkSeed(baseSeed, chunkIndex)
+      });
+      covered += trials;
+      chunkIndex += 1;
+    }
+    return plan;
+  }
+
+  function isArrayBuffer(value) {
+    return Boolean(
+      value && (value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]")
+    );
+  }
+
+  function extractXpArray(raw) {
+    const xp = new Float64Array(SKILLS.length);
+    if (!raw) return xp;
+    if (Array.isArray(raw) || ArrayBuffer.isView(raw)) {
+      for (let i = 0; i < SKILLS.length; i++) xp[i] = Math.max(0, finite(raw[i], 0));
+      return xp;
+    }
+    let source = raw;
+    if (raw.experienceGained && typeof raw.experienceGained === "object") {
+      const players = Object.values(raw.experienceGained);
+      source = players[0] || null;
+    }
+    if (source && typeof source === "object") {
+      for (let i = 0; i < SKILLS.length; i++) xp[i] = Math.max(0, finite(source[SKILLS[i]], 0));
+    }
+    return xp;
+  }
+
+  function normalizeStats(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const trials = nonNegativeInt(raw.trials ?? raw.completedTrials);
+    if (trials <= 0) return null;
+    const successes = Math.min(trials, nonNegativeInt(raw.successes));
+    let failedByDeath = nonNegativeInt(raw.failedByDeath);
+    let failedByTimeout = nonNegativeInt(raw.failedByTimeout);
+    const failures = trials - successes;
+    if (failedByDeath + failedByTimeout !== failures) {
+      failedByDeath = Math.min(failures, failedByDeath);
+      failedByTimeout = failures - failedByDeath;
+    }
+    const totalSpentSeconds = Math.max(0, finite(raw.totalSpentSeconds, 0));
+    const minElapsedSeconds = Math.max(0, finite(raw.minElapsedSeconds, 0));
+    const maxElapsedSeconds = Math.max(minElapsedSeconds, finite(raw.maxElapsedSeconds, minElapsedSeconds));
+    let durationM2SecondsSquared = finite(raw.durationM2SecondsSquared, NaN);
+    let durationSuccessComomentSeconds = finite(raw.durationSuccessComomentSeconds, NaN);
+    if (!Number.isFinite(durationM2SecondsSquared) && Number.isFinite(raw.durationSquaredSeconds)) {
+      const mean = totalSpentSeconds / trials;
+      durationM2SecondsSquared = Math.max(0, raw.durationSquaredSeconds - totalSpentSeconds * mean);
+    }
+    if (!Number.isFinite(durationSuccessComomentSeconds) && Number.isFinite(raw.successSpentSeconds)) {
+      durationSuccessComomentSeconds = raw.successSpentSeconds - totalSpentSeconds * (successes / trials);
+    }
+    const xp = extractXpArray(raw.xp || raw);
+    return {
+      trials,
+      successes,
+      failedByDeath,
+      failedByTimeout,
+      totalSpentSeconds,
+      minElapsedSeconds,
+      maxElapsedSeconds,
+      durationM2SecondsSquared: Number.isFinite(durationM2SecondsSquared) ? Math.max(0, durationM2SecondsSquared) : 0,
+      durationSuccessComomentSeconds: Number.isFinite(durationSuccessComomentSeconds)
+        ? durationSuccessComomentSeconds
+        : 0,
+      xp
+    };
+  }
+
+  // Exact Chan (1979) parallel central moment merger for two independent trial batches.
+  function mergeStats(leftRaw, rightRaw) {
+    const a = normalizeStats(leftRaw);
+    const b = normalizeStats(rightRaw);
+    if (!a) return b;
+    if (!b) return a;
+    const nA = a.trials;
+    const nB = b.trials;
+    const n = nA + nB;
+    const meanTA = a.totalSpentSeconds / nA;
+    const meanTB = b.totalSpentSeconds / nB;
+    const meanYA = a.successes / nA;
+    const meanYB = b.successes / nB;
+    const deltaT = meanTB - meanTA;
+    const deltaY = meanYB - meanYA;
+    const factor = (nA * nB) / n;
+    const durationM2SecondsSquared = Math.max(
+      0,
+      a.durationM2SecondsSquared + b.durationM2SecondsSquared + deltaT * deltaT * factor
+    );
+    const durationSuccessComomentSeconds =
+      a.durationSuccessComomentSeconds + b.durationSuccessComomentSeconds + deltaT * deltaY * factor;
+    const xp = new Float64Array(SKILLS.length);
+    for (let i = 0; i < SKILLS.length; i++) xp[i] = a.xp[i] + b.xp[i];
+    return {
+      trials: n,
+      successes: a.successes + b.successes,
+      failedByDeath: a.failedByDeath + b.failedByDeath,
+      failedByTimeout: a.failedByTimeout + b.failedByTimeout,
+      totalSpentSeconds: a.totalSpentSeconds + b.totalSpentSeconds,
+      minElapsedSeconds: Math.min(a.minElapsedSeconds, b.minElapsedSeconds),
+      maxElapsedSeconds: Math.max(a.maxElapsedSeconds, b.maxElapsedSeconds),
+      durationM2SecondsSquared,
+      durationSuccessComomentSeconds,
+      xp
+    };
+  }
+
+  function createCurveBuffer(maxLevel = DEFAULT_MAX_LEVEL) {
+    const levels = Math.max(1, nonNegativeInt(maxLevel) || DEFAULT_MAX_LEVEL);
+    return new ArrayBuffer(levels * STRIDE * Float64Array.BYTES_PER_ELEMENT);
+  }
+
+  function expandCurveBuffer(buffer, nextMaxLevel) {
+    const currentView = ArrayBuffer.isView(buffer)
+      ? new Float64Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 8))
+      : new Float64Array(buffer);
+    const currentLevels = Math.floor(currentView.length / STRIDE);
+    const targetLevels = Math.max(currentLevels, nonNegativeInt(nextMaxLevel));
+    if (targetLevels <= currentLevels) return currentView.buffer;
+    const nextBuffer = createCurveBuffer(targetLevels);
+    new Float64Array(nextBuffer).set(currentView);
+    return nextBuffer;
+  }
+
+  function writeLevel(view, level, rawStats) {
+    const idx = Math.floor(Number(level)) - 1;
+    const offset = idx * STRIDE;
+    if (idx < 0 || offset + STRIDE > view.length) return false;
+    const stats = normalizeStats(rawStats);
+    if (!stats) {
+      view.fill(0, offset, offset + STRIDE);
+      return false;
+    }
+    view[offset + IDX_TRIALS] = stats.trials;
+    view[offset + IDX_SUCCESSES] = stats.successes;
+    view[offset + IDX_FAILED_DEATH] = stats.failedByDeath;
+    view[offset + IDX_FAILED_TIMEOUT] = stats.failedByTimeout;
+    view[offset + IDX_TOTAL_SPENT] = stats.totalSpentSeconds;
+    view[offset + IDX_MIN_ELAPSED] = stats.minElapsedSeconds;
+    view[offset + IDX_MAX_ELAPSED] = stats.maxElapsedSeconds;
+    view[offset + IDX_DURATION_M2] = stats.durationM2SecondsSquared;
+    view[offset + IDX_DURATION_COMOMENT] = stats.durationSuccessComomentSeconds;
+    for (let i = 0; i < SKILLS.length; i++) view[offset + IDX_XP_BASE + i] = stats.xp[i];
+    return true;
+  }
+
+  function readLevel(view, level) {
+    const idx = Math.floor(Number(level)) - 1;
+    const offset = idx * STRIDE;
+    if (idx < 0 || offset + STRIDE > view.length) return null;
+    const trials = view[offset + IDX_TRIALS];
+    if (!(trials > 0) || !Number.isFinite(trials)) return null;
+    const xp = new Float64Array(SKILLS.length);
+    for (let i = 0; i < SKILLS.length; i++) xp[i] = Math.max(0, view[offset + IDX_XP_BASE + i]);
+    return {
+      trials: Math.round(trials),
+      successes: Math.round(view[offset + IDX_SUCCESSES]),
+      failedByDeath: Math.round(view[offset + IDX_FAILED_DEATH]),
+      failedByTimeout: Math.round(view[offset + IDX_FAILED_TIMEOUT]),
+      totalSpentSeconds: view[offset + IDX_TOTAL_SPENT],
+      minElapsedSeconds: view[offset + IDX_MIN_ELAPSED],
+      maxElapsedSeconds: view[offset + IDX_MAX_ELAPSED],
+      durationM2SecondsSquared: view[offset + IDX_DURATION_M2],
+      durationSuccessComomentSeconds: view[offset + IDX_DURATION_COMOMENT],
+      xp
+    };
+  }
+
+  function mergeIntoLevel(view, level, deltaStats) {
+    const existing = readLevel(view, level);
+    const merged = existing ? mergeStats(existing, deltaStats) : normalizeStats(deltaStats);
+    if (!merged) return null;
+    writeLevel(view, level, merged);
+    return merged;
+  }
+
+  function readTrialsAt(view, level) {
+    const idx = Math.floor(Number(level)) - 1;
+    const offset = idx * STRIDE;
+    if (idx < 0 || offset + STRIDE > view.length) return 0;
+    const t = view[offset + IDX_TRIALS];
+    return Number.isFinite(t) && t > 0 ? Math.round(t) : 0;
+  }
+
+  function toExperienceGained(xp) {
+    const map = {};
+    for (let i = 0; i < SKILLS.length; i++) map[SKILLS[i]] = Math.max(0, finite(xp?.[i], 0));
+    return { player1: map };
+  }
+
+  function toWorkerResult(rawStats, extra = {}) {
+    const stats = normalizeStats(rawStats);
+    if (!stats) return null;
+    const clearChance = clamp01(stats.successes / stats.trials);
+    const expectedSecondsPerClear = stats.successes > 0 ? stats.totalSpentSeconds / stats.successes : Infinity;
+    return {
+      trials: stats.trials,
+      completedTrials: stats.trials,
+      statisticalTrials: stats.trials,
+      successes: stats.successes,
+      failures: stats.trials - stats.successes,
+      failedByDeath: stats.failedByDeath,
+      failedByTimeout: stats.failedByTimeout,
+      clearChance,
+      expectedSecondsPerClear,
+      totalSpentSeconds: stats.totalSpentSeconds,
+      minElapsedSeconds: stats.minElapsedSeconds,
+      maxElapsedSeconds: stats.maxElapsedSeconds,
+      durationM2SecondsSquared: stats.durationM2SecondsSquared,
+      durationSuccessComomentSeconds: stats.durationSuccessComomentSeconds,
+      experienceGained: toExperienceGained(stats.xp),
+      ...extra
+    };
+  }
+
+  function wilsonLower(wins, trials) {
+    if (!(trials > 0) || !Number.isFinite(wins)) return 0;
+    const p = clamp01(wins / trials);
+    const z = 1.96;
+    const z2 = z * z;
+    return (
+      (p + z2 / (2 * trials) - z * Math.sqrt((p * (1 - p)) / trials + z2 / (4 * trials * trials))) / (1 + z2 / trials)
+    );
+  }
+
+  // Identify levels requiring refinement up to targetTrials:
+  // 1) All transition levels (0 < wins < trials) plus +/- bufferRadius boundary guard
+  //    so 99% Wilson confidence thresholds and transition edges always have high precision.
+  // 2) Any level adjacent to a sharp jump in clear chance, death ratio, or mean time (+/- anomalyBuffer).
+  // 3) If forceFull is true, refine every level in [minLevel, maxLevel].
+  function selectRefinementLevels(
+    view,
+    maxLevel,
+    targetTrials,
+    {
+      minLevel = 1,
+      bufferRadius = DEFAULT_REFINEMENT_BUFFER,
+      anomalyBuffer = DEFAULT_ANOMALY_BUFFER,
+      forceFull = false
+    } = {}
+  ) {
+    const lo = Math.max(1, Math.floor(finite(minLevel, 1)));
+    const hi = Math.min(
+      Math.floor(view.length / STRIDE),
+      Math.max(lo, Math.floor(finite(maxLevel, DEFAULT_MAX_LEVEL)))
+    );
+    const target = nonNegativeInt(targetTrials);
+    if (target <= 0 || hi < lo) return [];
+
+    if (forceFull) {
+      const all = [];
+      for (let lv = lo; lv <= hi; lv++) {
+        if (readTrialsAt(view, lv) < target) all.push(lv);
+      }
+      return all;
+    }
+
+    const marked = new Uint8Array(hi + 1);
+    const markRange = (center, radius) => {
+      const start = Math.max(lo, center - radius);
+      const end = Math.min(hi, center + radius);
+      for (let k = start; k <= end; k++) marked[k] = 1;
+    };
+
+    let prevP = null;
+    let prevDeath = null;
+    let prevAvgT = null;
+    let sawMixed = false;
+
+    for (let lv = lo; lv <= hi; lv++) {
+      const offset = (lv - 1) * STRIDE;
+      const t = view[offset + IDX_TRIALS];
+      if (!(t > 0)) continue;
+      const s = view[offset + IDX_SUCCESSES];
+      const d = view[offset + IDX_FAILED_DEATH];
+      const spent = view[offset + IDX_TOTAL_SPENT];
+      const p = s / t;
+      const deathRatio = d / t;
+      const avgT = spent / t;
+
+      if (s > 0 && s < t) {
+        sawMixed = true;
+        markRange(lv, bufferRadius);
+      }
+      if (prevP !== null) {
+        // Transition from 100% directly to 0% or vice versa without an intermediate mixed level.
+        if (Math.abs(p - prevP) >= 0.05) {
+          sawMixed = true;
+          markRange(lv, bufferRadius);
+          markRange(lv - 1, bufferRadius);
+        } else if (Math.abs(deathRatio - prevDeath) >= 0.2 || (prevAvgT > 0 && Math.abs(avgT - prevAvgT) > 15)) {
+          markRange(lv, anomalyBuffer);
+        }
+      }
+      prevP = p;
+      prevDeath = deathRatio;
+      prevAvgT = avgT;
+    }
+
+    // If the entire scanned curve is 100% wins (very strong player), refine the upper tail so
+    // Wilson 99% bounds at the search ceiling remain accurate.
+    if (!sawMixed && prevP === 1) {
+      markRange(hi, bufferRadius);
+    }
+
+    const levels = [];
+    for (let lv = lo; lv <= hi; lv++) {
+      if (marked[lv] && readTrialsAt(view, lv) < target) levels.push(lv);
+    }
+    return levels;
+  }
+
+  root.MwiLabyrinthCombatStats = Object.freeze({
+    SKILLS,
+    STRIDE,
+    DEFAULT_MAX_LEVEL,
+    DEFAULT_BASE_TRIALS,
+    DEFAULT_CHUNK_TRIALS,
+    DEFAULT_REFINEMENT_BUFFER,
+    DEFAULT_ANOMALY_BUFFER,
+    IDX_TRIALS,
+    IDX_SUCCESSES,
+    IDX_FAILED_DEATH,
+    IDX_FAILED_TIMEOUT,
+    IDX_TOTAL_SPENT,
+    IDX_MIN_ELAPSED,
+    IDX_MAX_ELAPSED,
+    IDX_DURATION_M2,
+    IDX_DURATION_COMOMENT,
+    IDX_XP_BASE,
+    isArrayBuffer,
+    chunkSeed,
+    buildChunkPlan,
+    normalizeStats,
+    mergeStats,
+    createCurveBuffer,
+    expandCurveBuffer,
+    writeLevel,
+    readLevel,
+    readTrialsAt,
+    mergeIntoLevel,
+    toExperienceGained,
+    toWorkerResult,
+    wilsonLower,
+    selectRefinementLevels
+  });
+})(globalThis);
+
+// SOURCE: src/calculator/curve-store.js
+// Local IndexedDB storage for precomputed combat level curves (1..300+).
+// Stores compact ArrayBuffer curve tables per character + monster + profile fingerprint.
+// Never stores credentials or uploads data.
+(function (root) {
+  "use strict";
+
+  const DB_NAME = "mwi-labyrinth:curve-store:v1";
+  const DB_VERSION = 1;
+  const SCHEMA_VERSION = 1;
+  const STRIDE_BYTES = 16 * Float64Array.BYTES_PER_ELEMENT;
+
+  function isArrayBuffer(value) {
+    return Boolean(
+      value && (value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]")
+    );
+  }
+
+  function toArrayBuffer(value) {
+    if (isArrayBuffer(value)) return value.slice(0);
+    if (ArrayBuffer.isView(value)) {
+      return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    }
+    return null;
+  }
+
+  function isValidRecord(row) {
+    if (!row || typeof row !== "object" || row.schema !== SCHEMA_VERSION) return false;
+    if (
+      typeof row.key !== "string" ||
+      !row.key ||
+      typeof row.characterId !== "string" ||
+      !row.characterId ||
+      typeof row.monsterHrid !== "string" ||
+      !row.monsterHrid ||
+      typeof row.profileHash !== "string" ||
+      !row.profileHash
+    ) {
+      return false;
+    }
+    if (!Number.isSafeInteger(row.maxLevel) || row.maxLevel < 1 || row.maxLevel > 10000) return false;
+    const buffer = isArrayBuffer(row.buffer) ? row.buffer : null;
+    if (!buffer || buffer.byteLength !== row.maxLevel * STRIDE_BYTES) return false;
+    return true;
+  }
+
+  function estimateBytes(row) {
+    const bufferBytes = row?.buffer?.byteLength || 0;
+    const metaBytes = 256 + 2 * String(row?.key || "").length;
+    return bufferBytes + metaBytes;
+  }
+
+  function create({
+    indexedDB = root.indexedDB,
+    maxEntries = 128,
+    maxBytes = 24 * 1024 * 1024,
+    flushDelayMs = 1500,
+    retryCooldownMs = 5000,
+    maxCooldownMs = 60000,
+    now = () => Date.now()
+  } = {}) {
+    let opening = null;
+    let closed = false;
+    let cooldownUntil = 0;
+    let failureStreak = 0;
+    let flushTimer = null;
+    let activeFlush = null;
+    const dirtyWrites = new Map();
+    const touchedKeys = new Map();
+
+    function isUnavailable() {
+      return closed || !indexedDB || now() < cooldownUntil;
+    }
+
+    function recordSuccess() {
+      failureStreak = 0;
+      cooldownUntil = 0;
+    }
+
+    function recordFailure(resetConnection = false) {
+      failureStreak = Math.min(failureStreak + 1, 6);
+      cooldownUntil = now() + Math.min(maxCooldownMs, retryCooldownMs * 2 ** (failureStreak - 1));
+      if (resetConnection) {
+        const pending = opening;
+        opening = null;
+        void pending?.then((db) => db?.close?.());
+      }
+    }
+
+    function clearFlushTimer() {
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+    }
+
     function open() {
-      if (disabled || !indexedDB) return Promise.resolve(null);
-      return (opening ||= new Promise((resolve) => {
+      if (isUnavailable()) return Promise.resolve(null);
+      if (opening) return opening;
+      let failed = false;
+      let attempt = null;
+      attempt = new Promise((resolve) => {
         let settled = false;
         const finish = (db) => {
           if (settled) {
-            db?.close();
+            db?.close?.();
             return;
           }
           settled = true;
           clearTimeout(timer);
-          if (!db) disabled = true;
+          if (!db) {
+            failed = true;
+            if (attempt && opening === attempt) opening = null;
+            recordFailure();
+          }
+          resolve(db);
+        };
+        const timer = setTimeout(() => finish(null), 1500);
+        try {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            const curves = db.createObjectStore("curves", { keyPath: "key" });
+            curves.createIndex("usedAt", "usedAt");
+            curves.createIndex("characterId", "characterId");
+            db.createObjectStore("meta");
+          };
+          request.onerror = request.onblocked = () => finish(null);
+          request.onsuccess = () => {
+            const db = request.result;
+            db.onversionchange = () => {
+              db.close();
+              if (attempt && opening === attempt) opening = null;
+              recordFailure();
+            };
+            db.onclose = () => {
+              if (attempt && opening === attempt) opening = null;
+            };
+            finish(db);
+          };
+        } catch {
+          finish(null);
+        }
+      });
+      if (!failed) opening = attempt;
+      return attempt;
+    }
+
+    async function transaction(stores, mode, action) {
+      const db = await open();
+      if (!db || isUnavailable()) return null;
+      return new Promise((resolve) => {
+        let tx;
+        let value = null;
+        let done = false;
+        const finish = (result) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(result);
+        };
+        const timer = setTimeout(() => {
+          recordFailure();
+          try {
+            tx?.abort();
+          } catch {
+            /* Already completed. */
+          }
+          finish(null);
+        }, 2500);
+        try {
+          tx = db.transaction(stores, mode);
+          tx.oncomplete = () => {
+            recordSuccess();
+            finish(value);
+          };
+          tx.onabort = tx.onerror = () => {
+            recordFailure();
+            finish(null);
+          };
+          action(
+            tx,
+            (result) => {
+              value = result;
+            },
+            (callback) => () => {
+              try {
+                callback();
+              } catch {
+                tx.abort();
+              }
+            }
+          );
+        } catch (error) {
+          recordFailure(error?.name === "InvalidStateError");
+          finish(null);
+        }
+      });
+    }
+
+    function sanitizeInputRecord(key, raw) {
+      if (!key || typeof key !== "string" || !raw || typeof raw !== "object") return null;
+      const buffer = toArrayBuffer(raw.buffer);
+      if (!buffer) return null;
+      const maxLevel = Math.floor(Number(raw.maxLevel) || 0);
+      if (!Number.isSafeInteger(maxLevel) || maxLevel < 1 || buffer.byteLength !== maxLevel * STRIDE_BYTES) {
+        return null;
+      }
+      const record = {
+        schema: SCHEMA_VERSION,
+        key,
+        characterId: String(raw.characterId || ""),
+        monsterHrid: String(raw.monsterHrid || ""),
+        profileHash: String(raw.profileHash || ""),
+        engineSignature: String(raw.engineSignature || ""),
+        gameDataHash: String(raw.gameDataHash || ""),
+        maxLevel,
+        baseTrials: Math.max(0, Math.floor(Number(raw.baseTrials) || 0)),
+        targetTrials: Math.max(0, Math.floor(Number(raw.targetTrials) || 0)),
+        completedLevels: Math.max(0, Math.floor(Number(raw.completedLevels) || 0)),
+        refinedComplete: Boolean(raw.refinedComplete),
+        fullPrecision: Boolean(raw.fullPrecision),
+        updatedAt: Number.isFinite(raw.updatedAt) ? raw.updatedAt : now(),
+        usedAt: now(),
+        buffer
+      };
+      if (!isValidRecord(record)) return null;
+      record.bytes = estimateBytes(record);
+      return record;
+    }
+
+    function scheduleFlush() {
+      if (closed || flushTimer !== null) return;
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        void flush();
+      }, flushDelayMs);
+    }
+
+    function putBatch(records, touches) {
+      if (!records.length && !touches.length) return Promise.resolve(true);
+      return transaction(["curves", "meta"], "readwrite", (tx, set, guard) => {
+        const curves = tx.objectStore("curves");
+        const meta = tx.objectStore("meta");
+        const totalsReq = meta.get("totals");
+        const priorReqs = records.map((rec) => ({ rec, req: curves.get(rec.key) }));
+        const touchReqs = touches.map(([touchKey, usedAt]) => ({ touchKey, usedAt, req: curves.get(touchKey) }));
+        let ready = 0;
+        const needed = 1 + priorReqs.length + touchReqs.length;
+
+        const commit = () => {
+          if (++ready !== needed) return;
+          const count = { entries: 0, bytes: 0, ...totalsReq.result };
+          let valid = [count.entries, count.bytes].every((n) => Number.isSafeInteger(n) && n >= 0);
+
+          for (const { rec, req } of priorReqs) {
+            const prior = req.result;
+            if (prior && (!Number.isSafeInteger(prior.bytes) || prior.bytes <= 0)) {
+              valid = false;
+              break;
+            }
+            if (!valid) break;
+            count.entries += prior ? 0 : 1;
+            count.bytes += rec.bytes - (prior?.bytes || 0);
+          }
+
+          if (!valid) {
+            curves.clear();
+            count.entries = 0;
+            count.bytes = 0;
+            for (const { rec } of priorReqs) {
+              curves.put(rec);
+              count.entries += 1;
+              count.bytes += rec.bytes;
+            }
+          } else {
+            for (const { rec } of priorReqs) {
+              curves.put(rec);
+            }
+            for (const { usedAt, req } of touchReqs) {
+              const row = req.result;
+              if (row && row.schema === SCHEMA_VERSION && !(row.usedAt >= usedAt)) {
+                curves.put({ ...row, usedAt });
+              }
+            }
+          }
+
+          const finishMeta = () => {
+            meta.put(count, "totals");
+            set(true);
+          };
+
+          if (count.entries <= maxEntries && count.bytes <= maxBytes) {
+            finishMeta();
+            return;
+          }
+
+          const cursor = curves.index("usedAt").openCursor();
+          cursor.onsuccess = guard(() => {
+            const item = cursor.result;
+            if (!item || (count.entries <= maxEntries && count.bytes <= maxBytes)) {
+              finishMeta();
+              return;
+            }
+            count.entries = Math.max(0, count.entries - 1);
+            count.bytes = Math.max(0, count.bytes - (Number(item.value?.bytes) || 0));
+            item.delete();
+            item.continue();
+          });
+        };
+
+        totalsReq.onsuccess = guard(commit);
+        for (const item of priorReqs) item.req.onsuccess = guard(commit);
+        for (const item of touchReqs) item.req.onsuccess = guard(commit);
+      });
+    }
+
+    function flush() {
+      clearFlushTimer();
+      if (isUnavailable()) return activeFlush || Promise.resolve(null);
+      if (!dirtyWrites.size && !touchedKeys.size) return activeFlush || Promise.resolve(true);
+
+      const records = [...dirtyWrites.values()];
+      for (const rec of records) touchedKeys.delete(rec.key);
+      const touches = [...touchedKeys.entries()];
+      dirtyWrites.clear();
+      touchedKeys.clear();
+
+      const pending = putBatch(records, touches).finally(() => {
+        if (activeFlush === pending) activeFlush = null;
+      });
+      activeFlush = pending;
+      return pending;
+    }
+
+    return {
+      close() {
+        closed = true;
+        clearFlushTimer();
+        dirtyWrites.clear();
+        touchedKeys.clear();
+        const pending = opening;
+        opening = null;
+        void pending?.then((db) => db?.close?.());
+      },
+      flush,
+      get(key) {
+        if (!key || typeof key !== "string") return Promise.resolve(null);
+        const queued = dirtyWrites.get(key);
+        if (queued) {
+          return Promise.resolve({ ...queued, buffer: queued.buffer.slice(0) });
+        }
+        return transaction(["curves"], "readonly", (tx, set, guard) => {
+          const req = tx.objectStore("curves").get(key);
+          req.onsuccess = guard(() => {
+            const row = req.result;
+            if (!isValidRecord(row)) return;
+            touchedKeys.set(key, now());
+            scheduleFlush();
+            set({ ...row, buffer: row.buffer.slice(0) });
+          });
+        });
+      },
+      put(key, raw) {
+        const record = sanitizeInputRecord(key, raw);
+        if (!record || record.bytes > maxBytes) return Promise.resolve(null);
+        dirtyWrites.delete(key);
+        touchedKeys.delete(key);
+        return putBatch([record], []);
+      },
+      schedulePut(key, raw) {
+        if (closed) return false;
+        const record = sanitizeInputRecord(key, raw);
+        if (!record || record.bytes > maxBytes) return false;
+        dirtyWrites.set(key, record);
+        touchedKeys.delete(key);
+        scheduleFlush();
+        return true;
+      },
+      clear() {
+        clearFlushTimer();
+        dirtyWrites.clear();
+        touchedKeys.clear();
+        return transaction(["curves", "meta"], "readwrite", (tx, set) => {
+          tx.objectStore("curves").clear();
+          tx.objectStore("meta").clear();
+          set(true);
+        });
+      }
+    };
+  }
+
+  root.MwiLabyrinthCurveStore = Object.freeze({
+    DB_NAME,
+    SCHEMA_VERSION,
+    STRIDE_BYTES,
+    create
+  });
+})(globalThis);
+
+// SOURCE: src/calculator/simulation-cache.js
+// Local, disposable simulation samples. Never stores credentials or uploads data.
+(function (root) {
+  "use strict";
+  function create({
+    indexedDB = root.indexedDB,
+    maxEntries = 8192,
+    maxBytes = 32 * 1024 * 1024,
+    touchFlushDelayMs = 500,
+    touchBatchLimit = 32,
+    retryCooldownMs = 5000,
+    maxCooldownMs = 60000,
+    now = () => Date.now()
+  } = {}) {
+    let opening = null,
+      closed = false,
+      cooldownUntil = 0,
+      failureStreak = 0,
+      touchTimer = null,
+      touchFlush = null;
+    const touched = new Map();
+    function isUnavailable() {
+      return closed || !indexedDB || now() < cooldownUntil;
+    }
+    function recordSuccess() {
+      failureStreak = 0;
+      cooldownUntil = 0;
+    }
+    function recordFailure(resetConnection = false) {
+      failureStreak = Math.min(failureStreak + 1, 6);
+      cooldownUntil = now() + Math.min(maxCooldownMs, retryCooldownMs * 2 ** (failureStreak - 1));
+      if (resetConnection) {
+        const pending = opening;
+        opening = null;
+        void pending?.then((db) => db?.close?.());
+      }
+    }
+    function clearTouchTimer() {
+      if (touchTimer !== null) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+      }
+    }
+    function takeTouched(excludeKey = null) {
+      if (excludeKey !== null) touched.delete(excludeKey);
+      if (!touched.size) return [];
+      const batch = [...touched.entries()];
+      touched.clear();
+      clearTouchTimer();
+      return batch;
+    }
+    function markTouched(key) {
+      if (closed) return;
+      touched.set(key, now());
+      if (touched.size >= touchBatchLimit) {
+        void flushTouches();
+        return;
+      }
+      if (touchTimer === null) {
+        touchTimer = setTimeout(() => {
+          touchTimer = null;
+          void flushTouches();
+        }, touchFlushDelayMs);
+      }
+    }
+    function open() {
+      if (isUnavailable()) return Promise.resolve(null);
+      if (opening) return opening;
+      let failed = false;
+      let attempt = null;
+      attempt = new Promise((resolve) => {
+        let settled = false;
+        const finish = (db) => {
+          if (settled) {
+            db?.close?.();
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          if (!db) {
+            failed = true;
+            if (attempt && opening === attempt) opening = null;
+            recordFailure();
+          }
           resolve(db);
         };
         const timer = setTimeout(() => finish(null), 1500);
@@ -16996,18 +18350,24 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             const db = request.result;
             db.onversionchange = () => {
               db.close();
-              disabled = true;
+              if (attempt && opening === attempt) opening = null;
+              recordFailure();
+            };
+            db.onclose = () => {
+              if (attempt && opening === attempt) opening = null;
             };
             finish(db);
           };
         } catch {
           finish(null);
         }
-      }));
+      });
+      if (!failed) opening = attempt;
+      return attempt;
     }
-    async function transaction(action) {
+    async function transaction(stores, mode, action) {
       const db = await open();
-      if (!db || disabled) return null;
+      if (!db || isUnavailable()) return null;
       return new Promise((resolve) => {
         let tx,
           value = null,
@@ -17019,7 +18379,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           resolve(result);
         };
         const timer = setTimeout(() => {
-          disabled = true;
+          recordFailure();
           try {
             tx?.abort();
           } catch {
@@ -17028,15 +18388,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           finish(null);
         }, 1500);
         try {
-          tx = db.transaction(["samples", "meta"], "readwrite");
-          tx.oncomplete = () => finish(value);
+          tx = db.transaction(stores, mode);
+          tx.oncomplete = () => {
+            recordSuccess();
+            finish(value);
+          };
           tx.onabort = tx.onerror = () => {
-            disabled = true;
+            recordFailure();
             finish(null);
           };
           action(
-            tx.objectStore("samples"),
-            tx.objectStore("meta"),
+            tx,
             (result) => {
               value = result;
             },
@@ -17048,24 +18410,52 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               }
             }
           );
-        } catch {
-          disabled = true;
+        } catch (error) {
+          recordFailure(error?.name === "InvalidStateError");
           finish(null);
         }
       });
     }
-    return {
-      close() {
-        disabled = true;
-        void opening?.then((db) => db?.close());
-      },
-      get(key) {
-        return transaction((samples, _meta, set, guard) => {
+    function flushTouches() {
+      clearTouchTimer();
+      if (!touched.size || isUnavailable()) return touchFlush || Promise.resolve(null);
+      const batch = takeTouched();
+      const pending = transaction(["samples"], "readwrite", (tx, set, guard) => {
+        const samples = tx.objectStore("samples");
+        for (const [key, used] of batch) {
           const request = samples.get(key);
           request.onsuccess = guard(() => {
             const row = request.result;
+            if (!row || row.schema !== 1 || row.used >= used) return;
+            samples.put({ ...row, used }, key);
+          });
+        }
+        set(true);
+      }).finally(() => {
+        if (touchFlush === pending) touchFlush = null;
+      });
+      touchFlush = pending;
+      return pending;
+    }
+    return {
+      close() {
+        closed = true;
+        clearTouchTimer();
+        touched.clear();
+        const pending = opening;
+        opening = null;
+        void pending?.then((db) => db?.close?.());
+      },
+      flush() {
+        return flushTouches();
+      },
+      get(key) {
+        return transaction(["samples"], "readonly", (tx, set, guard) => {
+          const request = tx.objectStore("samples").get(key);
+          request.onsuccess = guard(() => {
+            const row = request.result;
             if (!row || row.schema !== 1) return;
-            samples.put({ ...row, used: Date.now() }, key);
+            markTouched(key);
             set(row.result);
           });
         });
@@ -17074,12 +18464,16 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         // JSON is only used for the size estimate. IndexedDB preserves Infinity.
         const bytes = 2 * (key.length + JSON.stringify(result).length);
         if (bytes > maxBytes) return Promise.resolve(null);
-        return transaction((samples, meta, _set, guard) => {
+        return transaction(["samples", "meta"], "readwrite", (tx, _set, guard) => {
+          const samples = tx.objectStore("samples"),
+            meta = tx.objectStore("meta"),
+            touchBatch = takeTouched(key);
           const prior = samples.get(key),
             totals = meta.get("totals");
           let ready = 0;
+          const needed = 2 + touchBatch.length;
           const write = () => {
-            if (++ready !== 2) return;
+            if (++ready !== needed) return;
             const count = { entries: 0, bytes: 0, ...totals.result };
             const valid =
               [count.entries, count.bytes].every((n) => Number.isSafeInteger(n) && n >= 0) &&
@@ -17092,7 +18486,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               count.entries += prior.result ? 0 : 1;
               count.bytes += bytes - (prior.result?.bytes || 0);
             }
-            samples.put({ schema: 1, bytes, used: Date.now(), result }, key);
+            samples.put({ schema: 1, bytes, used: now(), result }, key);
             const save = () => meta.put(count, "totals");
             if (count.entries <= maxEntries && count.bytes <= maxBytes) {
               save();
@@ -17111,13 +18505,23 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               item.continue();
             });
           };
+          for (const [touchKey, used] of touchBatch) {
+            const touchRequest = samples.get(touchKey);
+            touchRequest.onsuccess = guard(() => {
+              const row = touchRequest.result;
+              if (row && row.schema === 1 && !(row.used >= used)) samples.put({ ...row, used }, touchKey);
+              write();
+            });
+          }
           prior.onsuccess = totals.onsuccess = guard(write);
         });
       },
       clear() {
-        return transaction((samples, meta, set) => {
-          samples.clear();
-          meta.clear();
+        clearTouchTimer();
+        touched.clear();
+        return transaction(["samples", "meta"], "readwrite", (tx, set) => {
+          tx.objectStore("samples").clear();
+          tx.objectStore("meta").clear();
           set(true);
         });
       }
@@ -17136,6 +18540,13 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     const slots = [];
     const queue = [];
     const persistentCache = root.MwiLabyrinthSimulationCache?.create({ indexedDB: ctx.window.indexedDB });
+    const pendingCacheWrites = new Set();
+    if (typeof ctx.window?.addEventListener === "function")
+      ctx.listen(ctx.window, "pagehide", () => void persistentCache?.flush?.());
+    if (typeof ctx.window?.document?.addEventListener === "function")
+      ctx.listen(ctx.window.document, "visibilitychange", () => {
+        if (ctx.window.document.hidden) void persistentCache?.flush?.();
+      });
     let fingerprintSource = null,
       fingerprintPromise = null,
       engineFingerprint = null;
@@ -17295,6 +18706,212 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
     }
     ctx.COMBAT_WORKER_TIMEOUT_MS = 180000;
+    ctx.COMBAT_JOB_MAX_RETRIES = 1;
+
+    function tagError(error, retryable) {
+      const err = error instanceof Error ? error : new Error(String(error || "战斗引擎运行失败"));
+      if (err.combatRetryable === undefined) err.combatRetryable = retryable;
+      return err;
+    }
+    function backoffOnFailure() {
+      const nextLimit = Math.max(1, Math.floor(currentLimit() / 2));
+      adaptiveLimit = nextLimit;
+      healthyCompletions = 0;
+      healthyTicks = 0;
+      backoffs++;
+      lastChange = now();
+      saveConcurrency(nextLimit);
+    }
+    function failSlot(index, worker, error) {
+      const slot = slots[index];
+      if (!slot || (worker && slot.worker !== worker)) return;
+      const targetWorker = worker || slot.worker;
+      backoffOnFailure();
+      if (targetWorker) {
+        for (const [id, pending] of ctx.combatWorkerPendingRequests.entries()) {
+          if (pending.worker !== targetWorker) continue;
+          ctx.clearTimeout(pending.timeout);
+          ctx.combatWorkerPendingRequests.delete(id);
+          pending.reject(error);
+        }
+        targetWorker.terminate();
+      }
+      if (slot.url) URL.revokeObjectURL(slot.url);
+      slot.worker = null;
+      slot.url = "";
+      slot.initialization = null;
+      slot.gameKey = null;
+      if (index === 0) {
+        ctx.combatSimulatorWorker = null;
+        ctx.combatSimulatorWorkerUrl = "";
+      }
+    }
+
+    let idleReleaseTimer = null;
+    let jobSeq = 0;
+    const WORKER_SHIM_PREAMBLE = `(function () {
+  var _rawPost = self.postMessage.bind(self);
+  var _innerOnMessage = null;
+  var _batchCapture = null;
+  var _batchSubSeq = 0;
+  var _lastProgAt = 0;
+  var _lastProgId = null;
+  var _lastProgSent = -1;
+  var _SKILLS = ["stamina", "intelligence", "attack", "melee", "defense", "ranged", "magic"];
+
+  function _outerOnMessage(ev) {
+    var m = ev && ev.data;
+    if (!m || m.type !== "runBatch") {
+      return _innerOnMessage ? _innerOnMessage(ev) : undefined;
+    }
+    return _runBatch(m);
+  }
+
+  if (typeof self.addEventListener === "function") {
+    self.addEventListener("message", _outerOnMessage);
+    Object.defineProperty(self, "onmessage", {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return _innerOnMessage;
+      },
+      set: function (fn) {
+        if (typeof fn === "function") _innerOnMessage = fn;
+      }
+    });
+  } else {
+    Object.defineProperty(self, "onmessage", {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return _outerOnMessage;
+      },
+      set: function (fn) {
+        if (typeof fn === "function") _innerOnMessage = fn;
+      }
+    });
+  }
+
+  self.postMessage = function (msg, transfer) {
+    if (_batchCapture && msg && msg.id === _batchCapture.subId) {
+      if (msg.type === "progress") {
+        _batchCapture.onSubProgress(msg.completed);
+        return;
+      }
+      if (msg.type === "result") {
+        _batchCapture.resolve(msg.result);
+        return;
+      }
+      if (msg.type === "error") {
+        _batchCapture.reject(new Error(msg.error || "战斗引擎运行失败"));
+        return;
+      }
+    }
+    if (msg && msg.type === "ready") {
+      _rawPost({ ...msg, capabilities: { batch: true, throttledProgress: true } });
+      return;
+    }
+    if (msg && msg.type === "progress") {
+      var now = performance.now();
+      var done = msg.completed === msg.target;
+      if (!done && msg.id === _lastProgId && now - _lastProgAt < 80) {
+        return;
+      }
+      _lastProgId = msg.id;
+      _lastProgAt = now;
+      _lastProgSent = msg.completed;
+      _rawPost(msg);
+      return;
+    }
+    if (msg && msg.type === "result" && msg.result) {
+      var t = msg.result.trials;
+      if (_lastProgId !== msg.id || _lastProgSent !== t) {
+        _lastProgId = msg.id;
+        _lastProgSent = t;
+        _rawPost({ id: msg.id, type: "progress", completed: t, target: t });
+      }
+    }
+    if (transfer) _rawPost(msg, transfer);
+    else _rawPost(msg);
+  };
+
+  async function _runBatch(m) {
+    try {
+      if (!_innerOnMessage) throw new Error("战斗引擎尚未加载");
+      var jobs = Array.isArray(m.jobs) ? m.jobs : [];
+      var baseParams = m.baseParams || {};
+      var stride = 16;
+      var out = new Float64Array(jobs.length * stride);
+      var totalTarget = 0;
+      for (var k = 0; k < jobs.length; k++) totalTarget += jobs[k].trials || 0;
+      var doneBeforeJob = 0;
+      var lastBatchProgAt = performance.now();
+      for (var i = 0; i < jobs.length; i++) {
+        var job = jobs[i];
+        var subId = -(++_batchSubSeq);
+        var r = await new Promise(function (resolve, reject) {
+          _batchCapture = {
+            subId: subId,
+            resolve: resolve,
+            reject: reject,
+            onSubProgress: function (c) {
+              var tNow = performance.now();
+              if (tNow - lastBatchProgAt >= 100) {
+                lastBatchProgAt = tNow;
+                _rawPost({ id: m.id, type: "batchProgress", completed: doneBeforeJob + c, target: totalTarget });
+              }
+            }
+          };
+          Promise.resolve(
+            _innerOnMessage({
+              data: {
+                type: "run",
+                id: subId,
+                params: {
+                  playerDto: baseParams.playerDto,
+                  monsterHrid: baseParams.monsterHrid,
+                  mazeCrateItemHrids: baseParams.mazeCrateItemHrids || [],
+                  mazeDifficulty: job.level,
+                  trials: job.trials,
+                  seed: job.seed
+                }
+              }
+            })
+          ).catch(reject);
+        });
+        _batchCapture = null;
+        if (!r || r.trials !== job.trials || r.completedTrials !== job.trials) {
+          throw new Error("战斗引擎未完成批次请求场数");
+        }
+        var off = i * stride;
+        out[off + 0] = r.trials;
+        out[off + 1] = r.successes;
+        out[off + 2] = r.failedByDeath;
+        out[off + 3] = r.failedByTimeout;
+        out[off + 4] = r.totalSpentSeconds;
+        out[off + 5] = r.minElapsedSeconds || 0;
+        out[off + 6] = r.maxElapsedSeconds || 0;
+        out[off + 7] = Number.isFinite(r.durationM2SecondsSquared) ? r.durationM2SecondsSquared : 0;
+        out[off + 8] = Number.isFinite(r.durationSuccessComomentSeconds) ? r.durationSuccessComomentSeconds : 0;
+        var xpMap = r.experienceGained && Object.values(r.experienceGained)[0];
+        for (var s = 0; s < 7; s++) {
+          out[off + 9 + s] = xpMap && Number.isFinite(xpMap[_SKILLS[s]]) ? xpMap[_SKILLS[s]] : 0;
+        }
+        doneBeforeJob += job.trials || 0;
+        var tJob = performance.now();
+        if (i === jobs.length - 1 || tJob - lastBatchProgAt >= 100) {
+          lastBatchProgAt = tJob;
+          _rawPost({ id: m.id, type: "batchProgress", completed: doneBeforeJob, target: totalTarget });
+        }
+      }
+      _rawPost({ id: m.id, type: "batchResult", count: jobs.length, buffer: out.buffer }, [out.buffer]);
+    } catch (err) {
+      _batchCapture = null;
+      _rawPost({ id: m.id, type: "error", error: err && err.message ? err.message : String(err) });
+    }
+  }
+})();
+`;
 
     ctx.unpackEmbeddedAsset = async function (base64) {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -17310,10 +18927,47 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", wasmBuffer)), (n) =>
         n.toString(16).padStart(2, "0")
       ).join("");
-      if (hash !== ctx.MWISIM_WASM_SHA256) throw new Error("内置战斗引擎校验失败");
-      return { workerBuffer, wasmBuffer, data: await new Response(dataBuffer).json() };
+      if (hash !== ctx.MWISIM_WASM_SHA256) throw tagError(new Error("内置战斗引擎校验失败"), false);
+      const wasmModule =
+        typeof WebAssembly?.compile === "function" ? await WebAssembly.compile(wasmBuffer).catch(() => null) : null;
+      const shimBytes = new TextEncoder().encode(WORKER_SHIM_PREAMBLE);
+      const enhancedWorkerBytes = new Uint8Array(shimBytes.byteLength + workerBuffer.byteLength);
+      enhancedWorkerBytes.set(shimBytes, 0);
+      enhancedWorkerBytes.set(new Uint8Array(workerBuffer), shimBytes.byteLength);
+      return {
+        workerBuffer,
+        enhancedWorkerBuffer: enhancedWorkerBytes.buffer,
+        wasmBuffer,
+        wasmModule,
+        data: await new Response(dataBuffer).json()
+      };
+    };
+    ctx.cancelScheduledIdleWorkerRelease = function cancelScheduledIdleWorkerRelease() {
+      if (idleReleaseTimer !== null) {
+        ctx.clearTimeout(idleReleaseTimer);
+        idleReleaseTimer = null;
+      }
+    };
+    ctx.scheduleIdleCombatWorkerRelease = function scheduleIdleCombatWorkerRelease(delayMs = 60000) {
+      ctx.cancelScheduledIdleWorkerRelease();
+      if (ctx.destroyed) return;
+      const hasExtraSlots = slots.slice(1).some((slot) => Boolean(slot));
+      if (!hasExtraSlots) return;
+      const ms = Math.max(0, Math.floor(ctx.finiteNumber(delayMs, 60000)));
+      if (ms === 0) {
+        ctx.releaseIdleCombatWorkers();
+        return;
+      }
+      idleReleaseTimer = ctx.setTimeout(() => {
+        idleReleaseTimer = null;
+        if (!ctx.destroyed && !queue.length && !slots.some((slot) => slot?.busy)) {
+          ctx.releaseIdleCombatWorkers();
+        }
+      }, ms);
+      if (typeof idleReleaseTimer?.unref === "function") idleReleaseTimer.unref();
     };
     ctx.resetCombatSimulatorWorker = function (error = new Error("战斗计算已取消"), { failed = false } = {}) {
+      ctx.cancelScheduledIdleWorkerRelease();
       if (failed) saveConcurrency(Math.max(1, Math.floor(currentLimit() / 2)));
       generation++;
       if (monitor !== null) ctx.clearTimeout(monitor);
@@ -17342,16 +18996,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       ctx.combatWorkerPendingRequests.clear();
     };
-    function request(worker, type, data, trials = 0, progressTracker = null) {
+    function request(worker, index, type, data, trials = 0, progressTracker = null) {
       const id = ++ctx.combatWorkerRequestId;
       return new Promise((resolve, reject) => {
         const timeout = ctx.setTimeout(
-          () => ctx.resetCombatSimulatorWorker(new Error("战斗计算超时，请重试"), { failed: true }),
+          () => failSlot(index, worker, tagError(new Error("战斗计算超时，请重试"), true)),
           ctx.COMBAT_WORKER_TIMEOUT_MS
         );
         ctx.combatWorkerPendingRequests.set(id, {
           type,
           worker,
+          index,
           resolve,
           reject,
           timeout,
@@ -17362,11 +19017,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         try {
           worker.postMessage({ type, id, ...data });
         } catch (error) {
-          ctx.resetCombatSimulatorWorker(error, { failed: true });
+          failSlot(index, worker, tagError(error, true));
         }
       });
     }
-    function receive(worker, { data: message = {} }) {
+    function receive(worker, index, { data: message = {} }) {
       const pending = ctx.combatWorkerPendingRequests.get(message.id);
       if (!pending || pending.worker !== worker) return;
       try {
@@ -17378,15 +19033,38 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             message.completed < pending.completed ||
             message.completed > pending.trials
           )
-            throw new Error("战斗模拟场数进度无效");
+            throw tagError(new Error("战斗模拟场数进度无效"), false);
           const delta = message.completed - pending.completed;
           pending.completed = message.completed;
           if (delta > 0) pending.progressTracker?.add(delta);
           return;
         }
-        if (message.type === "error") throw new Error(String(message.error || "战斗引擎运行失败"));
+        if (message.type === "batchProgress") {
+          if (pending.type !== "runBatch") return;
+          const completedUnits = Math.max(pending.completed, Math.min(pending.trials, Number(message.completed) || 0));
+          const delta = completedUnits - pending.completed;
+          pending.completed = completedUnits;
+          if (delta > 0) pending.progressTracker?.add(delta);
+          return;
+        }
+        if (message.type === "error") throw tagError(new Error(String(message.error || "战斗引擎运行失败")), true);
         if (pending.type === "init") {
-          if (message.type !== "ready") throw new Error("战斗引擎初始化响应无效");
+          if (message.type !== "ready") throw tagError(new Error("战斗引擎初始化响应无效"), false);
+          slotAt(index).capabilities = message.capabilities || {};
+        } else if (pending.type === "runBatch") {
+          const isBuf = Boolean(
+            message.buffer &&
+            (message.buffer instanceof ArrayBuffer ||
+              Object.prototype.toString.call(message.buffer) === "[object ArrayBuffer]")
+          );
+          if (message.type !== "batchResult" || !isBuf) {
+            throw tagError(new Error("战斗引擎批次结果无效"), false);
+          }
+          const remaining = Math.max(0, pending.trials - pending.completed);
+          if (remaining > 0) {
+            pending.completed = pending.trials;
+            pending.progressTracker?.add(remaining);
+          }
         } else {
           const r = message.result;
           if (
@@ -17396,82 +19074,104 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             r.completedTrials !== pending.trials ||
             pending.completed !== pending.trials
           )
-            throw new Error("战斗引擎未完成请求场数");
+            throw tagError(new Error("战斗引擎未完成请求场数"), false);
           if (
             ![r.successes, r.failedByDeath, r.failedByTimeout].every((n) => Number.isSafeInteger(n) && n >= 0) ||
             r.successes + r.failedByDeath + r.failedByTimeout !== pending.trials
           )
-            throw new Error("战斗模拟结果计数不一致");
+            throw tagError(new Error("战斗模拟结果计数不一致"), false);
           if (
             !Number.isFinite(r.totalSpentSeconds) ||
             r.totalSpentSeconds < 0 ||
             r.totalSpentSeconds > pending.trials * 120 + 1e-6
           )
-            throw new Error("战斗模拟累计耗时无效");
+            throw tagError(new Error("战斗模拟累计耗时无效"), false);
         }
         ctx.clearTimeout(pending.timeout);
         ctx.combatWorkerPendingRequests.delete(message.id);
         pending.resolve(message.result || message);
       } catch (error) {
-        ctx.resetCombatSimulatorWorker(error, { failed: true });
+        failSlot(index, worker, error);
       }
     }
     function slotAt(index) {
-      return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false });
+      return (slots[index] ||= { worker: null, url: "", initialization: null, busy: false, capabilities: {} });
     }
     function ensureSlot(
       index,
       gameData = ctx.getInitClientData(),
       gameKey = ctx.cachedInitClientDataRaw || JSON.stringify(gameData)
     ) {
-      if (ctx.destroyed) return Promise.reject(new Error("计算已停止"));
+      if (ctx.destroyed) return Promise.reject(tagError(new Error("计算已停止"), false));
       const slot = slotAt(index);
       if (slot.initialization && slot.gameKey !== gameKey) {
         slot.worker?.terminate();
         if (slot.url) URL.revokeObjectURL(slot.url);
+        slot.worker = null;
+        slot.url = "";
         slot.initialization = null;
+        slot.capabilities = {};
       }
       slot.gameKey = gameKey;
       if (slot.initialization) return slot.initialization;
       const token = generation;
-      slot.initialization = (async () => {
+      let worker = null;
+      let assetsReady = false;
+      const initPromise = (async () => {
         ctx.combatWorkerScriptPromise ||= ctx.prepareMwisimWorkerAssets();
         const assets = await ctx.combatWorkerScriptPromise;
-        if (ctx.destroyed) throw new Error("计算已停止");
-        if (token !== generation) throw new Error("战斗引擎初始化已取消");
-        if (!gameData) throw new Error("游戏数据尚未就绪");
-        slot.url = URL.createObjectURL(new Blob([assets.workerBuffer], { type: "text/javascript" }));
-        const worker = new Worker(slot.url);
+        assetsReady = true;
+        if (ctx.destroyed) throw tagError(new Error("计算已停止"), false);
+        if (token !== generation) throw tagError(new Error("战斗引擎初始化已取消"), false);
+        if (!gameData) throw tagError(new Error("游戏数据尚未就绪"), false);
+        const scriptBytes = assets.enhancedWorkerBuffer || assets.workerBuffer;
+        slot.url = URL.createObjectURL(new Blob([scriptBytes], { type: "text/javascript" }));
+        worker = new Worker(slot.url);
         slot.worker = worker;
         if (index === 0) {
           ctx.combatSimulatorWorker = worker;
           ctx.combatSimulatorWorkerUrl = slot.url;
         }
-        ctx.listen(worker, "message", (event) => receive(worker, event));
+        ctx.listen(worker, "message", (event) => receive(worker, index, event));
         ctx.listen(worker, "error", (event) => {
-          if (token === generation)
-            ctx.resetCombatSimulatorWorker(new Error(event.message || "战斗引擎崩溃"), { failed: true });
+          if (token === generation) failSlot(index, worker, tagError(new Error(event.message || "战斗引擎崩溃"), true));
         });
-        await request(worker, "init", {
-          wasm: assets.wasmBuffer.slice(0),
+        await request(worker, index, "init", {
+          wasm: assets.wasmModule || assets.wasmBuffer.slice(0),
           hash: ctx.MWISIM_WASM_SHA256,
           gameData: gameData.maps || gameData,
           fallbackData: assets.data?.fallbackData,
           originalMaps: assets.data?.originalMaps
         });
-        if (ctx.destroyed || token !== generation) throw new Error("战斗引擎初始化已取消");
+        if (ctx.destroyed || token !== generation) throw tagError(new Error("战斗引擎初始化已取消"), false);
         return worker;
       })().catch((error) => {
         if (token === generation) {
-          ctx.resetCombatSimulatorWorker(error, { failed: true });
-          ctx.combatWorkerScriptPromise = null;
+          if (worker && slot.worker === worker) {
+            failSlot(index, worker, error);
+          } else if (slot.initialization === initPromise) {
+            if (assetsReady && !ctx.destroyed) backoffOnFailure();
+            if (slot.url) URL.revokeObjectURL(slot.url);
+            slot.url = "";
+            slot.worker = null;
+            slot.initialization = null;
+            slot.gameKey = null;
+            slot.capabilities = {};
+            if (index === 0) {
+              ctx.combatSimulatorWorker = null;
+              ctx.combatSimulatorWorkerUrl = "";
+            }
+            if (!assetsReady) ctx.combatWorkerScriptPromise = null;
+          }
         }
         throw error;
       });
-      return slot.initialization;
+      slot.initialization = initPromise;
+      return initPromise;
     }
     ctx.ensureCombatSimulatorWorker = () => ensureSlot(0);
     ctx.releaseIdleCombatWorkers = () => {
+      ctx.cancelScheduledIdleWorkerRelease();
       if (!queue.length && !slots.some((slot) => slot?.busy)) {
         if (monitor !== null) ctx.clearTimeout(monitor);
         monitor = null;
@@ -17489,12 +19189,32 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         slots[i] = null;
       }
     };
+    function insertJobByPriority(job) {
+      let pos = queue.length;
+      while (pos > 0) {
+        const prev = queue[pos - 1];
+        if (prev.priority < job.priority || (prev.priority === job.priority && prev.seq <= job.seq)) break;
+        pos--;
+      }
+      queue.splice(pos, 0, job);
+    }
+    function effectiveJobLimit(job) {
+      const cap = currentLimit();
+      // Background P2 precomputation leaves 1 core for UI responsiveness on 3+ core devices.
+      const priorityCap = job.priority >= 2 && cap >= 3 ? cap - 1 : cap;
+      return Math.min(job.limit, priorityCap);
+    }
     function pump() {
       for (let j = 0; j < queue.length;) {
         // Drain excess in-flight samples before replacing slots after a backoff.
-        if (slots.filter((slot) => slot?.busy).length >= currentLimit()) break;
+        const activeCount = slots.filter((slot) => slot?.busy).length;
+        if (activeCount >= currentLimit()) break;
         const job = queue[j];
-        const limit = Math.min(job.limit, currentLimit());
+        const limit = effectiveJobLimit(job);
+        if (activeCount >= limit) {
+          j++;
+          continue;
+        }
         let index = 0;
         while (index < limit && slotAt(index).busy) index++;
         if (index === limit) {
@@ -17502,40 +19222,249 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           continue;
         }
         queue.splice(j, 1);
+        ctx.cancelScheduledIdleWorkerRelease();
         const slot = slotAt(index),
           token = generation;
         slot.busy = true;
         (async () => {
           const worker = await ensureSlot(index, job.gameData, job.gameKey);
-          if (token !== generation || ctx.destroyed) throw new Error("战斗计算已取消");
-          return request(worker, "run", { params: job.payload }, job.payload.trials, job.progressTracker);
+          if (token !== generation || ctx.destroyed) throw tagError(new Error("战斗计算已取消"), false);
+          const attemptTracker = job.createAttemptTracker?.() || null;
+          if (job.kind === "batch") {
+            const totalTrials = job.jobs.reduce((sum, item) => sum + item.trials, 0);
+            if (slot.capabilities?.batch) {
+              const resp = await request(
+                worker,
+                index,
+                "runBatch",
+                { baseParams: job.baseParams, jobs: job.jobs },
+                totalTrials,
+                attemptTracker
+              );
+              const view = new Float64Array(resp.buffer);
+              const statsMod = root.MwiLabyrinthCombatStats;
+              const results = [];
+              for (let i = 0; i < job.jobs.length; i++) {
+                const stats = statsMod.readLevel(view, i + 1);
+                if (!stats || stats.trials !== job.jobs[i].trials) {
+                  throw tagError(new Error("战斗批次统计不完整"), true);
+                }
+                results.push({ level: job.jobs[i].level, stats });
+              }
+              return results;
+            }
+            // Fallback for test harnesses using legacy mock Workers without the batch shim.
+            const statsMod = root.MwiLabyrinthCombatStats;
+            const results = [];
+            for (const sub of job.jobs) {
+              if (token !== generation || ctx.destroyed) throw tagError(new Error("战斗计算已取消"), false);
+              const single = await request(
+                worker,
+                index,
+                "run",
+                {
+                  params: {
+                    playerDto: job.baseParams.playerDto,
+                    monsterHrid: job.baseParams.monsterHrid,
+                    mazeCrateItemHrids: job.baseParams.mazeCrateItemHrids || [],
+                    mazeDifficulty: sub.level,
+                    trials: sub.trials,
+                    seed: sub.seed
+                  }
+                },
+                sub.trials,
+                attemptTracker
+              );
+              results.push({ level: sub.level, stats: statsMod.normalizeStats(single) });
+            }
+            return results;
+          }
+          return request(worker, index, "run", { params: job.payload }, job.payload.trials, attemptTracker);
         })()
-          .then((value) => {
-            completedJob();
-            job.resolve(value);
-          }, job.reject)
+          .then(
+            (value) => {
+              completedJob();
+              job.resolve(value);
+            },
+            (error) => {
+              if (token === generation && !ctx.destroyed && error?.combatRetryable && job.retriesLeft > 0) {
+                job.retriesLeft--;
+                insertJobByPriority(job);
+                return;
+              }
+              job.reject(error);
+            }
+          )
           .finally(() => {
             slot.busy = false;
-            if (token === generation) pump();
+            if (token === generation) {
+              pump();
+              if (queue.length || slots.some((entry) => entry?.busy)) startMonitor();
+            }
           });
       }
     }
-    function dispatch(payload, progressTracker, parallel, gameData, gameKey) {
+    function createRetrySafeTracker(progressTracker) {
+      if (!progressTracker) return null;
+      let reportedProgress = 0;
+      return () => {
+        let attemptProgress = 0;
+        return {
+          add(units = 1, message) {
+            const n = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
+            attemptProgress += n;
+            if (attemptProgress > reportedProgress) {
+              const delta = attemptProgress - reportedProgress;
+              reportedProgress = attemptProgress;
+              progressTracker.add(delta, message);
+            }
+          }
+        };
+      };
+    }
+    function dispatch(payload, progressTracker, parallel, gameData, gameKey, priority = 0) {
       if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
+      const createAttemptTracker = createRetrySafeTracker(progressTracker);
       return new Promise((resolve, reject) => {
-        queue.push({
+        insertJobByPriority({
+          kind: "run",
+          priority: Math.max(0, Math.min(2, Math.floor(ctx.finiteNumber(priority, 0)))),
+          seq: ++jobSeq,
           payload,
-          progressTracker,
+          createAttemptTracker,
           resolve,
           reject,
           gameData,
           gameKey,
+          retriesLeft: Math.max(0, Math.floor(ctx.finiteNumber(ctx.COMBAT_JOB_MAX_RETRIES, 1))),
           limit: parallel ? ctx.getCombatParallelism() : 1
         });
         pump();
         startMonitor();
       });
     }
+    function dispatchBatch(baseParams, jobs, progressTracker, parallel, gameData, gameKey, priority = 1) {
+      if (ctx.destroyed) return Promise.reject(new Error("战斗计算已取消"));
+      const createAttemptTracker = createRetrySafeTracker(progressTracker);
+      return new Promise((resolve, reject) => {
+        insertJobByPriority({
+          kind: "batch",
+          priority: Math.max(0, Math.min(2, Math.floor(ctx.finiteNumber(priority, 1)))),
+          seq: ++jobSeq,
+          baseParams,
+          jobs,
+          createAttemptTracker,
+          resolve,
+          reject,
+          gameData,
+          gameKey,
+          retriesLeft: Math.max(0, Math.floor(ctx.finiteNumber(ctx.COMBAT_JOB_MAX_RETRIES, 1))),
+          limit: parallel ? ctx.getCombatParallelism() : 1
+        });
+        pump();
+        startMonitor();
+      });
+    }
+    ctx.simulateCombatBatchWithWorker = async function (params, progressTracker) {
+      const token = generation;
+      const owner = ctx.storageIdentity?.();
+      const cancelled = () => ctx.destroyed || token !== generation || ctx.storageIdentity?.() !== owner;
+      if (ctx.simulationCacheClearing) await ctx.simulationCacheClearing;
+      if (cancelled()) throw new Error("战斗计算已取消");
+      const jobs = Array.isArray(params?.jobs)
+        ? params.jobs
+            .map((j) => ({
+              level: Math.max(1, Math.floor(ctx.finiteNumber(j.level, 1))),
+              trials: Math.max(1, Math.min(3000, Math.floor(ctx.finiteNumber(j.trials, 1)))),
+              seed: Number(j.seed ?? 173) >>> 0
+            }))
+            .filter((j) => j.trials > 0)
+        : [];
+      if (!jobs.length) return [];
+      const gameData = ctx.getInitClientData();
+      if (!gameData) throw new Error("游戏数据尚未就绪");
+      const gameSource = ctx.cachedInitClientDataRaw || JSON.stringify(gameData);
+      const baseParams = {
+        playerDto: ctx.deepCloneJson(params.playerDto),
+        monsterHrid: params.monsterHrid,
+        mazeCrateItemHrids: ctx.deepCloneJson(params.mazeCrateItemHrids || [])
+      };
+      return dispatchBatch(
+        baseParams,
+        jobs,
+        progressTracker,
+        params.parallel !== false,
+        gameData,
+        gameSource,
+        params.priority ?? 1
+      );
+    };
+    ctx.simulateCombatChunkedWithWorker = async function (params, progressTracker) {
+      const statsMod = root.MwiLabyrinthCombatStats;
+      if (!statsMod) return ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      const existingTrials = Math.max(0, Math.floor(ctx.finiteNumber(params?.existingTrials, 0)));
+      const targetTrials = Math.max(1, Math.floor(ctx.finiteNumber(params?.trials, 1)));
+      const baseSeed = Number.isSafeInteger(params?.seed) ? params.seed : 173;
+      const chunkSize = Math.max(1, Math.floor(ctx.finiteNumber(params?.chunkSize, statsMod.DEFAULT_CHUNK_TRIALS)));
+      const plan = statsMod.buildChunkPlan(existingTrials, targetTrials, { baseSeed, chunkSize });
+      if (!plan.length) return null;
+      // Single small chunk can run directly without extra fan-out overhead.
+      if (plan.length === 1) {
+        const res = await ctx.simulateCombatBatchWithWorker(
+          {
+            playerDto: params.playerDto,
+            monsterHrid: params.monsterHrid,
+            mazeCrateItemHrids: params.mazeCrateItemHrids,
+            jobs: [{ level: params.mazeDifficulty, trials: plan[0].trials, seed: plan[0].seed }],
+            parallel: params.parallel !== false,
+            priority: params.priority ?? 0
+          },
+          progressTracker
+        );
+        return res[0]?.stats || null;
+      }
+      // Multi-chunk fan-out across all available cores for fast single-room / refinement solves.
+      const chunkResults = await Promise.all(
+        plan.map((chunk) =>
+          ctx
+            .simulateCombatBatchWithWorker(
+              {
+                playerDto: params.playerDto,
+                monsterHrid: params.monsterHrid,
+                mazeCrateItemHrids: params.mazeCrateItemHrids,
+                jobs: [{ level: params.mazeDifficulty, trials: chunk.trials, seed: chunk.seed }],
+                parallel: true,
+                priority: params.priority ?? 0
+              },
+              progressTracker
+            )
+            .then((rows) => rows[0]?.stats || null)
+        )
+      );
+      let merged = null;
+      for (const chunkStats of chunkResults) {
+        if (chunkStats) merged = statsMod.mergeStats(merged, chunkStats);
+      }
+      return merged;
+    };
+    function persistSampleInBackground(diskKey, result) {
+      if (!diskKey || !persistentCache?.put) return;
+      let write;
+      write = (async () => {
+        try {
+          await persistentCache.put(diskKey, result);
+        } catch {
+          /* Cache persistence is best-effort and must never fail calculation. */
+        }
+      })().finally(() => {
+        pendingCacheWrites.delete(write);
+      });
+      pendingCacheWrites.add(write);
+    }
+    ctx.flushSimulationCache = async () => {
+      if (pendingCacheWrites.size) await Promise.allSettled([...pendingCacheWrites]);
+      await persistentCache?.flush?.();
+    };
     ctx.simulateCombatRoomWithWorker = async function (params, progressTracker) {
       const token = generation,
         owner = ctx.storageIdentity?.();
@@ -17560,7 +19489,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         gameSource = fingerprintSource;
       const [gameKey, engineKey] = await Promise.all([pendingGameKey, engineFingerprint]);
       if (cancelled()) throw new Error("战斗计算已取消");
-      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource);
+      const run = () => dispatch(payload, progressTracker, params.parallel, gameData, gameSource, params.priority ?? 0);
       // Explicit opt-out remains available to benchmarks and fresh simulations.
       if (!params.reuseSimulation || !Number.isSafeInteger(params.seed)) return run();
       const key = JSON.stringify([
@@ -17602,8 +19531,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         if (cancelled()) throw new Error("战斗计算已取消");
         validateCachedResult(result, trials);
         remember(key, result);
-        if (diskKey) await persistentCache?.put(diskKey, result);
-        if (cancelled()) throw new Error("战斗计算已取消");
+        persistSampleInBackground(diskKey, result);
         return result;
       })();
       inFlight.set(key, pending);
@@ -17613,6 +19541,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         if (inFlight.get(key) === pending) inFlight.delete(key);
       }
     };
+    ctx.simulateCombatRoomWithWorker.__mwiNative = true;
     function validateCachedResult(result, trials) {
       if (
         result.trials !== trials ||
@@ -17641,7 +19570,10 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return false;
       ctx.resetCombatSimulatorWorker();
       ctx.clearSkillingSimulationCache?.();
-      ctx.simulationCacheClearing = Promise.resolve(persistentCache?.clear());
+      ctx.simulationCacheClearing = (async () => {
+        if (pendingCacheWrites.size) await Promise.allSettled([...pendingCacheWrites]);
+        return persistentCache?.clear();
+      })();
       try {
         const cleared = await ctx.simulationCacheClearing;
         return !persistentCache || cleared === true;
@@ -18458,6 +20390,97 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return Boolean(loadout && loadout.actionTypeHrid === "/action_types/combat");
     };
 
+    ctx.isUsableCombatRoomLoadout = function isUsableCombatRoomLoadout(loadout) {
+      return Boolean(loadout && (loadout.actionTypeHrid === "/action_types/combat" || loadout.actionTypeHrid === ""));
+    };
+
+    ctx.getSupportedCombatEquipmentLocationHrids = function getSupportedCombatEquipmentLocationHrids() {
+      const locations = [];
+      for (const equipmentType of ctx.SIMULATOR_SUPPORTED_EQUIPMENT_TYPES || []) {
+        const raw = String(equipmentType || "");
+        if (raw.startsWith("/equipment_types/")) {
+          locations.push(raw.replace("/equipment_types/", "/item_locations/"));
+        }
+      }
+      return locations;
+    };
+
+    ctx.getCurrentEquippedCombatItems = function getCurrentEquippedCombatItems(state) {
+      const locations = ctx.getSupportedCombatEquipmentLocationHrids();
+      const locationSet = new Set(locations);
+      const items = [];
+      const seenLocations = new Set();
+
+      if (state?.characterItemByLocationMap) {
+        for (const locationHrid of locations) {
+          const entry = ctx.getCurrentEquippedItemForLocation(state, locationHrid);
+          if (!entry?.itemHrid) {
+            continue;
+          }
+          seenLocations.add(locationHrid);
+          items.push({
+            ...entry,
+            locationHrid
+          });
+        }
+        return items;
+      }
+
+      const itemMap = state?.characterItemMap;
+      const rawItems = ctx.isMapObject(itemMap)
+        ? itemMap.values()
+        : itemMap && typeof itemMap === "object"
+          ? Object.values(itemMap)
+          : [];
+      for (const item of rawItems) {
+        const locationHrid = String(item?.itemLocationHrid || "");
+        if (!locationHrid || !locationSet.has(locationHrid) || seenLocations.has(locationHrid)) {
+          continue;
+        }
+        if (!item?.itemHrid || (Number.isFinite(Number(item.count)) && Number(item.count) <= 0)) {
+          continue;
+        }
+        seenLocations.add(locationHrid);
+        items.push({
+          locationHrid,
+          itemHrid: String(item.itemHrid || ""),
+          enhancementLevel: Math.max(0, ctx.finiteNumber(item.enhancementLevel, 0)),
+          fromCurrentEquipment: true
+        });
+      }
+      return items;
+    };
+
+    ctx.buildCurrentEquippedAbilityMap = function buildCurrentEquippedAbilityMap(state) {
+      const abilityMap = {};
+      for (const [key, ability] of ctx.getContainerEntries(state?.characterAbilityMap)) {
+        const slot = Number(ability?.slotNumber);
+        if (!Number.isInteger(slot) || slot < 1 || slot > ctx.COMBAT_SLOT_COUNT) {
+          continue;
+        }
+        const abilityHrid = String(ability?.abilityHrid || key || "");
+        if (!abilityHrid) {
+          continue;
+        }
+        abilityMap[slot] = abilityHrid;
+      }
+      return abilityMap;
+    };
+
+    ctx.hasCurrentCombatSetup = function hasCurrentCombatSetup(state) {
+      const locationMap = state?.characterItemByLocationMap;
+      if (ctx.isMapObject(locationMap)) {
+        return true;
+      }
+      if (locationMap && typeof locationMap === "object" && Object.keys(locationMap).length > 0) {
+        return true;
+      }
+      if (ctx.getCurrentEquippedCombatItems(state).length > 0) {
+        return true;
+      }
+      return Object.keys(ctx.buildCurrentEquippedAbilityMap(state)).length > 0;
+    };
+
     ctx.listCombatLoadouts = function listCombatLoadouts(state) {
       const loadouts = [];
       for (const value of Object.values(state?.characterLoadoutDict || {})) {
@@ -18467,6 +20490,21 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       loadouts.sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0));
       return loadouts;
+    };
+
+    ctx.listUsableCombatRoomLoadouts = function listUsableCombatRoomLoadouts(state) {
+      const combatLoadouts = ctx.listCombatLoadouts(state);
+      if (combatLoadouts.length > 0) {
+        return combatLoadouts;
+      }
+      const genericLoadouts = [];
+      for (const value of Object.values(state?.characterLoadoutDict || {})) {
+        if (ctx.isUsableCombatRoomLoadout(value)) {
+          genericLoadouts.push(value);
+        }
+      }
+      genericLoadouts.sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0));
+      return genericLoadouts;
     };
 
     ctx.getMostUsedCombatLoadoutIdOnCurrentLabyrinth = function getMostUsedCombatLoadoutIdOnCurrentLabyrinth(state) {
@@ -18489,7 +20527,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             continue;
           }
           const loadout = ctx.getLoadoutById(state?.characterLoadoutDict, id);
-          if (!ctx.isCombatLoadout(loadout)) {
+          if (!ctx.isUsableCombatRoomLoadout(loadout)) {
             continue;
           }
           countByLoadoutId.set(id, (countByLoadoutId.get(id) || 0) + 1);
@@ -18509,7 +20547,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ctx.resolveCombatRoomLoadout = function resolveCombatRoomLoadout(state, room) {
       const direct = ctx.getLabyrinthRoomLoadout(state, room);
       const selectedLoadoutId = Number(direct.loadoutId || 0);
-      if (ctx.isCombatLoadout(direct.loadout) && selectedLoadoutId > 0) {
+      if (ctx.isUsableCombatRoomLoadout(direct.loadout) && selectedLoadoutId > 0) {
         return {
           ...direct,
           source: "room",
@@ -18517,10 +20555,21 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         };
       }
 
+      // MWI enters rooms configured with "No Loadout" (0) using the character's currently equipped setup.
+      if (ctx.hasCurrentCombatSetup(state)) {
+        return {
+          ...direct,
+          loadoutId: 0,
+          loadout: null,
+          source: "current",
+          selectedLoadoutId
+        };
+      }
+
       const fallbackIdOnFloor = ctx.getMostUsedCombatLoadoutIdOnCurrentLabyrinth(state);
       if (fallbackIdOnFloor > 0) {
         const fallbackLoadout = ctx.getLoadoutById(state?.characterLoadoutDict, fallbackIdOnFloor);
-        if (ctx.isCombatLoadout(fallbackLoadout)) {
+        if (ctx.isUsableCombatRoomLoadout(fallbackLoadout)) {
           return {
             ...direct,
             loadoutId: fallbackIdOnFloor,
@@ -18531,7 +20580,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         }
       }
 
-      const combatLoadouts = ctx.listCombatLoadouts(state);
+      const combatLoadouts = ctx.listUsableCombatRoomLoadouts(state);
       if (combatLoadouts.length > 0) {
         const fallbackLoadout = combatLoadouts[0];
         return {
@@ -18594,7 +20643,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (!normalizedKey) {
         return false;
       }
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.has(normalizedKey);
       }
       if (container && typeof container === "object") {
@@ -18604,7 +20653,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     };
 
     ctx.hasAnyContainerEntries = function hasAnyContainerEntries(container) {
-      if (container instanceof Map) {
+      if (ctx.isMapObject(container)) {
         return container.size > 0;
       }
       if (container && typeof container === "object") {
@@ -18666,6 +20715,25 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       return true;
     };
 
+    ctx.buildCurrentCombatEquipmentDto = function buildCurrentCombatEquipmentDto(state, initClientData) {
+      const equipment = {};
+      for (const entry of ctx.getCurrentEquippedCombatItems(state)) {
+        if (!entry?.itemHrid) {
+          continue;
+        }
+        const itemDetail = ctx.getItemDetailByHrid(state, initClientData, entry.itemHrid);
+        const equipmentType = itemDetail?.equipmentDetail?.type;
+        if (!ctx.shouldIncludeCombatEquipment(entry.itemHrid, equipmentType)) {
+          continue;
+        }
+        equipment[equipmentType] = {
+          hrid: entry.itemHrid,
+          enhancementLevel: Math.max(0, Math.floor(ctx.finiteNumber(entry.enhancementLevel, 0)))
+        };
+      }
+      return equipment;
+    };
+
     ctx.buildCombatLoadoutEquipmentDto = function buildCombatLoadoutEquipmentDto(
       state,
       initClientData,
@@ -18705,8 +20773,12 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const requirementList = Array.isArray(state?.abilitySlotsLevelRequirementList)
         ? state.abilitySlotsLevelRequirementList
         : [0, 1, 1, 20, 50, 90];
-      const loadoutAbilityMap = loadout?.abilityMap || {};
-      const loadoutTriggerMap = loadout?.abilityCombatTriggersMap;
+      const useCurrentEquippedAbilities =
+        !loadout || (loadout.actionTypeHrid === "" && !ctx.hasAnyContainerEntries(loadout.abilityMap));
+      const loadoutAbilityMap = useCurrentEquippedAbilities
+        ? ctx.buildCurrentEquippedAbilityMap(state)
+        : loadout?.abilityMap || {};
+      const loadoutTriggerMap = useCurrentEquippedAbilities ? null : loadout?.abilityCombatTriggersMap;
       const globalTriggerMap = state?.abilityCombatTriggersDict;
       const loadoutHasTriggerConfig = ctx.hasAnyContainerEntries(loadoutTriggerMap);
 
@@ -18756,7 +20828,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     ) {
       const loadoutInfo = ctx.resolveCombatRoomLoadout(state, room);
       const loadout = loadoutInfo.loadout;
-      if (!ctx.isCombatLoadout(loadout)) {
+      const useCurrentSetup = loadoutInfo.source === "current";
+      if (!useCurrentSetup && !ctx.isUsableCombatRoomLoadout(loadout)) {
         return {
           playerDto: null,
           loadoutInfo
@@ -18765,8 +20838,15 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
       const levels = ctx.getCombatSkillLevelsFromState(state);
       const intelligenceLevel = ctx.positiveNumber(levels.intelligence, 1);
-      const equipment = ctx.buildCombatLoadoutEquipmentDto(state, initClientData, loadout, maxEnhancementByItem);
-      const abilities = ctx.buildCombatLoadoutAbilityDtos(state, initClientData, loadout, intelligenceLevel);
+      const equipment = useCurrentSetup
+        ? ctx.buildCurrentCombatEquipmentDto(state, initClientData)
+        : ctx.buildCombatLoadoutEquipmentDto(state, initClientData, loadout, maxEnhancementByItem);
+      const abilities = ctx.buildCombatLoadoutAbilityDtos(
+        state,
+        initClientData,
+        useCurrentSetup ? null : loadout,
+        intelligenceLevel
+      );
       const houseRooms = ctx.buildHouseRoomLevelMap(state);
       const achievements = ctx.buildAchievementCompletionMap(state);
 
@@ -18837,7 +20917,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         roomRecommendedLevel: Math.max(0, Math.floor(ctx.finiteNumber(room?.recommendedLevel, 0))),
         loadoutId: Number(loadoutInfo.loadoutId || 0),
         loadoutName: String(loadout?.name || ""),
-        loadoutMode: loadout?.useExactEnhancement ? "exact" : "highest",
+        loadoutMode: loadout ? (loadout.useExactEnhancement ? "exact" : "highest") : "current",
         loadoutSource: String(loadoutInfo.source || "room"),
         selectedLoadoutId: Number(loadoutInfo.selectedLoadoutId || loadoutInfo.loadoutId || 0),
         loadoutSettingKey: String(loadoutInfo.settingKey || ""),
@@ -18890,7 +20970,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         }
       }
 
-      if (itemMap instanceof Map) {
+      if (ctx.isMapObject(itemMap)) {
         for (const item of itemMap.values()) {
           consume(item);
         }
@@ -18927,7 +21007,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       const locationMap = state?.characterItemByLocationMap;
       let item = null;
-      if (locationMap instanceof Map) {
+      if (ctx.isMapObject(locationMap)) {
         item = locationMap.get(location) || null;
       } else if (locationMap && typeof locationMap === "object") {
         item = locationMap[location] || null;
@@ -19545,12 +21625,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       };
     };
 
-    ctx.computeCombatRoomClearChanceFullFlow = async function computeCombatRoomClearChanceFullFlow(
+    ctx.buildCombatRoomSimulationContext = function buildCombatRoomSimulationContext(
       state,
       initClientData,
       room,
       maxEnhancementByItem,
-      progressTracker,
       combatTrials,
       roomKey = "",
       options = {}
@@ -19568,7 +21647,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (inputSnapshot) {
         inputSnapshot.roomKey = String(roomKey || "");
       }
-
       const params = {
         playerDto: playerData.playerDto,
         monsterHrid: room.monsterHrid,
@@ -19582,35 +21660,161 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         reuseSimulation: options.reuseSimulation !== false,
         parallel: options.parallel
       };
-      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
-      let upgradeImpact;
-      if (options.combatUpgrades) {
-        upgradeImpact = {};
-        const calculateUpgrade = async ({ key, buff, level, cost }) => {
-          if (options.isRunStale?.()) return null;
-          let clearChance = null;
-          let experiencePerHour = null;
-          if (cost !== null) {
-            const playerDto = {
-              ...params.playerDto,
-              labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
-            };
-            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, progressTracker);
+      return {
+        roomLevel,
+        trials,
+        combatCrate,
+        guildCombatShrineLevels,
+        combatCrateSignature,
+        playerData,
+        inputSnapshot,
+        params
+      };
+    };
+
+    ctx.computeCombatUpgradesForParams = async function computeCombatUpgradesForParams(
+      params,
+      combatUpgrades,
+      progressTracker,
+      options = {}
+    ) {
+      if (!Array.isArray(combatUpgrades)) {
+        return { upgradeImpact: undefined, failedUpgrades: [] };
+      }
+      const upgradeImpact = {};
+      const failedUpgrades = [];
+      const calculateUpgrade = async ({ key, buff, level, cost }) => {
+        if (options.isRunStale?.()) return null;
+        let clearChance = null;
+        let experiencePerHour = null;
+        if (cost !== null) {
+          let reported = 0;
+          const upgradeTracker = progressTracker
+            ? {
+                add(units = 1, message) {
+                  const n = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
+                  const delta = Math.min(Math.max(0, params.trials - reported), n);
+                  if (delta > 0) {
+                    reported += delta;
+                    progressTracker.add(delta, message);
+                  }
+                }
+              }
+            : null;
+          const playerDto = {
+            ...params.playerDto,
+            labyrinthUpgrades: { ...params.playerDto.labyrinthUpgrades, [buff]: level + 1 }
+          };
+          try {
+            const upgraded = await ctx.simulateCombatRoomWithWorker({ ...params, playerDto }, upgradeTracker);
             clearChance = upgraded.successes / upgraded.trials;
             experiencePerHour = root.MwiLabyrinthCombatExperience.summarize(
               upgraded,
               ctx.ROOM_ENTRY_SECONDS
             ).experiencePerHour;
+          } catch (error) {
+            if (!options.tolerateUpgradeErrors || options.isRunStale?.()) throw error;
+            const remaining = Math.max(0, params.trials - reported);
+            if (remaining > 0) progressTracker?.add(remaining);
+            failedUpgrades.push({ key, error });
           }
-          upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
-        };
-        if (options.parallel) {
-          const settled = await Promise.allSettled(options.combatUpgrades.map(calculateUpgrade));
+        }
+        upgradeImpact[key] = { level, cost, clearChance, experiencePerHour };
+      };
+      if (options.parallel) {
+        const settled = await Promise.allSettled(combatUpgrades.map(calculateUpgrade));
+        if (!options.tolerateUpgradeErrors) {
           const failure = settled.find((entry) => entry.status === "rejected");
           if (failure) throw failure.reason;
-        } else {
-          for (const upgrade of options.combatUpgrades) await calculateUpgrade(upgrade);
         }
+      } else {
+        for (const upgrade of combatUpgrades) await calculateUpgrade(upgrade);
+      }
+      return { upgradeImpact, failedUpgrades };
+    };
+
+    ctx.computeCombatRoomUpgradeImpact = async function computeCombatRoomUpgradeImpact(
+      state,
+      initClientData,
+      room,
+      maxEnhancementByItem,
+      progressTracker,
+      combatTrials,
+      roomKey = "",
+      options = {}
+    ) {
+      if (
+        !room ||
+        room.roomType !== ctx.LABYRINTH_COMBAT_ROOM_TYPE ||
+        !room.monsterHrid ||
+        !Array.isArray(options.combatUpgrades)
+      ) {
+        return null;
+      }
+      const trials = ctx.normalizeCombatSimTrials(combatTrials);
+      const simContext = ctx.buildCombatRoomSimulationContext(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        trials,
+        roomKey,
+        {
+          ...options,
+          labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+          seed: options.seed ?? 173,
+          reuseSimulation: options.reuseSimulation !== false
+        }
+      );
+      if (!simContext) {
+        return null;
+      }
+      return ctx.computeCombatUpgradesForParams(simContext.params, options.combatUpgrades, progressTracker, options);
+    };
+
+    ctx.computeCombatRoomClearChanceFullFlow = async function computeCombatRoomClearChanceFullFlow(
+      state,
+      initClientData,
+      room,
+      maxEnhancementByItem,
+      progressTracker,
+      combatTrials,
+      roomKey = "",
+      options = {}
+    ) {
+      const simContext = ctx.buildCombatRoomSimulationContext(
+        state,
+        initClientData,
+        room,
+        maxEnhancementByItem,
+        combatTrials,
+        roomKey,
+        options
+      );
+      if (!simContext) {
+        return null;
+      }
+      const {
+        roomLevel,
+        trials,
+        combatCrate,
+        guildCombatShrineLevels,
+        combatCrateSignature,
+        playerData,
+        inputSnapshot,
+        params
+      } = simContext;
+
+      const workerResult = await ctx.simulateCombatRoomWithWorker(params, progressTracker);
+      let upgradeImpact;
+      if (options.combatUpgrades) {
+        const outcome = await ctx.computeCombatUpgradesForParams(
+          params,
+          options.combatUpgrades,
+          progressTracker,
+          options
+        );
+        upgradeImpact = outcome.upgradeImpact;
       }
 
       const combatExperience = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
@@ -19661,7 +21865,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           expectedSecondsPerClearRaw: expectedSecondsPerClear,
           loadoutId: playerData.loadoutInfo.loadoutId || 0,
           loadoutName: playerData.loadoutInfo.loadout?.name || "",
-          loadoutMode: playerData.loadoutInfo.loadout?.useExactEnhancement ? "exact" : "highest",
+          loadoutMode: playerData.loadoutInfo.loadout
+            ? playerData.loadoutInfo.loadout.useExactEnhancement
+              ? "exact"
+              : "highest"
+            : "current",
           loadoutSource: playerData.loadoutInfo.source || "room",
           selectedLoadoutId: playerData.loadoutInfo.selectedLoadoutId || playerData.loadoutInfo.loadoutId || 0,
           mazeCrateItemHrid: combatCrateSignature,
@@ -19684,7 +21892,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           playerData.loadoutInfo.selectedLoadoutId !== playerData.loadoutInfo.loadoutId
             ? `selected=${playerData.loadoutInfo.selectedLoadoutId}`
             : "",
-          `mode=${playerData.loadoutInfo.loadout?.useExactEnhancement ? "exact" : "highest"}`,
+          `mode=${playerData.loadoutInfo.loadout ? (playerData.loadoutInfo.loadout.useExactEnhancement ? "exact" : "highest") : "current"}`,
           `crate=${combatCrateSignature || "none"}`,
           `guildLv=${Object.values(guildCombatShrineLevels).join("/")}`,
           `labLv=${Object.values(playerData.playerDto.labyrinthUpgrades).join("/")}`,
@@ -19711,6 +21919,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         ].join(" | ")
       };
     };
+    ctx.computeCombatRoomClearChanceFullFlow.__mwiNative = true;
 
     ctx.computeCombatRoomClearChance = async function computeCombatRoomClearChance(
       state,
@@ -19726,6 +21935,37 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         return null;
       }
       const trials = ctx.normalizeCombatSimTrials(combatTrials);
+      const canUseCurve =
+        options.useCurve !== false &&
+        options.reuseSimulation !== false &&
+        typeof ctx.queryCombatRoomViaCurve === "function" &&
+        ctx.computeCombatRoomClearChanceFullFlow.__mwiNative === true &&
+        ctx.simulateCombatRoomWithWorker?.__mwiNative === true;
+
+      if (canUseCurve) {
+        const curveResult = await ctx.queryCombatRoomViaCurve(
+          state,
+          initClientData,
+          room,
+          maxEnhancementByItem,
+          progressTracker,
+          trials,
+          roomKey,
+          {
+            ...options,
+            labyrinthUpgradeLevels: ctx.resolveLabyrinthUpgradeLevels(options),
+            seed: options.seed ?? 173
+          }
+        );
+        if (!curveResult) return null;
+        return {
+          ...curveResult,
+          combatMeta: {
+            ...(curveResult.combatMeta || {}),
+            roomKey: String(roomKey || curveResult.combatMeta?.roomKey || "")
+          }
+        };
+      }
 
       const result = await ctx.computeCombatRoomClearChanceFullFlow(
         state,
@@ -19809,6 +22049,1351 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   root.MwiLabyrinthCombatExperience = Object.freeze({ summarize, skills: Object.freeze(skills) });
 })(globalThis);
 
+// SOURCE: src/calculator/profile-fingerprint.js
+// Fine-grained normalized capability snapshots & per-room-type change detection.
+// Ensures recalculation occurs strictly for room types whose effective stats changed.
+(function (root) {
+  "use strict";
+
+  root.MwiLabyrinthCalculatorModules ||= {};
+
+  function quantize(value, scale = 1e9) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round(n * scale);
+  }
+
+  // Fast synchronous 128-bit deterministic hash (4 independent 32-bit mixed lanes).
+  function hash128(text) {
+    const str = String(text || "");
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9e3779b1;
+    let h3 = 0x85ebca6b;
+    let h4 = 0xc2b2ae35;
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
+      h3 = Math.imul(h3 ^ (c ^ (i >>> 1)), 0xc2b2ae35) >>> 0;
+      h4 = Math.imul(h4 ^ ((c << 3) ^ i), 0x27d4eb2d) >>> 0;
+    }
+    const mix = (x) => {
+      x = Math.imul(x ^ (x >>> 16), 0x85ebca6b) >>> 0;
+      x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35) >>> 0;
+      return ((x ^ (x >>> 16)) >>> 0).toString(16).padStart(8, "0");
+    };
+    return mix(h1 ^ h3) + mix(h2 ^ h4) + mix(h3 ^ h1) + mix(h4 ^ h2);
+  }
+
+  root.MwiLabyrinthCalculatorModules["profile-fingerprint"] = function (ctx) {
+    let cachedGameDataRaw = null;
+    let cachedGameDataHash = "";
+    let lastSnapshotIdentity = "";
+    let lastSkillKeys = new Map();
+    let lastCombatKeys = new Map();
+
+    ctx.hash128 = hash128;
+
+    ctx.getSyncGameDataHash = function getSyncGameDataHash(initClientData) {
+      const raw = ctx.cachedInitClientDataRaw;
+      if (raw && raw === cachedGameDataRaw && cachedGameDataHash) {
+        return cachedGameDataHash;
+      }
+      if (raw) {
+        cachedGameDataRaw = raw;
+        cachedGameDataHash = hash128(raw);
+        return cachedGameDataHash;
+      }
+      if (!initClientData) return "";
+      const fallbackRaw = JSON.stringify(initClientData);
+      if (fallbackRaw === cachedGameDataRaw && cachedGameDataHash) return cachedGameDataHash;
+      cachedGameDataRaw = fallbackRaw;
+      cachedGameDataHash = hash128(fallbackRaw);
+      return cachedGameDataHash;
+    };
+
+    function resolveUpgradeLevelsSafely(state, options) {
+      if (options?.labyrinthUpgradeLevels && typeof options.labyrinthUpgradeLevels === "object") {
+        return typeof ctx.normalizeLabyrinthUpgradeLevels === "function"
+          ? ctx.normalizeLabyrinthUpgradeLevels(options.labyrinthUpgradeLevels)
+          : options.labyrinthUpgradeLevels;
+      }
+      const fromState = ctx.readLabyrinthUpgradeLevelsFromState?.(state);
+      if (fromState) {
+        return typeof ctx.mergeLabyrinthUpgradeLevels === "function"
+          ? ctx.mergeLabyrinthUpgradeLevels(ctx.latestLabyrinthUpgradeLevels || {}, fromState)
+          : fromState;
+      }
+      if (ctx.latestLabyrinthUpgradeLevels) return ctx.latestLabyrinthUpgradeLevels;
+      try {
+        return ctx.resolveLabyrinthUpgradeLevels(options);
+      } catch {
+        return typeof ctx.createEmptyLabyrinthUpgradeLevels === "function"
+          ? ctx.createEmptyLabyrinthUpgradeLevels()
+          : {};
+      }
+    }
+
+    ctx.extractSkillingProfile = function extractSkillingProfile(
+      state,
+      initClientData,
+      skillHrid,
+      maxEnhancementByItem,
+      options = {}
+    ) {
+      if (!state || !skillHrid) return null;
+      const skillId = ctx.skillHridToSkillId(skillHrid);
+      if (!skillId) return null;
+      const actionTypeHrid = ctx.skillIdToActionTypeHrid(skillId);
+      const isEnhancing = skillId === "enhancing";
+      const crateSelection = ctx.getLabyrinthCrateSelection(state);
+      const labyrinthUpgradeLevels = resolveUpgradeLevelsSafely(state, options);
+      const teaCrateItemHrid = String(crateSelection?.teaCrateItemHrid || "");
+      const crateBuffs = ctx.getCrateBuffs(initClientData, teaCrateItemHrid);
+      const labyrinthUpgradeMetrics = ctx.buildLabyrinthUpgradeSkillingMetrics(labyrinthUpgradeLevels);
+      const labyrinthExperienceBonus = ctx.getLabyrinthUpgradeExperienceBonus(labyrinthUpgradeLevels);
+      const includePersonalBuffs = false;
+      const { equipmentMetrics, globalMetrics } = ctx.getSkillingGlobalMetrics(state, skillId, actionTypeHrid, {
+        includePersonalBuffs
+      });
+      const fallbackMetrics = ctx.createEmptySkillingMetrics();
+      ctx.addSkillingMetrics(fallbackMetrics, equipmentMetrics);
+
+      const dummyRoom = {
+        roomType: ctx.LABYRINTH_SKILLING_ROOM_TYPE,
+        skillHrid
+      };
+      const roomLoadout = ctx.getSkillingRoomLoadoutMetrics(
+        state,
+        initClientData,
+        dummyRoom,
+        skillId,
+        actionTypeHrid,
+        maxEnhancementByItem,
+        fallbackMetrics
+      );
+      const crateMetrics = ctx.getSkillingBuffMetrics(skillId, crateBuffs);
+      const combinedMetrics = ctx.createEmptySkillingMetrics();
+      ctx.addSkillingMetrics(combinedMetrics, globalMetrics);
+      ctx.addSkillingMetrics(combinedMetrics, roomLoadout.metrics);
+      ctx.addSkillingMetrics(combinedMetrics, crateMetrics);
+      ctx.addSkillingMetrics(combinedMetrics, labyrinthUpgradeMetrics);
+
+      const baseSkillLevel = ctx.getSkillLevel(state.characterSkillMap, skillHrid);
+      const skillLevelBonus = combinedMetrics.skillLevelBonus;
+      const efficiencyBonus = combinedMetrics.efficiencyBonus;
+      const actionSpeedBonus = combinedMetrics.actionSpeedBonus;
+      const successBonus = combinedMetrics.successBonus;
+      const crateDoubleProgressBonus = combinedMetrics.crateDoubleProgressBonus;
+      const gatheringBonus = combinedMetrics.gatheringBonus;
+      const effectiveSkillLevel = baseSkillLevel + skillLevelBonus;
+      const doubleChance = ctx.clamp01(crateDoubleProgressBonus + gatheringBonus);
+
+      const baseActionSeconds = isEnhancing ? ctx.BASE_ENHANCING_ACTION_SECONDS : ctx.BASE_ACTION_SECONDS;
+      const actionSeconds = baseActionSeconds / Math.max(0.05, 1 + actionSpeedBonus);
+      const attempts = Math.max(1, Math.floor(ctx.ROOM_DURATION_SECONDS / actionSeconds));
+
+      const workPower = isEnhancing ? null : Math.max(0, effectiveSkillLevel * (1 + efficiencyBonus));
+      const progressPerSuccess = isEnhancing ? null : ctx.getEffectiveSkillingProgressPerSuccess(workPower);
+
+      const experienceBonusDetail = ctx.computeSkillingExperienceBonusForRoom(
+        state,
+        skillId,
+        actionTypeHrid,
+        roomLoadout.metrics,
+        crateMetrics,
+        includePersonalBuffs,
+        labyrinthExperienceBonus
+      );
+      const experienceBonus = ctx.finiteNumber(experienceBonusDetail?.totalBonus, 0);
+      const experienceMultiplier = Math.max(0, ctx.finiteNumber(experienceBonusDetail?.multiplier, 1));
+
+      // Curve key depends ONLY on win-rate & attempt-count scalars (experienceMultiplier excluded!).
+      const coreProfileKey = [
+        skillId,
+        isEnhancing ? 1 : 0,
+        quantize(effectiveSkillLevel, 1e6),
+        isEnhancing ? 0 : quantize(progressPerSuccess, 1e6),
+        quantize(successBonus, 1e9),
+        quantize(doubleChance, 1e9),
+        attempts
+      ].join("|");
+
+      const fullProfileKey = [
+        coreProfileKey,
+        quantize(actionSpeedBonus, 1e9),
+        quantize(efficiencyBonus, 1e9),
+        quantize(experienceMultiplier, 1e9),
+        quantize(baseSkillLevel, 1e6),
+        ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_SUCCESS),
+        ctx.getLabyrinthUpgradeLevel(labyrinthUpgradeLevels, ctx.LABYRINTH_UPGRADE_KEY_SKILLING_DOUBLE_PROGRESS)
+      ].join("|");
+
+      return {
+        skillId,
+        skillHrid,
+        actionTypeHrid,
+        isEnhancing,
+        baseSkillLevel,
+        skillLevelBonus,
+        effectiveSkillLevel,
+        efficiencyBonus,
+        actionSpeedBonus,
+        successBonus,
+        doubleChance,
+        crateDoubleProgressBonus,
+        gatheringBonus,
+        baseActionSeconds,
+        actionSeconds,
+        attempts,
+        workPower,
+        progressPerSuccess,
+        experienceBonusDetail,
+        experienceBonus,
+        experienceMultiplier,
+        globalMetrics,
+        roomLoadout,
+        crateMetrics,
+        labyrinthUpgradeLevels,
+        labyrinthUpgradeMetrics,
+        labyrinthExperienceBonus,
+        coreProfileKey,
+        fullProfileKey
+      };
+    };
+
+    ctx.normalizeCombatProfilePayload = function normalizeCombatProfilePayload(playerDto, mazeCrateItemHrids) {
+      if (!playerDto || typeof playerDto !== "object") return null;
+      const sortedEquipment = Object.entries(playerDto.equipment || {})
+        .filter(([, item]) => item && item.hrid)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([slot, item]) => [slot, String(item.hrid), Math.max(0, Math.floor(Number(item.enhancementLevel) || 0))]);
+      const abilities = (Array.isArray(playerDto.abilities) ? playerDto.abilities : []).map((ab) =>
+        ab && ab.hrid
+          ? [
+              String(ab.hrid),
+              Math.max(1, Math.floor(Number(ab.level) || 1)),
+              (Array.isArray(ab.triggers) ? ab.triggers : []).map((t) => [
+                String(t.dependencyHrid || ""),
+                String(t.conditionHrid || ""),
+                String(t.comparatorHrid || ""),
+                Number(t.value) || 0
+              ])
+            ]
+          : null
+      );
+      const sortNonZeroMap = (obj) =>
+        Object.entries(obj || {})
+          .filter(([, v]) => Number(v) > 0)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => [k, Number(v)]);
+      const achievements = Object.entries(playerDto.achievements || {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => k)
+        .sort();
+      const crates = (Array.isArray(mazeCrateItemHrids) ? mazeCrateItemHrids : []).filter(Boolean).map(String).sort();
+
+      return {
+        levels: [
+          Math.floor(Number(playerDto.staminaLevel) || 1),
+          Math.floor(Number(playerDto.intelligenceLevel) || 1),
+          Math.floor(Number(playerDto.attackLevel) || 1),
+          Math.floor(Number(playerDto.meleeLevel) || 1),
+          Math.floor(Number(playerDto.defenseLevel) || 1),
+          Math.floor(Number(playerDto.rangedLevel) || 1),
+          Math.floor(Number(playerDto.magicLevel) || 1)
+        ],
+        equipment: sortedEquipment,
+        abilities,
+        houseRooms: sortNonZeroMap(playerDto.houseRooms),
+        achievements,
+        labyrinthUpgrades: sortNonZeroMap(playerDto.labyrinthUpgrades),
+        guildBuffs: sortNonZeroMap(playerDto.guildBuffs),
+        crates,
+        debuffOnLevelGap: Number(playerDto.debuffOnLevelGap) || 0
+      };
+    };
+
+    ctx.extractCombatProfile = function extractCombatProfile(
+      state,
+      initClientData,
+      monsterHrid,
+      maxEnhancementByItem,
+      options = {}
+    ) {
+      if (!state || !monsterHrid) return null;
+      const room = {
+        roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+        monsterHrid: String(monsterHrid),
+        recommendedLevel: 1
+      };
+      const labyrinthUpgradeLevels = resolveUpgradeLevelsSafely(state, options);
+      const combatCrate = ctx.getCombatCrateBuffs(state, initClientData);
+      const guildCombatShrineLevels = ctx.getActiveGuildCombatShrineLevels(state);
+      const playerData = ctx.buildCombatPlayerDtoForRoom(state, initClientData, room, maxEnhancementByItem, {
+        ...options,
+        labyrinthUpgradeLevels
+      });
+      if (!playerData?.playerDto) return null;
+
+      const mazeCrateItemHrids = Array.isArray(combatCrate.combatCrateItemHrids)
+        ? combatCrate.combatCrateItemHrids.slice()
+        : [];
+      const normalized = ctx.normalizeCombatProfilePayload(playerData.playerDto, mazeCrateItemHrids);
+      const gameDataHash = ctx.getSyncGameDataHash(initClientData);
+      const engineSignature = `${ctx.COMBAT_MODEL_SIGNATURE || ""}|${ctx.MWISIM_ENGINE_TAG || ""}`;
+      const playerProfileHash = hash128(JSON.stringify([engineSignature, gameDataHash, normalized]));
+      const characterId = String(options.identity ?? ctx.storageIdentity?.() ?? "");
+      const curveKey = characterId ? `${characterId}:${monsterHrid}:${playerProfileHash}` : "";
+
+      return {
+        characterId,
+        monsterHrid: String(monsterHrid),
+        playerProfileHash,
+        profileHash: playerProfileHash,
+        curveKey,
+        engineSignature,
+        gameDataHash,
+        playerData,
+        playerDto: playerData.playerDto,
+        mazeCrateItemHrids,
+        combatCrate,
+        combatCrateSignature: String(combatCrate.combatCrateSignature || combatCrate.teaCrateItemHrid || ""),
+        guildCombatShrineLevels,
+        labyrinthUpgradeLevels
+      };
+    };
+
+    ctx.detectRoomProfileChanges = function detectRoomProfileChanges(state, initClientData, options = {}) {
+      const identity = String(options.identity ?? ctx.storageIdentity?.() ?? "");
+      const identityChanged = identity !== lastSnapshotIdentity;
+      if (!state || !initClientData) {
+        if (identityChanged) {
+          lastSnapshotIdentity = identity;
+          lastSkillKeys = new Map();
+          lastCombatKeys = new Map();
+        }
+        return {
+          identityChanged,
+          changedSkills: [],
+          changedMonsters: [],
+          skillProfiles: new Map(),
+          combatProfiles: new Map()
+        };
+      }
+
+      const maxEnhancementByItem = options.maxEnhancementByItem || ctx.buildMaxEnhancementByItem(state);
+      const labyrinthUpgradeLevels = resolveUpgradeLevelsSafely(state, options);
+      const sharedOpts = { ...options, identity, labyrinthUpgradeLevels };
+
+      const skillProfiles = new Map();
+      const combatProfiles = new Map();
+      const nextSkillKeys = new Map();
+      const nextCombatKeys = new Map();
+      const changedSkills = [];
+      const changedMonsters = [];
+
+      for (const entry of ctx.LABYRINTH_AUTOMATION_SKILL_ROOM_TYPES || []) {
+        const profile = ctx.extractSkillingProfile(
+          state,
+          initClientData,
+          entry.skillHrid,
+          maxEnhancementByItem,
+          sharedOpts
+        );
+        if (!profile) continue;
+        skillProfiles.set(entry.skillHrid, profile);
+        nextSkillKeys.set(entry.skillHrid, profile.fullProfileKey);
+        if (identityChanged || lastSkillKeys.get(entry.skillHrid) !== profile.fullProfileKey) {
+          changedSkills.push(entry.skillHrid);
+        }
+      }
+
+      for (const entry of ctx.LABYRINTH_AUTOMATION_COMBAT_ROOM_TYPES || []) {
+        const profile = ctx.extractCombatProfile(
+          state,
+          initClientData,
+          entry.monsterHrid,
+          maxEnhancementByItem,
+          sharedOpts
+        );
+        if (!profile) continue;
+        combatProfiles.set(entry.monsterHrid, profile);
+        nextCombatKeys.set(entry.monsterHrid, profile.profileHash);
+        if (identityChanged || lastCombatKeys.get(entry.monsterHrid) !== profile.profileHash) {
+          changedMonsters.push(entry.monsterHrid);
+        }
+      }
+
+      if (options.commit !== false) {
+        lastSnapshotIdentity = identity;
+        lastSkillKeys = nextSkillKeys;
+        lastCombatKeys = nextCombatKeys;
+      }
+
+      return {
+        identityChanged,
+        changedSkills,
+        changedMonsters,
+        skillProfiles,
+        combatProfiles,
+        maxEnhancementByItem,
+        labyrinthUpgradeLevels
+      };
+    };
+
+    ctx.resetProfileChangeTracker = function resetProfileChangeTracker() {
+      lastSnapshotIdentity = "";
+      lastSkillKeys = new Map();
+      lastCombatKeys = new Map();
+    };
+  };
+})(globalThis);
+
+// SOURCE: src/calculator/curve-engine.js
+// Unified 1..300+ level curve engine, P0/P1/P2 background scheduler, and O(1) room query facade.
+(function (root) {
+  "use strict";
+
+  root.MwiLabyrinthCalculatorModules ||= {};
+  root.MwiLabyrinthCalculatorModules["curve-engine"] = function (ctx) {
+    const statsMod = root.MwiLabyrinthCombatStats;
+    const storeMod = root.MwiLabyrinthCurveStore;
+
+    const FULL_PRECISION_STORAGE_KEY = "mwi-labyrinth:calculator:curve-full-precision:v1";
+    const DEFAULT_BASE_TRIALS = statsMod?.DEFAULT_BASE_TRIALS || 250;
+    const DEFAULT_CHUNK_TRIALS = statsMod?.DEFAULT_CHUNK_TRIALS || 250;
+    const DEFAULT_MAX_LEVEL = statsMod?.DEFAULT_MAX_LEVEL || 300;
+    const DEFAULT_BATCH_SIZE = 10;
+
+    const curveStore = storeMod?.create({ indexedDB: ctx.window?.indexedDB }) || null;
+    const combatCurves = new Map(); // curveKey -> CurveEntry
+    const hydratingCurves = new Map(); // curveKey -> Promise<CurveEntry>
+    const inFlightLevels = new Map(); // `${curveKey}:${level}:${targetTrials}` -> Promise<stats>
+    const upgradeImpactCache = new Map(); // upgradeCacheKey -> { upgradeImpact, failedUpgrades }
+    const upgradeInFlight = new Map(); // upgradeCacheKey -> Promise
+
+    let backgroundRunId = 0;
+    let backgroundRunning = false;
+    let backgroundPaused = false;
+    let backgroundProgress = {
+      readyMonsters: 0,
+      totalMonsters: 10,
+      refinedMonsters: 0,
+      currentMonster: "",
+      stage: "idle" // idle | hydrating | stage1 | stage2 | ready | paused
+    };
+    const curveListeners = new Set();
+
+    function notifyCurveListeners() {
+      for (const listener of curveListeners) {
+        try {
+          listener(ctx.getCurvePrecomputeStatus());
+        } catch {
+          /* UI listeners must never disrupt the engine. */
+        }
+      }
+    }
+
+    ctx.onCurveStatusChange = function onCurveStatusChange(listener) {
+      if (typeof listener !== "function") return () => {};
+      curveListeners.add(listener);
+      return () => curveListeners.delete(listener);
+    };
+
+    ctx.getCurveFullPrecisionSetting = function getCurveFullPrecisionSetting() {
+      try {
+        return ctx.storage.getItem(FULL_PRECISION_STORAGE_KEY) === "true";
+      } catch {
+        return false;
+      }
+    };
+
+    ctx.setCurveFullPrecisionSetting = function setCurveFullPrecisionSetting(enabled) {
+      const value = Boolean(enabled);
+      try {
+        ctx.storage.setItem(FULL_PRECISION_STORAGE_KEY, String(value));
+      } catch {
+        /* Keep runtime responsive even if storage is unavailable. */
+      }
+      // Mark active curves as needing refinement check if upgraded to full precision.
+      if (value) {
+        for (const entry of combatCurves.values()) {
+          if (!entry.fullPrecision) entry.refinedComplete = false;
+        }
+      }
+      notifyCurveListeners();
+      return value;
+    };
+
+    if (typeof ctx.window?.addEventListener === "function") {
+      ctx.listen(ctx.window, "pagehide", () => void curveStore?.flush?.());
+    }
+    if (typeof ctx.window?.document?.addEventListener === "function") {
+      ctx.listen(ctx.window.document, "visibilitychange", () => {
+        if (ctx.window.document.hidden) {
+          void curveStore?.flush?.();
+        }
+      });
+    }
+
+    function createCurveEntry(profile, maxLevel = DEFAULT_MAX_LEVEL, buffer = null) {
+      const levels = Math.max(DEFAULT_MAX_LEVEL, Math.floor(ctx.finiteNumber(maxLevel, DEFAULT_MAX_LEVEL)));
+      const rawBuffer = statsMod.isArrayBuffer(buffer) ? buffer : statsMod.createCurveBuffer(levels);
+      const view = new Float64Array(rawBuffer);
+      const actualMaxLevel = Math.floor(view.length / statsMod.STRIDE);
+      return {
+        key: profile.curveKey,
+        characterId: profile.characterId,
+        monsterHrid: profile.monsterHrid,
+        profileHash: profile.profileHash,
+        engineSignature: profile.engineSignature,
+        gameDataHash: profile.gameDataHash,
+        maxLevel: actualMaxLevel,
+        baseTrials: DEFAULT_BASE_TRIALS,
+        targetTrials: 0,
+        completedLevels: countCompletedLevels(view, actualMaxLevel),
+        refinedComplete: false,
+        fullPrecision: false,
+        hydrated: false,
+        updatedAt: Date.now(),
+        buffer: rawBuffer,
+        view
+      };
+    }
+
+    function countCompletedLevels(view, maxLevel) {
+      let count = 0;
+      for (let lv = 1; lv <= maxLevel; lv++) {
+        if (statsMod.readTrialsAt(view, lv) > 0) count++;
+      }
+      return count;
+    }
+
+    function ensureCurveCapacity(entry, requiredLevel) {
+      const needed = Math.max(1, Math.floor(ctx.finiteNumber(requiredLevel, DEFAULT_MAX_LEVEL)));
+      if (needed <= entry.maxLevel) return entry;
+      const nextMax = Math.ceil(needed / 50) * 50;
+      const expanded = statsMod.expandCurveBuffer(entry.buffer, nextMax);
+      entry.buffer = expanded;
+      entry.view = new Float64Array(expanded);
+      entry.maxLevel = nextMax;
+      entry.refinedComplete = false;
+      return entry;
+    }
+
+    function rememberCombatCurve(entry) {
+      if (!entry?.key) return entry;
+      combatCurves.delete(entry.key);
+      combatCurves.set(entry.key, entry);
+      if (combatCurves.size > 48) {
+        combatCurves.delete(combatCurves.keys().next().value);
+      }
+      return entry;
+    }
+
+    function persistCurveEntry(entry) {
+      if (!curveStore || !entry?.key || !entry.characterId) return;
+      entry.updatedAt = Date.now();
+      entry.completedLevels = countCompletedLevels(entry.view, entry.maxLevel);
+      curveStore.schedulePut(entry.key, {
+        characterId: entry.characterId,
+        monsterHrid: entry.monsterHrid,
+        profileHash: entry.profileHash,
+        engineSignature: entry.engineSignature,
+        gameDataHash: entry.gameDataHash,
+        maxLevel: entry.maxLevel,
+        baseTrials: entry.baseTrials,
+        targetTrials: entry.targetTrials,
+        completedLevels: entry.completedLevels,
+        refinedComplete: entry.refinedComplete,
+        fullPrecision: entry.fullPrecision,
+        updatedAt: entry.updatedAt,
+        buffer: entry.buffer
+      });
+    }
+
+    function getCombatCurveSync(profile) {
+      if (!profile?.curveKey) return null;
+      const entry = combatCurves.get(profile.curveKey);
+      if (!entry) return null;
+      if (entry.engineSignature !== profile.engineSignature || entry.gameDataHash !== profile.gameDataHash) {
+        combatCurves.delete(profile.curveKey);
+        return null;
+      }
+      rememberCombatCurve(entry);
+      return entry;
+    }
+
+    async function hydrateCombatCurve(profile, minMaxLevel = DEFAULT_MAX_LEVEL) {
+      if (!profile?.curveKey) {
+        // Unidentified character: keep transient in-memory entry without disk persistence.
+        const transientKey = `transient:${profile?.monsterHrid || ""}:${profile?.profileHash || ""}`;
+        const existing = combatCurves.get(transientKey);
+        if (existing) return ensureCurveCapacity(existing, minMaxLevel);
+        const created = createCurveEntry({ ...profile, curveKey: transientKey }, minMaxLevel);
+        created.hydrated = true;
+        return rememberCombatCurve(created);
+      }
+
+      const existing = getCombatCurveSync(profile);
+      if (existing?.hydrated) {
+        return ensureCurveCapacity(existing, minMaxLevel);
+      }
+      if (hydratingCurves.has(profile.curveKey)) {
+        const loaded = await hydratingCurves.get(profile.curveKey);
+        return ensureCurveCapacity(loaded, minMaxLevel);
+      }
+
+      const pending = (async () => {
+        const entry = existing || rememberCombatCurve(createCurveEntry(profile, minMaxLevel));
+        if (curveStore) {
+          try {
+            const stored = await curveStore.get(profile.curveKey);
+            if (
+              stored &&
+              stored.engineSignature === profile.engineSignature &&
+              stored.gameDataHash === profile.gameDataHash &&
+              statsMod.isArrayBuffer(stored.buffer)
+            ) {
+              ensureCurveCapacity(entry, stored.maxLevel);
+              const storedView = new Float64Array(stored.buffer);
+              const limit = Math.min(entry.maxLevel, stored.maxLevel);
+              // Preserve whichever level has higher sample count so concurrent live runs never lose work.
+              for (let lv = 1; lv <= limit; lv++) {
+                const diskTrials = statsMod.readTrialsAt(storedView, lv);
+                const memTrials = statsMod.readTrialsAt(entry.view, lv);
+                if (diskTrials > memTrials) {
+                  statsMod.writeLevel(entry.view, lv, statsMod.readLevel(storedView, lv));
+                }
+              }
+              entry.completedLevels = countCompletedLevels(entry.view, entry.maxLevel);
+              entry.targetTrials = Math.max(entry.targetTrials, stored.targetTrials || 0);
+              entry.fullPrecision = Boolean(stored.fullPrecision);
+              entry.refinedComplete = Boolean(stored.refinedComplete && entry.maxLevel <= stored.maxLevel);
+            }
+          } catch {
+            /* Storage failures degrade gracefully to in-memory curves. */
+          }
+        }
+        entry.hydrated = true;
+        return ensureCurveCapacity(entry, minMaxLevel);
+      })().finally(() => {
+        if (hydratingCurves.get(profile.curveKey) === pending) {
+          hydratingCurves.delete(profile.curveKey);
+        }
+      });
+
+      hydratingCurves.set(profile.curveKey, pending);
+      return pending;
+    }
+
+    ctx.buildCombatResultFromCurveStats = function buildCombatResultFromCurveStats(
+      stats,
+      profile,
+      room,
+      roomKey = "",
+      extraMeta = {}
+    ) {
+      if (!stats || !profile) return null;
+      const workerResult = statsMod.toWorkerResult(stats);
+      if (!workerResult) return null;
+      const roomLevel = Math.max(1, Math.floor(ctx.positiveNumber(room?.recommendedLevel, 1)));
+      const combatExperience = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
+      const executedTrials = workerResult.trials;
+      const successes = workerResult.successes;
+      const totalSpentSeconds = workerResult.totalSpentSeconds;
+      const minElapsedSeconds = workerResult.minElapsedSeconds;
+      const maxElapsedSeconds = workerResult.maxElapsedSeconds;
+      const failedByTimeout = workerResult.failedByTimeout;
+      const failedByDeath = workerResult.failedByDeath;
+      const totalFailures = Math.max(0, executedTrials - successes);
+      const clearChance = workerResult.clearChance;
+      const expectedSecondsPerClear = workerResult.expectedSecondsPerClear;
+      const failureReason =
+        clearChance < 1 ? ctx.deriveCombatFailureReasonFromCounts(totalFailures, failedByTimeout, failedByDeath) : "";
+      const inputSnapshot = ctx.buildCombatInputSnapshot(profile.playerData, room);
+      if (inputSnapshot) inputSnapshot.roomKey = String(roomKey || "");
+      const loadoutInfo = profile.playerData.loadoutInfo;
+      const combatCrate = profile.combatCrate;
+      const guildCombatShrineLevels = profile.guildCombatShrineLevels;
+      const combatCrateSignature = profile.combatCrateSignature;
+
+      return {
+        clearChance,
+        upgradeImpact: extraMeta.upgradeImpact,
+        expectedSecondsPerClear,
+        combatExperience,
+        experiencePerHour: combatExperience.experiencePerHour,
+        experiencePerRoom: combatExperience.experiencePerRoom,
+        combatMeta: {
+          source: extraMeta.source || "curve",
+          modelSignature: ctx.COMBAT_MODEL_SIGNATURE,
+          profileHash: profile.profileHash,
+          completedTrials: executedTrials,
+          roomKey: String(roomKey || ""),
+          monsterHrid: String(room?.monsterHrid || profile.monsterHrid || ""),
+          roomLevel,
+          trials: executedTrials,
+          successes,
+          failures: totalFailures,
+          failedByTimeout,
+          failedByDeath,
+          failureReason,
+          totalSpentSeconds,
+          minElapsedSeconds,
+          maxElapsedSeconds,
+          expectedSecondsPerClearRaw: expectedSecondsPerClear,
+          loadoutId: loadoutInfo.loadoutId || 0,
+          loadoutName: loadoutInfo.loadout?.name || "",
+          loadoutMode: loadoutInfo.loadout
+            ? loadoutInfo.loadout.useExactEnhancement
+              ? "exact"
+              : "highest"
+            : "current",
+          loadoutSource: loadoutInfo.source || "room",
+          selectedLoadoutId: loadoutInfo.selectedLoadoutId || loadoutInfo.loadoutId || 0,
+          mazeCrateItemHrid: combatCrateSignature,
+          mazeCrateItemHrids: Array.isArray(combatCrate.combatCrateItemHrids)
+            ? combatCrate.combatCrateItemHrids.slice()
+            : [],
+          mazeCrateBuffCount: Array.isArray(combatCrate.combatBuffs) ? combatCrate.combatBuffs.length : 0,
+          labyrinthBuffCount: Object.values(profile.playerDto.labyrinthUpgrades).filter((level) => level > 0).length,
+          guildBuffCount: Object.values(guildCombatShrineLevels).filter((level) => level > 0).length,
+          guildCombatShrineLevels,
+          combatInputSnapshot: inputSnapshot,
+          firstRunDebug: null
+        },
+        debug: [
+          "combat-curve",
+          `monster=${String(profile.monsterHrid).split("/").pop() || profile.monsterHrid}`,
+          `loadout=${loadoutInfo.loadout?.name || loadoutInfo.loadoutId || "current"}`,
+          `roomLv=${roomLevel}`,
+          `trials=${executedTrials}`,
+          `wins=${successes}`,
+          `t=${minElapsedSeconds.toFixed(2)}-${maxElapsedSeconds.toFixed(2)}s`,
+          totalFailures > 0 ? `failT=${failedByTimeout}` : "",
+          totalFailures > 0 ? `failD=${failedByDeath}` : "",
+          failureReason ? `why=${failureReason}` : "",
+          `eta=${ctx.formatEtaText(expectedSecondsPerClear, Math.round(clearChance * 100))}`
+        ]
+          .filter(Boolean)
+          .join(" | ")
+      };
+    };
+
+    // O(1) synchronous lookup from active L1 memory combat curve.
+    ctx.lookupCombatLevelSync = function lookupCombatLevelSync(profile, roomLevel, minTrials = 1) {
+      const lv = Math.floor(ctx.finiteNumber(roomLevel, 0));
+      if (!profile || lv < 1) return null;
+      const entry = getCombatCurveSync(profile);
+      if (!entry || lv > entry.maxLevel) return null;
+      const stats = statsMod.readLevel(entry.view, lv);
+      if (!stats || stats.trials < minTrials) return null;
+      return stats;
+    };
+
+    // Ensure a specific (profile, level) reaches at least targetTrials using P0 chunked multi-core dispatch.
+    ctx.ensureCombatLevelStats = async function ensureCombatLevelStats(
+      profile,
+      roomLevel,
+      {
+        targetTrials = DEFAULT_BASE_TRIALS,
+        priority = 0,
+        seed = 173,
+        chunkSize = DEFAULT_CHUNK_TRIALS,
+        progressTracker = null,
+        isRunStale = null
+      } = {}
+    ) {
+      if (!profile || !statsMod) return null;
+      const lv = Math.max(1, Math.floor(ctx.finiteNumber(roomLevel, 1)));
+      const goal = Math.max(1, Math.min(3000, Math.floor(ctx.finiteNumber(targetTrials, DEFAULT_BASE_TRIALS))));
+      const entry = await hydrateCombatCurve(profile, lv);
+      if (isRunStale?.() || ctx.destroyed) return null;
+
+      const existing = statsMod.readLevel(entry.view, lv);
+      if (existing && existing.trials >= goal) {
+        progressTracker?.add(goal);
+        return existing;
+      }
+
+      const existingTrials = existing ? existing.trials : 0;
+      if (existingTrials > 0) progressTracker?.add(existingTrials);
+
+      const dedupeKey = `${entry.key}:${lv}:${goal}`;
+      if (inFlightLevels.has(dedupeKey)) {
+        const res = await inFlightLevels.get(dedupeKey);
+        if (res) {
+          const remaining = Math.max(0, goal - existingTrials);
+          if (remaining > 0) progressTracker?.add(remaining);
+        }
+        return res;
+      }
+
+      const pending = (async () => {
+        const latestBefore = statsMod.readLevel(entry.view, lv);
+        const already = latestBefore ? latestBefore.trials : 0;
+        if (already >= goal) return latestBefore;
+
+        const deltaStats = await ctx.simulateCombatChunkedWithWorker(
+          {
+            playerDto: profile.playerDto,
+            monsterHrid: profile.monsterHrid,
+            mazeDifficulty: lv,
+            mazeCrateItemHrids: profile.mazeCrateItemHrids,
+            existingTrials: already,
+            trials: goal,
+            seed,
+            chunkSize,
+            parallel: true,
+            priority
+          },
+          progressTracker
+        );
+        if (!deltaStats || ctx.destroyed) return statsMod.readLevel(entry.view, lv);
+        const merged = statsMod.mergeIntoLevel(entry.view, lv, deltaStats);
+        persistCurveEntry(entry);
+        return merged;
+      })().finally(() => {
+        if (inFlightLevels.get(dedupeKey) === pending) inFlightLevels.delete(dedupeKey);
+      });
+
+      inFlightLevels.set(dedupeKey, pending);
+      return pending;
+    };
+
+    // High-level room query for combat rooms (used by map badges, automation, distribution).
+    ctx.queryCombatRoomViaCurve = async function queryCombatRoomViaCurve(
+      state,
+      initClientData,
+      room,
+      maxEnhancementByItem,
+      progressTracker,
+      combatTrials,
+      roomKey = "",
+      options = {}
+    ) {
+      if (!room || room.roomType !== ctx.LABYRINTH_COMBAT_ROOM_TYPE || !room.monsterHrid) return null;
+      const profile =
+        options.profile && options.profile.monsterHrid === room.monsterHrid
+          ? options.profile
+          : ctx.extractCombatProfile(state, initClientData, room.monsterHrid, maxEnhancementByItem, options);
+      if (!profile) return null;
+
+      const roomLevel = Math.max(1, Math.floor(ctx.positiveNumber(room.recommendedLevel, 1)));
+      const trials = ctx.normalizeCombatSimTrials(combatTrials);
+      const minAcceptableTrials = options.allowBaseCurveHit ? Math.min(trials, DEFAULT_BASE_TRIALS) : trials;
+
+      // Fast synchronous O(1) curve hit when memory table already has enough samples.
+      const syncStats = ctx.lookupCombatLevelSync(profile, roomLevel, minAcceptableTrials);
+      if (syncStats && (!options.combatUpgrades || options.deferUpgradesToHover)) {
+        progressTracker?.add(trials);
+        return ctx.buildCombatResultFromCurveStats(syncStats, profile, room, roomKey, { source: "curve" });
+      }
+
+      const stats = await ctx.ensureCombatLevelStats(profile, roomLevel, {
+        targetTrials: minAcceptableTrials,
+        priority: options.priority ?? 0,
+        seed: options.seed ?? 173,
+        progressTracker,
+        isRunStale: options.isRunStale
+      });
+      if (!stats || options.isRunStale?.()) return null;
+
+      let upgradeImpact;
+      if (options.combatUpgrades && !options.deferUpgradesToHover) {
+        const outcome = await ctx.computeCombatUpgradesForParams(
+          {
+            playerDto: profile.playerDto,
+            monsterHrid: profile.monsterHrid,
+            mazeDifficulty: roomLevel,
+            mazeCrateItemHrids: profile.mazeCrateItemHrids,
+            trials,
+            seed: options.seed ?? 173,
+            reuseSimulation: true,
+            parallel: true
+          },
+          options.combatUpgrades,
+          progressTracker,
+          options
+        );
+        upgradeImpact = outcome?.upgradeImpact;
+      }
+
+      return ctx.buildCombatResultFromCurveStats(stats, profile, room, roomKey, {
+        source: "curve",
+        upgradeImpact
+      });
+    };
+
+    // On-demand hover computation for the 4 combat stat upgrades (+1 level each).
+    // Decoupled from floor precomputation to cut total CPU cost by ~80%.
+    ctx.ensureCombatUpgradeImpactOnHover = async function ensureCombatUpgradeImpactOnHover(
+      state,
+      initClientData,
+      room,
+      options = {}
+    ) {
+      if (!state || !initClientData || !room || room.roomType !== ctx.LABYRINTH_COMBAT_ROOM_TYPE || !room.monsterHrid) {
+        return null;
+      }
+      const maxEnhancementByItem = options.maxEnhancementByItem || ctx.buildMaxEnhancementByItem(state);
+      const labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
+      const combatUpgrades = ctx.getCombatUpgradeOptions(labyrinthUpgradeLevels);
+      if (!combatUpgrades.some((u) => u.cost !== null)) {
+        return { upgradeImpact: {}, failedUpgrades: [] };
+      }
+
+      const profile = ctx.extractCombatProfile(state, initClientData, room.monsterHrid, maxEnhancementByItem, {
+        labyrinthUpgradeLevels
+      });
+      if (!profile) return null;
+
+      const roomLevel = Math.max(1, Math.floor(ctx.positiveNumber(room.recommendedLevel, 1)));
+      const trials = ctx.normalizeCombatSimTrials(options.trials ?? ctx.getSelectedCombatSimTrials());
+      const cacheKey = `${profile.curveKey}:${roomLevel}:${trials}`;
+
+      const hit = upgradeImpactCache.get(cacheKey);
+      if (hit) {
+        upgradeImpactCache.delete(cacheKey);
+        upgradeImpactCache.set(cacheKey, hit);
+        return structuredClone(hit);
+      }
+      if (upgradeInFlight.has(cacheKey)) {
+        return structuredClone(await upgradeInFlight.get(cacheKey));
+      }
+
+      const pending = (async () => {
+        const upgradeImpact = {};
+        const failedUpgrades = [];
+        await Promise.all(
+          combatUpgrades.map(async ({ key, buff, level, cost }) => {
+            if (cost === null) {
+              upgradeImpact[key] = { level, cost: null, clearChance: null, experiencePerHour: null };
+              return;
+            }
+            const nextDto = {
+              ...profile.playerDto,
+              labyrinthUpgrades: { ...profile.playerDto.labyrinthUpgrades, [buff]: level + 1 }
+            };
+            try {
+              const upgradedStats = await ctx.simulateCombatChunkedWithWorker({
+                playerDto: nextDto,
+                monsterHrid: profile.monsterHrid,
+                mazeDifficulty: roomLevel,
+                mazeCrateItemHrids: profile.mazeCrateItemHrids,
+                existingTrials: 0,
+                trials,
+                seed: options.seed ?? 173,
+                parallel: true,
+                priority: 0
+              });
+              if (!upgradedStats) throw new Error("升级模拟返回空统计");
+              const workerResult = statsMod.toWorkerResult(upgradedStats);
+              const xp = root.MwiLabyrinthCombatExperience.summarize(workerResult, ctx.ROOM_ENTRY_SECONDS);
+              upgradeImpact[key] = {
+                level,
+                cost,
+                clearChance: workerResult.clearChance,
+                experiencePerHour: xp.experiencePerHour
+              };
+            } catch (error) {
+              failedUpgrades.push({ key, error });
+              upgradeImpact[key] = { level, cost, clearChance: null, experiencePerHour: null };
+            }
+          })
+        );
+
+        const outcome = { upgradeImpact, failedUpgrades };
+        if (!failedUpgrades.length) {
+          upgradeImpactCache.set(cacheKey, outcome);
+          if (upgradeImpactCache.size > 256) {
+            upgradeImpactCache.delete(upgradeImpactCache.keys().next().value);
+          }
+        }
+        return outcome;
+      })().finally(() => {
+        if (upgradeInFlight.get(cacheKey) === pending) upgradeInFlight.delete(cacheKey);
+        ctx.scheduleIdleCombatWorkerRelease?.(60000);
+      });
+
+      upgradeInFlight.set(cacheKey, pending);
+      return structuredClone(await pending);
+    };
+
+    // Two-stage adaptive builder for a single monster's 1..maxLevel curve:
+    // Stage 1: fill all missing levels in [1..maxLevel] with baseTrials (default 250) in batched multi-core waves.
+    // Stage 2: refine transition band (+/-15 levels) & anomaly jumps (or full range if fullPrecision) to targetTrials.
+    ctx.buildCombatCurve = async function buildCombatCurve(
+      profile,
+      {
+        minLevel = 1,
+        maxLevel = DEFAULT_MAX_LEVEL,
+        baseTrials = DEFAULT_BASE_TRIALS,
+        targetTrials = 2500,
+        fullPrecision = ctx.getCurveFullPrecisionSetting(),
+        priorityLevels = null,
+        priority = 2,
+        batchSize = DEFAULT_BATCH_SIZE,
+        seed = 173,
+        cancelled = () => false,
+        onBatchProgress = null
+      } = {}
+    ) {
+      if (!profile || !statsMod) return null;
+      const hi = Math.max(DEFAULT_MAX_LEVEL, Math.floor(ctx.finiteNumber(maxLevel, DEFAULT_MAX_LEVEL)));
+      const lo = Math.max(1, Math.min(hi, Math.floor(ctx.finiteNumber(minLevel, 1))));
+      const baseN = Math.max(50, Math.min(3000, Math.floor(ctx.finiteNumber(baseTrials, DEFAULT_BASE_TRIALS))));
+      const targetN = Math.max(baseN, Math.min(3000, Math.floor(ctx.finiteNumber(targetTrials, 2500))));
+      const entry = await hydrateCombatCurve(profile, hi);
+      if (cancelled() || ctx.destroyed) return entry;
+
+      const runWave = async (jobs, wavePriority, stageName) => {
+        if (!jobs.length) return;
+        const batches = [];
+        for (let i = 0; i < jobs.length; i += batchSize) {
+          batches.push(jobs.slice(i, i + batchSize));
+        }
+        let cursor = 0;
+        const lanes = Math.max(1, Math.min(batches.length, ctx.getCombatParallelism()));
+        await Promise.all(
+          Array.from({ length: lanes }, async () => {
+            while (!cancelled() && !ctx.destroyed) {
+              const idx = cursor++;
+              if (idx >= batches.length) return;
+              const batch = batches[idx];
+              const rows = await ctx.simulateCombatBatchWithWorker({
+                playerDto: profile.playerDto,
+                monsterHrid: profile.monsterHrid,
+                mazeCrateItemHrids: profile.mazeCrateItemHrids,
+                jobs: batch,
+                parallel: true,
+                priority: wavePriority
+              });
+              if (ctx.destroyed) return;
+              for (const row of rows) {
+                if (row?.stats) statsMod.mergeIntoLevel(entry.view, row.level, row.stats);
+              }
+              persistCurveEntry(entry);
+              onBatchProgress?.({
+                stage: stageName,
+                completedLevels: countCompletedLevels(entry.view, hi),
+                maxLevel: hi
+              });
+            }
+          })
+        );
+      };
+
+      // Stage 1A: P1 hot neighborhood around the active floor first so map exploration gets instant hits.
+      if (Array.isArray(priorityLevels) && priorityLevels.length) {
+        const hotJobs = [];
+        const seenHot = new Set();
+        for (const rawLv of priorityLevels) {
+          const lv = Math.floor(Number(rawLv));
+          if (lv < lo || lv > hi || seenHot.has(lv)) continue;
+          seenHot.add(lv);
+          const have = statsMod.readTrialsAt(entry.view, lv);
+          if (have < baseN) {
+            const plan = statsMod.buildChunkPlan(have, baseN, { baseSeed: seed, chunkSize: baseN });
+            for (const c of plan) hotJobs.push({ level: lv, trials: c.trials, seed: c.seed });
+          }
+        }
+        await runWave(hotJobs, Math.min(priority, 1), "stage1-hot");
+        if (cancelled() || ctx.destroyed) return entry;
+      }
+
+      // Stage 1B: fill remaining levels in [lo..hi] with baseTrials.
+      const stage1Jobs = [];
+      for (let lv = lo; lv <= hi; lv++) {
+        const have = statsMod.readTrialsAt(entry.view, lv);
+        if (have < baseN) {
+          const plan = statsMod.buildChunkPlan(have, baseN, { baseSeed: seed, chunkSize: baseN });
+          for (const c of plan) stage1Jobs.push({ level: lv, trials: c.trials, seed: c.seed });
+        }
+      }
+      await runWave(stage1Jobs, priority, "stage1");
+      if (cancelled() || ctx.destroyed) return entry;
+
+      // Stage 2: refine transition levels +/-15 buffer & anomaly points (or all levels in fullPrecision mode).
+      if (targetN > baseN) {
+        const refineLevels = statsMod.selectRefinementLevels(entry.view, hi, targetN, {
+          minLevel: lo,
+          forceFull: Boolean(fullPrecision)
+        });
+        const stage2Jobs = [];
+        for (const lv of refineLevels) {
+          const have = statsMod.readTrialsAt(entry.view, lv);
+          const plan = statsMod.buildChunkPlan(have, targetN, { baseSeed: seed, chunkSize: DEFAULT_CHUNK_TRIALS });
+          for (const c of plan) stage2Jobs.push({ level: lv, trials: c.trials, seed: c.seed });
+        }
+        // Use smaller batches for multi-chunk refinement so cores stay evenly balanced.
+        const prevBatch = batchSize;
+        batchSize = Math.min(prevBatch, 4);
+        try {
+          await runWave(stage2Jobs, priority, "stage2");
+        } finally {
+          batchSize = prevBatch;
+        }
+      }
+
+      if (!cancelled() && !ctx.destroyed) {
+        entry.baseTrials = Math.max(entry.baseTrials, baseN);
+        entry.targetTrials = Math.max(entry.targetTrials, targetN);
+        entry.fullPrecision = Boolean(fullPrecision);
+        entry.refinedComplete = true;
+        persistCurveEntry(entry);
+      }
+      return entry;
+    };
+
+    ctx.getCurvePrecomputeStatus = function getCurvePrecomputeStatus() {
+      return {
+        running: backgroundRunning,
+        paused: backgroundPaused,
+        ...backgroundProgress
+      };
+    };
+
+    ctx.stopBackgroundCurvePrecompute = function stopBackgroundCurvePrecompute() {
+      backgroundRunId += 1;
+      backgroundRunning = false;
+      backgroundPaused = false;
+      backgroundProgress = { ...backgroundProgress, stage: "idle", currentMonster: "" };
+      notifyCurveListeners();
+    };
+
+    function isLabyrinthSurfaceActive() {
+      if (typeof document === "undefined" || document.hidden) return false;
+      return Boolean(
+        document.querySelector('[class*="LabyrinthPanel_roomGrid"], [class*="LabyrinthPanel_automationTable"]')
+      );
+    }
+
+    // Background P1/P2 precomputation gated strictly on labyrinth visibility & attribute change.
+    ctx.scheduleBackgroundCurvePrecompute = function scheduleBackgroundCurvePrecompute(state, options = {}) {
+      if (ctx.destroyed || !state?.characterLabyrinth) return;
+      const initClientData = ctx.getInitClientData();
+      if (!initClientData) return;
+      if (!options.force && !isLabyrinthSurfaceActive()) {
+        if (backgroundRunning) {
+          backgroundPaused = true;
+          backgroundRunId += 1;
+          backgroundRunning = false;
+          backgroundProgress = { ...backgroundProgress, stage: "paused" };
+          notifyCurveListeners();
+        }
+        return;
+      }
+
+      const identity = ctx.storageIdentity?.() || "";
+      if (!identity) return;
+
+      const maxEnhancementByItem = options.maxEnhancementByItem || ctx.buildMaxEnhancementByItem(state);
+      const labyrinthUpgradeLevels = ctx.resolveLabyrinthUpgradeLevels(options);
+      const fullPrecision = ctx.getCurveFullPrecisionSetting();
+      const targetTrials = Math.max(
+        DEFAULT_BASE_TRIALS,
+        ctx.normalizeCombatSimTrials(ctx.loadAutomationCombatSimTrialsSetting?.() ?? 2500)
+      );
+
+      // Build ordered monster list: monsters present on current floor first, then the remaining monsters.
+      const floorMonsters = new Set();
+      const floorLevelsByMonster = new Map();
+      const roomRows = Array.isArray(state.characterLabyrinth?.roomData) ? state.characterLabyrinth.roomData : [];
+      for (const row of roomRows) {
+        if (!Array.isArray(row)) continue;
+        for (const room of row) {
+          if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && room.monsterHrid) {
+            floorMonsters.add(room.monsterHrid);
+            const lv = Math.max(1, Math.floor(ctx.finiteNumber(room.recommendedLevel, 1)));
+            if (!floorLevelsByMonster.has(room.monsterHrid)) floorLevelsByMonster.set(room.monsterHrid, []);
+            floorLevelsByMonster.get(room.monsterHrid).push(lv);
+          }
+        }
+      }
+
+      const floor = Math.max(1, Math.floor(ctx.finiteNumber(state.characterLabyrinth?.currentFloor, 1)));
+      const hotMin = Math.max(1, floor * 20 - 10);
+      const hotMax = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 60);
+      const defaultMaxLevel = Math.max(DEFAULT_MAX_LEVEL, floor * 20 + 40);
+
+      const entries = (ctx.LABYRINTH_AUTOMATION_COMBAT_ROOM_TYPES || []).slice().sort((a, b) => {
+        const aHot = floorMonsters.has(a.monsterHrid) ? 0 : 1;
+        const bHot = floorMonsters.has(b.monsterHrid) ? 0 : 1;
+        return aHot - bHot;
+      });
+
+      const profiles = [];
+      for (const item of entries) {
+        const profile = ctx.extractCombatProfile(state, initClientData, item.monsterHrid, maxEnhancementByItem, {
+          labyrinthUpgradeLevels,
+          identity
+        });
+        if (profile) profiles.push(profile);
+      }
+      if (!profiles.length) return;
+
+      // Also warm all 10 skilling 1..300 curves synchronously (~3ms total).
+      for (const item of ctx.LABYRINTH_AUTOMATION_SKILL_ROOM_TYPES || []) {
+        const skProfile = ctx.extractSkillingProfile(state, initClientData, item.skillHrid, maxEnhancementByItem, {
+          labyrinthUpgradeLevels
+        });
+        if (skProfile) ctx.getOrBuildSkillingCurve(skProfile, defaultMaxLevel);
+      }
+
+      // Check if all combat profiles are already hydrated and refined in memory.
+      const allReady = profiles.every((p) => {
+        const e = getCombatCurveSync(p);
+        return (
+          e &&
+          e.hydrated &&
+          e.maxLevel >= defaultMaxLevel &&
+          e.completedLevels >= defaultMaxLevel &&
+          e.refinedComplete &&
+          e.targetTrials >= targetTrials &&
+          (!fullPrecision || e.fullPrecision)
+        );
+      });
+      if (allReady) {
+        backgroundRunning = false;
+        backgroundPaused = false;
+        backgroundProgress = {
+          readyMonsters: profiles.length,
+          totalMonsters: profiles.length,
+          refinedMonsters: profiles.length,
+          currentMonster: "",
+          stage: "ready"
+        };
+        notifyCurveListeners();
+        return;
+      }
+
+      // Avoid restarting if already running for the exact same profile signature set.
+      const runSignature =
+        profiles.map((p) => p.curveKey).join(",") + `|${targetTrials}|${fullPrecision}|${defaultMaxLevel}`;
+      if (backgroundRunning && ctx.__activeBackgroundCurveSignature === runSignature) {
+        return;
+      }
+
+      ctx.__activeBackgroundCurveSignature = runSignature;
+      const runId = ++backgroundRunId;
+      backgroundRunning = true;
+      backgroundPaused = false;
+      const isCancelled = () =>
+        ctx.destroyed ||
+        runId !== backgroundRunId ||
+        ctx.storageIdentity?.() !== identity ||
+        (!options.force && !isLabyrinthSurfaceActive());
+
+      void (async () => {
+        try {
+          backgroundProgress = {
+            readyMonsters: 0,
+            totalMonsters: profiles.length,
+            refinedMonsters: 0,
+            currentMonster: "",
+            stage: "hydrating"
+          };
+          notifyCurveListeners();
+
+          // Hydrate all 10 monsters from IndexedDB first (typically < 5ms total).
+          const hydratedEntries = await Promise.all(profiles.map((p) => hydrateCombatCurve(p, defaultMaxLevel)));
+          if (isCancelled()) return;
+
+          const recount = () => {
+            let ready = 0;
+            let refined = 0;
+            for (const e of hydratedEntries) {
+              if (e.completedLevels >= defaultMaxLevel) ready++;
+              if (e.refinedComplete && e.targetTrials >= targetTrials && (!fullPrecision || e.fullPrecision)) refined++;
+            }
+            backgroundProgress.readyMonsters = ready;
+            backgroundProgress.refinedMonsters = refined;
+          };
+          recount();
+          notifyCurveListeners();
+
+          for (let i = 0; i < profiles.length; i++) {
+            if (isCancelled()) return;
+            const profile = profiles[i];
+            const entry = hydratedEntries[i];
+            const needsStage1 = entry.completedLevels < defaultMaxLevel;
+            const needsStage2 =
+              !entry.refinedComplete || entry.targetTrials < targetTrials || (fullPrecision && !entry.fullPrecision);
+            if (!needsStage1 && !needsStage2) continue;
+
+            const hotList = [];
+            for (let lv = hotMin; lv <= Math.min(defaultMaxLevel, hotMax); lv++) hotList.push(lv);
+            for (const lv of floorLevelsByMonster.get(profile.monsterHrid) || []) hotList.push(lv);
+
+            backgroundProgress.currentMonster = profile.monsterHrid;
+            backgroundProgress.stage = needsStage1 ? "stage1" : "stage2";
+            notifyCurveListeners();
+
+            await ctx.buildCombatCurve(profile, {
+              minLevel: 1,
+              maxLevel: defaultMaxLevel,
+              baseTrials: DEFAULT_BASE_TRIALS,
+              targetTrials,
+              fullPrecision,
+              priorityLevels: hotList,
+              priority: 2,
+              cancelled: isCancelled,
+              onBatchProgress: ({ stage }) => {
+                recount();
+                backgroundProgress.stage = stage === "stage2" ? "stage2" : "stage1";
+                notifyCurveListeners();
+              }
+            });
+            recount();
+            notifyCurveListeners();
+          }
+
+          if (!isCancelled()) {
+            recount();
+            backgroundProgress.currentMonster = "";
+            backgroundProgress.stage = "ready";
+            void curveStore?.flush?.();
+          }
+        } catch {
+          /* Background precomputation errors never surface as modal failures. */
+        } finally {
+          if (runId === backgroundRunId) {
+            backgroundRunning = false;
+            if (!isLabyrinthSurfaceActive() && backgroundProgress.stage !== "ready") {
+              backgroundPaused = true;
+              backgroundProgress.stage = "paused";
+            }
+            ctx.scheduleIdleCombatWorkerRelease?.(60000);
+            notifyCurveListeners();
+          }
+        }
+      })();
+    };
+
+    ctx.flushCurveStore = async () => curveStore?.flush?.();
+    ctx.clearCurveStore = async () => {
+      ctx.stopBackgroundCurvePrecompute();
+      combatCurves.clear();
+      upgradeImpactCache.clear();
+      ctx.clearSkillingSimulationCache?.();
+      return curveStore ? curveStore.clear() : true;
+    };
+    ctx.disposeCurveEngine = () => {
+      ctx.stopBackgroundCurvePrecompute();
+      combatCurves.clear();
+      hydratingCurves.clear();
+      inFlightLevels.clear();
+      upgradeImpactCache.clear();
+      upgradeInFlight.clear();
+      curveListeners.clear();
+      curveStore?.close?.();
+    };
+  };
+})(globalThis);
+
 // SOURCE: src/calculator/controller.js
 // Adapted from 迷宫胜率计算器 1.6.0, dakonglong, MIT. See docs/THIRD_PARTY.md.
 (function (root) {
@@ -19890,6 +23475,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
       // Automation page should render independently from active labyrinth room grid data.
       ctx.refreshAutomationEstimatePanel(state);
+      if (ctx.isAutomationEstimatePanelVisible()) {
+        ctx.scheduleBackgroundCurvePrecompute?.(state);
+      }
 
       const roomRows = Array.isArray(state.characterLabyrinth.roomData) ? state.characterLabyrinth.roomData : [];
       const flatRooms = roomRows.flat();
@@ -19927,6 +23515,52 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (ctx.roomDistributionEnabled) {
         ctx.renderRoomDistributionPanel();
       }
+      const initClientData = ctx.getInitClientData();
+      if (initClientData && typeof ctx.detectRoomProfileChanges === "function") {
+        const diff = ctx.detectRoomProfileChanges(state, initClientData);
+        if (!diff.identityChanged && (diff.changedSkills.length || diff.changedMonsters.length)) {
+          const changedSkillSet = new Set(diff.changedSkills);
+          const changedMonsterSet = new Set(diff.changedMonsters);
+          const affectedCombatKeys = [];
+          const colCount = Array.isArray(roomRows[0]) ? roomRows[0].length : 0;
+          const roomCells = colCount > 0 ? ctx.findRoomGridCells(flatRooms.length) : [];
+          for (let idx = 0; idx < flatRooms.length; idx += 1) {
+            const room = flatRooms[idx];
+            if (!room) continue;
+            const roomKey = colCount > 0 ? `${idx % colCount},${Math.floor(idx / colCount)}` : "";
+            if (!roomKey) continue;
+            if (room.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && changedSkillSet.has(room.skillHrid)) {
+              const cell = roomCells[idx];
+              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                const profile = diff.skillProfiles.get(room.skillHrid);
+                const updated = ctx.computeRoomClearChance(state, initClientData, room, diff.maxEnhancementByItem, {
+                  labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels,
+                  profile
+                });
+                if (updated) {
+                  ctx.upsertBadge(cell, updated.clearChance, updated.expectedSecondsPerClear, updated.debug);
+                  ctx.updateRoomEstimate(roomKey, updated);
+                  if (updated.skillingPreview) ctx.setCellSkillingPreview(cell, updated.skillingPreview);
+                  ctx.saveRoomResult?.(state, roomKey, updated, cell);
+                }
+              }
+            } else if (room.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && changedMonsterSet.has(room.monsterHrid)) {
+              const cell = roomCells[idx];
+              if (cell && ctx.isRoomResultDisplayable(state, roomKey, cell)) {
+                affectedCombatKeys.push(roomKey);
+              }
+            }
+          }
+          if (affectedCombatKeys.length) {
+            ctx.invalidateSavedRoomKeys?.(state, affectedCombatKeys);
+            for (const key of affectedCombatKeys) ctx.pendingAutoRecalcRoomKeys?.add(key);
+          }
+        }
+        ctx.scheduleBackgroundCurvePrecompute?.(state, {
+          maxEnhancementByItem: diff.maxEnhancementByItem,
+          labyrinthUpgradeLevels: diff.labyrinthUpgradeLevels
+        });
+      }
       ctx.scheduleAutoRecalcIfNeeded(state);
       return panel;
     };
@@ -19936,6 +23570,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       ctx.ensureStyle();
       ctx.hidePreviewTooltip();
       ctx.lastLabyrinthCalcDoneMessage = ctx.t("calcDone");
+      ctx.lastLabyrinthCalcHadFailures = false;
+      ctx.lastLabyrinthCalcFailedItems = [];
 
       const state = options.snapshot?.state || ctx.getGameState();
       if (!state || !state.characterLabyrinth || !Array.isArray(state.characterLabyrinth.roomData)) {
@@ -19965,9 +23601,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const runSignature = options.snapshot?.floorSignature ?? ctx.getLabyrinthDisplaySignature(state);
       ctx.lastLabyrinthDisplaySignature = runSignature;
 
-      let runError = null;
       function isRunStale() {
-        if (runError) return true;
         if (options.snapshot) return options.snapshot.isStale();
         const latestSignature = ctx.getLabyrinthDisplaySignature(ctx.getGameState());
         return ctx.destroyed || Boolean(runSignature && latestSignature !== runSignature);
@@ -19997,8 +23631,40 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const initClientData = ctx.getInitClientData();
       const maxEnhancementByItem = ctx.buildMaxEnhancementByItem(state);
       const labyrinthUpgradeLevels = options.snapshot?.labyrinthUpgradeLevels || ctx.getLabyrinthUpgradeLevels(true);
-      const combatUpgrades = ctx.getCombatUpgradeOptions(labyrinthUpgradeLevels);
-      const combatUnits = combatTrials * (1 + combatUpgrades.filter(({ cost }) => cost !== null).length);
+      const deferUpgradesToHover = Boolean(ctx.COMBAT_UPGRADE_ON_HOVER && !options.eagerCombatUpgrades);
+      const combatUpgrades = deferUpgradesToHover ? [] : ctx.getCombatUpgradeOptions(labyrinthUpgradeLevels);
+      const activeCombatUpgradeCount = combatUpgrades.filter(({ cost }) => cost !== null).length;
+      const deferCombatUpgrades =
+        !deferUpgradesToHover &&
+        activeCombatUpgradeCount > 0 &&
+        typeof ctx.computeCombatRoomUpgradeImpact === "function";
+      const combatUnits = combatTrials * (1 + activeCombatUpgradeCount);
+      const skillingProfileCache = new Map();
+      const combatProfileCache = new Map();
+      const getCachedSkillingProfile = (skillHrid) => {
+        if (!skillHrid || typeof ctx.extractSkillingProfile !== "function") return null;
+        if (!skillingProfileCache.has(skillHrid)) {
+          skillingProfileCache.set(
+            skillHrid,
+            ctx.extractSkillingProfile(state, initClientData, skillHrid, maxEnhancementByItem, {
+              labyrinthUpgradeLevels
+            })
+          );
+        }
+        return skillingProfileCache.get(skillHrid);
+      };
+      const getCachedCombatProfile = (monsterHrid) => {
+        if (!monsterHrid || typeof ctx.extractCombatProfile !== "function") return null;
+        if (!combatProfileCache.has(monsterHrid)) {
+          combatProfileCache.set(
+            monsterHrid,
+            ctx.extractCombatProfile(state, initClientData, monsterHrid, maxEnhancementByItem, {
+              labyrinthUpgradeLevels
+            })
+          );
+        }
+        return combatProfileCache.get(monsterHrid);
+      };
       let totalUnits = 0;
       for (const i of targetIndexes) {
         if (flatRooms[i]?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) totalUnits += combatUnits;
@@ -20006,6 +23672,120 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       const progressTracker = ctx.createProgressTracker(totalUnits);
       const targetCount = targetIndexes.length;
+      const failedItems = [];
+      const pendingUpgrades = [];
+
+      function createBoundedProgressTracker(maxUnits, message) {
+        let added = 0;
+        return {
+          add(units = 1, customMessage) {
+            const parsed = Number(units);
+            const n = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+            const delta = Math.min(Math.max(0, maxUnits - added), n);
+            if (delta > 0) {
+              added += delta;
+              progressTracker.add(delta, customMessage || message);
+            }
+          },
+          complete() {
+            const remaining = Math.max(0, maxUnits - added);
+            if (remaining > 0) {
+              added = maxUnits;
+              progressTracker.add(remaining, message);
+            }
+          }
+        };
+      }
+
+      function formatRoomLabel(room, roomKey) {
+        const zh = ctx.isChineseUi ? ctx.isChineseUi() : true;
+        let name = "";
+        if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && room?.monsterHrid) {
+          const tail = String(room.monsterHrid).split("/").pop() || "";
+          name = String(
+            (zh &&
+              (ctx.LABYRINTH_MONSTER_NAME_ZH_BY_TAIL?.[tail] ||
+                ctx.LABYRINTH_MONSTER_NAME_ZH_MAP?.[room.monsterHrid])) ||
+              initClientData?.combatMonsterDetailMap?.[room.monsterHrid]?.name ||
+              tail ||
+              room.monsterHrid
+          );
+        } else if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE && room?.skillHrid) {
+          const tail = String(room.skillHrid).split("/").pop() || "";
+          name = String(initClientData?.skillDetailMap?.[room.skillHrid]?.name || tail || room.skillHrid);
+        }
+        const coords = roomKey ? `(${roomKey})` : "";
+        return name && coords ? `${name} ${coords}` : name || coords || (zh ? "未知房间" : "Room");
+      }
+
+      function formatUpgradeLabel(upgradeKey) {
+        const zh = ctx.isChineseUi ? ctx.isChineseUi() : true;
+        const info = ctx.COMBAT_STAT_UPGRADES?.find((entry) => entry.key === upgradeKey);
+        if (info) return zh ? info.zh : info.en;
+        return (
+          String(upgradeKey || "")
+            .split("/")
+            .pop() || String(upgradeKey || "")
+        );
+      }
+
+      function formatFailureSummary(items) {
+        const zh = ctx.isChineseUi ? ctx.isChineseUi() : true;
+        const details = items
+          .map((item) => {
+            const scope = item.upgradeKeys?.length
+              ? `${item.label}${zh ? " 升级收益" : " upgrades"}[${item.upgradeKeys.map(formatUpgradeLabel).join(zh ? "、" : ", ")}]`
+              : item.label;
+            return item.reason ? `${scope}${zh ? `（${item.reason}）` : ` (${item.reason})`}` : scope;
+          })
+          .join(zh ? "；" : "; ");
+        return zh
+          ? `部分计算失败（${items.length} 项）：${details}`
+          : `Partial calculation failure (${items.length}): ${details}`;
+      }
+
+      function clearRoomDisplay(room, cell, roomKey) {
+        ctx.removeBadge?.(cell);
+        ctx.clearCellSkillingPreview?.(cell);
+        ctx.clearCellCombatPreview?.(cell);
+        if (ctx.isCalculableRoom(room)) {
+          ctx.clearRoomEstimate?.(roomKey);
+        }
+      }
+
+      function applyRoomResult(room, cell, roomKey, result) {
+        if (!result) {
+          clearRoomDisplay(room, cell, roomKey);
+          if (!ctx.isCalculableRoom(room)) {
+            const rewardOnlyPreview = ctx.buildRewardOnlyPreview(state, room);
+            if (rewardOnlyPreview) {
+              ctx.setCellSkillingPreview(cell, rewardOnlyPreview);
+            }
+          }
+        } else {
+          if (ctx.isRoomResultDisplayable(ctx.getGameState(), roomKey, cell))
+            ctx.upsertBadge(cell, result.clearChance, result.expectedSecondsPerClear, result.debug);
+          else ctx.removeBadge?.(cell);
+          if (ctx.isCalculableRoom(room)) {
+            ctx.updateRoomEstimate(roomKey, result);
+          }
+          if (result.skillingPreview) {
+            ctx.setCellSkillingPreview(cell, result.skillingPreview);
+          } else {
+            ctx.clearCellSkillingPreview(cell);
+          }
+          const combatPreview = ctx.buildCombatPreview(state, room, initClientData, result);
+          if (combatPreview) {
+            ctx.setCellCombatPreview(cell, combatPreview);
+          } else {
+            ctx.clearCellCombatPreview(cell);
+            if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && room?.monsterHrid) {
+              ctx.bindSkillingPreviewEvents?.(cell);
+            }
+          }
+        }
+        ctx.saveRoomResult?.(state, roomKey, result, cell);
+      }
 
       async function calculateRoom(targetPos) {
         if (isRunStale()) return;
@@ -20027,94 +23807,205 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
 
         let result = null;
         if (room?.roomType === ctx.LABYRINTH_SKILLING_ROOM_TYPE) {
-          result = ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
-            labyrinthUpgradeLevels
-          });
-          progressTracker.add(1, roomProgressMessage);
-        } else if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
-          ctx.setControlStatus({
-            running: true,
-            message: combatProgressMessage
-          });
-          result = await ctx.computeCombatRoomClearChance(
-            state,
-            initClientData,
-            room,
-            maxEnhancementByItem,
-            progressTracker,
-            combatTrials,
-            roomKey,
-            {
+          try {
+            result = ctx.computeRoomClearChance(state, initClientData, room, maxEnhancementByItem, {
               labyrinthUpgradeLevels,
-              combatUpgrades,
-              parallel: true,
-              isRunStale
-            }
+              profile: getCachedSkillingProfile(room.skillHrid)
+            });
+            progressTracker.add(1, roomProgressMessage);
+          } catch (error) {
+            if (isRunStale()) return;
+            console.error("[Lab Clear Rate] room calculation failed:", roomKey, error);
+            progressTracker.add(1, roomProgressMessage);
+            clearRoomDisplay(room, cell, roomKey);
+            failedItems.push({
+              targetPos,
+              roomKey,
+              label: formatRoomLabel(room, roomKey),
+              reason: error?.message || String(error)
+            });
+            return;
+          }
+        } else if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
+          const baseBudget = deferCombatUpgrades ? combatTrials : combatUnits;
+          const roomTracker = createBoundedProgressTracker(baseBudget, combatProgressMessage);
+          const combatProfile = getCachedCombatProfile(room.monsterHrid);
+          const roomLv = Math.max(1, Math.floor(Number(room?.recommendedLevel) || 1));
+          const isFastCurveHit = Boolean(
+            combatProfile &&
+            typeof ctx.lookupCombatLevelSync === "function" &&
+            ctx.lookupCombatLevelSync(combatProfile, roomLv, Math.min(combatTrials, 250))
           );
+          if (!isFastCurveHit) {
+            ctx.setControlStatus({
+              running: true,
+              message: combatProgressMessage
+            });
+          }
+          try {
+            result = await ctx.computeCombatRoomClearChance(
+              state,
+              initClientData,
+              room,
+              maxEnhancementByItem,
+              roomTracker,
+              combatTrials,
+              roomKey,
+              {
+                labyrinthUpgradeLevels,
+                profile: combatProfile,
+                deferUpgradesToHover,
+                allowBaseCurveHit: true,
+                priority: 0,
+                ...(deferCombatUpgrades || deferUpgradesToHover ? {} : { combatUpgrades }),
+                parallel: true,
+                isRunStale
+              }
+            );
+          } catch (error) {
+            if (isRunStale()) return;
+            console.error("[Lab Clear Rate] room calculation failed:", roomKey, error);
+            roomTracker.complete();
+            if (deferCombatUpgrades)
+              progressTracker.add(combatTrials * activeCombatUpgradeCount, combatProgressMessage);
+            clearRoomDisplay(room, cell, roomKey);
+            failedItems.push({
+              targetPos,
+              roomKey,
+              label: formatRoomLabel(room, roomKey),
+              reason: error?.message || String(error)
+            });
+            return;
+          }
+          if (isRunStale()) return;
+          roomTracker.complete();
+          if (deferCombatUpgrades && !result) {
+            progressTracker.add(combatTrials * activeCombatUpgradeCount, combatProgressMessage);
+          }
         }
 
-        if (isRunStale()) return false;
+        if (isRunStale()) return;
 
-        if (!result) {
-          ctx.removeBadge(cell);
-          ctx.clearCellSkillingPreview(cell);
-          ctx.clearCellCombatPreview(cell);
-          if (ctx.isCalculableRoom(room)) {
-            ctx.clearRoomEstimate(roomKey);
-          } else {
-            const rewardOnlyPreview = ctx.buildRewardOnlyPreview(state, room);
-            if (rewardOnlyPreview) {
-              ctx.setCellSkillingPreview(cell, rewardOnlyPreview);
-            }
-          }
-        } else {
-          if (ctx.isRoomResultDisplayable(ctx.getGameState(), roomKey, cell))
-            ctx.upsertBadge(cell, result.clearChance, result.expectedSecondsPerClear, result.debug);
-          else ctx.removeBadge(cell);
-          if (ctx.isCalculableRoom(room)) {
-            ctx.updateRoomEstimate(roomKey, result);
-          }
-          if (result.skillingPreview) {
-            ctx.setCellSkillingPreview(cell, result.skillingPreview);
-          } else {
-            ctx.clearCellSkillingPreview(cell);
-          }
-          const combatPreview = ctx.buildCombatPreview(state, room, initClientData, result);
-          if (combatPreview) {
-            ctx.setCellCombatPreview(cell, combatPreview);
-          } else {
-            ctx.clearCellCombatPreview(cell);
-            if (room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE && room?.monsterHrid) {
-              ctx.bindSkillingPreviewEvents(cell);
-            }
-          }
+        applyRoomResult(room, cell, roomKey, result);
+        if (deferCombatUpgrades && result && room?.roomType === ctx.LABYRINTH_COMBAT_ROOM_TYPE) {
+          pendingUpgrades.push({ targetPos, i, room, cell, roomKey, result });
         }
-
-        ctx.saveRoomResult?.(state, roomKey, result, cell);
 
         if ((targetPos + 1) % 2 === 0) {
           await ctx.nextFrame();
         }
       }
 
-      // Keep the shared Worker pool fed without preparing every room at once.
-      // Drain all active lanes before finishing or reporting an error, so late
-      // results cannot leak into a subsequent run.
+      // Phase 1: compute and display every room's base clear chance first.
+      // Single-room failures stay isolated so the rest of the floor still finishes.
       let nextTarget = 0;
       const lanes = Math.min(targetCount, ctx.getCombatParallelism());
       await Promise.all(
         Array.from({ length: lanes }, async () => {
-          try {
-            while (nextTarget < targetCount && !isRunStale()) {
-              await calculateRoom(nextTarget++);
-            }
-          } catch (error) {
-            runError ||= error;
+          while (nextTarget < targetCount && !isRunStale()) {
+            await calculateRoom(nextTarget++);
           }
         })
       );
-      if (runError) throw runError;
       if (isRunStale()) return false;
+
+      // Phase 2: backfill combat upgrade impact without delaying map win-rate badges.
+      if (pendingUpgrades.length > 0) {
+        pendingUpgrades.sort((a, b) => a.targetPos - b.targetPos);
+        let nextUpgrade = 0;
+        const upgradeTotal = pendingUpgrades.length;
+        const upgradeLanes = Math.min(upgradeTotal, ctx.getCombatParallelism());
+        const upgradeBudget = combatTrials * activeCombatUpgradeCount;
+        await Promise.all(
+          Array.from({ length: upgradeLanes }, async () => {
+            while (nextUpgrade < upgradeTotal && !isRunStale()) {
+              const pos = nextUpgrade++;
+              const entry = pendingUpgrades[pos];
+              const upgradeMessage = ctx.t("combatUpgradeFmt", { current: pos + 1, total: upgradeTotal });
+              const upgradeTracker = createBoundedProgressTracker(upgradeBudget, upgradeMessage);
+              ctx.setControlStatus({
+                running: true,
+                message: upgradeMessage
+              });
+              try {
+                const outcome = await ctx.computeCombatRoomUpgradeImpact(
+                  state,
+                  initClientData,
+                  entry.room,
+                  maxEnhancementByItem,
+                  upgradeTracker,
+                  combatTrials,
+                  entry.roomKey,
+                  {
+                    labyrinthUpgradeLevels,
+                    combatUpgrades,
+                    parallel: true,
+                    isRunStale,
+                    tolerateUpgradeErrors: true
+                  }
+                );
+                if (isRunStale()) return;
+                upgradeTracker.complete();
+                if (outcome?.upgradeImpact) {
+                  entry.result.upgradeImpact = outcome.upgradeImpact;
+                  if (ctx.isRoomResultDisplayable(ctx.getGameState(), entry.roomKey, entry.cell)) {
+                    const combatPreview = ctx.buildCombatPreview(state, entry.room, initClientData, entry.result);
+                    if (combatPreview) {
+                      ctx.setCellCombatPreview(entry.cell, combatPreview);
+                    }
+                    ctx.saveRoomResult?.(state, entry.roomKey, entry.result, entry.cell);
+                  } else {
+                    ctx.removeBadge?.(entry.cell);
+                    ctx.clearCellCombatPreview?.(entry.cell);
+                  }
+                }
+                if (outcome?.failedUpgrades?.length) {
+                  const firstError = outcome.failedUpgrades[0].error;
+                  console.error("[Lab Clear Rate] combat upgrade calculation failed:", entry.roomKey, firstError);
+                  failedItems.push({
+                    targetPos: entry.targetPos,
+                    roomKey: entry.roomKey,
+                    label: formatRoomLabel(entry.room, entry.roomKey),
+                    upgradeKeys: outcome.failedUpgrades.map((item) => item.key),
+                    reason: firstError?.message || String(firstError)
+                  });
+                }
+              } catch (error) {
+                if (isRunStale()) return;
+                console.error("[Lab Clear Rate] combat upgrade calculation failed:", entry.roomKey, error);
+                upgradeTracker.complete();
+                failedItems.push({
+                  targetPos: entry.targetPos,
+                  roomKey: entry.roomKey,
+                  label: formatRoomLabel(entry.room, entry.roomKey),
+                  upgradeKeys: combatUpgrades.filter(({ cost }) => cost !== null).map(({ key }) => key),
+                  reason: error?.message || String(error)
+                });
+              }
+              if ((pos + 1) % 2 === 0) {
+                await ctx.nextFrame();
+              }
+            }
+          })
+        );
+      }
+
+      if (isRunStale()) return false;
+      if (failedItems.length > 0) {
+        failedItems.sort((a, b) => a.targetPos - b.targetPos);
+        ctx.lastLabyrinthCalcHadFailures = true;
+        ctx.lastLabyrinthCalcFailedItems = failedItems;
+        const doneMessage = formatFailureSummary(failedItems);
+        ctx.lastLabyrinthCalcDoneMessage = doneMessage;
+        progressTracker.finish(doneMessage);
+        ctx.setControlStatus({
+          running: false,
+          ratio: 1,
+          error: true,
+          message: doneMessage
+        });
+        return true;
+      }
       const doneMessage = ctx.buildLabyrinthCalcDoneMessage(state, flatRooms, targetIndexes);
       ctx.lastLabyrinthCalcDoneMessage = doneMessage;
       progressTracker.finish(doneMessage);
@@ -20175,10 +24066,16 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           }
           if (snapshot?.isStale()) return;
           // A tile revealed mid-run was not part of this calculation and still needs its own pass.
-          if (snapshot) ctx.updateAutoRecalcBaseline(snapshot.state);
+          if (snapshot) {
+            ctx.updateAutoRecalcBaseline(snapshot.state);
+            ctx.scheduleBackgroundCurvePrecompute?.(snapshot.state, {
+              labyrinthUpgradeLevels: snapshot.labyrinthUpgradeLevels
+            });
+          }
           ctx.setControlStatus({
             running: false,
             ratio: 1,
+            error: Boolean(ctx.lastLabyrinthCalcHadFailures),
             message: ctx.lastLabyrinthCalcDoneMessage || ctx.t("calcDone")
           });
         }
@@ -20197,7 +24094,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           message: [ctx.t("calcFailed"), error?.message || String(error)].join(" · ")
         });
       } finally {
-        ctx.releaseIdleCombatWorkers();
+        if (typeof ctx.scheduleIdleCombatWorkerRelease === "function") ctx.scheduleIdleCombatWorkerRelease(60000);
+        else ctx.releaseIdleCombatWorkers();
         ctx.activeFloorRun = null;
         ctx.manualUpdateRunning = false;
         if (!ctx.destroyed && snapshot?.isStale())
@@ -20514,8 +24412,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   root.MwiLabyrinthCalculatorModules.integration = function (ctx) {
     ctx.skillingSuccessChance = (value) => Math.max(0.05, Math.min(1, Number(value) || 0));
     ctx.inputRevision = 0;
-    ctx.UI_TEXT.zh.targetNotMet = "未找到达到目标的等级";
-    ctx.UI_TEXT.en.targetNotMet = "No level meets the target";
+    ctx.UI_TEXT.zh.targetNotMet = "未达标";
+    ctx.UI_TEXT.en.targetNotMet = "Not met";
     ctx.wilsonLower = (wins, trials) => {
       if (!(trials > 0) || !Number.isFinite(wins)) return 0;
       const p = Math.max(0, Math.min(1, wins / trials)),
@@ -20546,6 +24444,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         data[key] = state[key];
       data.levels = ctx.getContainerEntries(state.characterSkillMap).map(([key, value]) => [key, value?.level]);
       data.equipment = ctx.buildMaxEnhancementByItem(state);
+      data.equippedCombat = ctx
+        .getCurrentEquippedCombatItems(state)
+        .map((entry) => [entry.locationHrid, entry.itemHrid, entry.enhancementLevel]);
       data.settings = Object.fromEntries(
         // Skip thresholds select rooms; they do not change character performance or recommended levels.
         // The estimate table tracks each row's threshold separately.
@@ -20571,6 +24472,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const identityChanged = identity !== previousIdentity;
       if (identityChanged) {
         previousIdentity = identity;
+        ctx.resetProfileChangeTracker?.();
+        ctx.stopBackgroundCurvePrecompute?.();
         ctx.automationEstimateByRoomTypeKey.clear();
         ctx.automationEstimateColumnEnabled = false;
         ctx.latestLabyrinthUpgradeLevels = null;
@@ -20888,18 +24791,32 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         !String(cell?.className || "").includes("LabyrinthPanel_clearedRoom")
       );
     };
+    ctx.invalidateSavedRoomKeys = (state, roomKeys) => {
+      if (!Array.isArray(roomKeys) || !roomKeys.length) return;
+      if (!scope || ctx.roomResultScope(state) !== scope) return;
+      let removed = false;
+      for (const roomKey of roomKeys) {
+        if (records.delete(roomKey)) removed = true;
+      }
+      if (removed) {
+        dirty = true;
+        if (saveTimer === null) saveTimer = ctx.setTimeout(ctx.flushRoomResults, 250);
+      }
+    };
     ctx.hasSavedRoomResult = (state, roomKey) => {
       if (ctx.roomResultScope(state) !== scope || !records.has(roomKey)) return false;
       const record = records.get(roomKey);
-      if (
-        record.combatPreview &&
-        (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE ||
-          !record.combatPreview.upgradeImpact ||
-          Object.values(record.combatPreview.upgradeImpact).some(
-            (impact) => impact?.cost !== null && !Number.isFinite(impact?.experiencePerHour)
-          ))
-      )
-        return false;
+      if (record.combatPreview) {
+        if (record.combatPreview.combatModelSignature !== ctx.COMBAT_MODEL_SIGNATURE) return false;
+        const impact = record.combatPreview.upgradeImpact;
+        if (impact) {
+          if (Object.values(impact).some((item) => item?.cost !== null && !Number.isFinite(item?.experiencePerHour))) {
+            return false;
+          }
+        } else if (!ctx.COMBAT_UPGRADE_ON_HOVER) {
+          return false;
+        }
+      }
       const preview = record.skillingPreview;
       // Keep older badges visible while the normal incremental calculation fills new preview fields.
       return !preview || preview.type === "reward-only" || preview.upgradePreviewVersion === 1;
@@ -21095,19 +25012,22 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (warning) warning.hidden = !ctx.experienceStorageError;
       const mode = form.querySelector("[data-experience-full-scan]");
       if (mode) mode.checked = settings.mode === "full";
-      const note = form.querySelector("[data-experience-scan-note]");
-      if (note) {
+      const control = document.getElementById(ctx.AUTOMATION_ESTIMATE_CONTROL_ID);
+      const curvePrecision = (control || form).querySelector("[data-curve-full-precision]");
+      if (curvePrecision && typeof ctx.getCurveFullPrecisionSetting === "function") {
+        curvePrecision.checked = ctx.getCurveFullPrecisionSetting();
+      }
+      const scanLabel = form.querySelector(".mwi-labyrinth-calc-experience-scan");
+      if (scanLabel) {
         const content =
           settings.mode === "full"
-            ? text(
-                "战斗：检查当前扫描范围内的全部等级，耗时较长。",
-                "Combat: check every level in the search range; takes longer."
-              )
+            ? text("战斗：扫描全部等级（耗时较长）", "Combat: scan all levels in range (slower)")
             : text(
-                "战斗：连续六级未达标即停止，可能漏掉后续达标等级。",
-                "Combat: stop after six misses in a row; later qualifying levels may be missed."
+                "战斗：连续 6 级未达标即停（可能漏掉后续达标等级）",
+                "Combat: stop after 6 misses (may skip later levels)"
               );
-        if (note.textContent !== content) note.textContent = content;
+        if (scanLabel.title !== content) scanLabel.title = content;
+        if (mode && mode.title !== content) mode.title = content;
       }
     };
     ctx.saveExperienceTarget = (key, value) => {
@@ -21216,6 +25136,26 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const concurrency = params.entry.isCombat ? ctx.getCombatParallelism() : 1;
       const clearStatsCache = new Map();
       const ordinaryLife = !params.entry.isCombat && params.entry.skillHrid !== "/skills/enhancing";
+      const skillingProfile =
+        !params.entry.isCombat && typeof ctx.extractSkillingProfile === "function"
+          ? ctx.extractSkillingProfile(
+              params.state,
+              params.initClientData,
+              params.entry.skillHrid,
+              params.maxEnhancementByItem,
+              { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            )
+          : null;
+      const combatProfile =
+        params.entry.isCombat && typeof ctx.extractCombatProfile === "function"
+          ? ctx.extractCombatProfile(
+              params.state,
+              params.initClientData,
+              params.entry.monsterHrid,
+              params.maxEnhancementByItem,
+              { labyrinthUpgradeLevels: params.labyrinthUpgradeLevels }
+            )
+          : null;
       const analysis = await root.MwiLabyrinthExperiencePolicy.scan({
         minLevel,
         maxLevel: Math.max(minLevel, maxLevel),
@@ -21228,7 +25168,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         futureUpperBound: ordinaryLife ? (sample, level, max) => sample.experiencePerHour * (max / level) : null,
         onProgress: ({ completed, level }) => {
           if (!ctx.automationEstimateRunning) return;
-          ctx.automationEstimateStatusText = `${ctx.getAutomationRoomLabel(params.entry, params.initClientData)} · Lv.${level} · ${completed} ${text("级", "levels")}${concurrency > 1 ? ` · ${ctx.getCombatConcurrencyState().limit} ${text("路并行上限", "worker limit")}` : ""}`;
+          ctx.automationEstimateStatusText = `${ctx.getAutomationRoomLabel(params.entry, params.initClientData)} · Lv.${level} (${completed})${concurrency > 1 ? ` · ${ctx.getCombatConcurrencyState().limit}${text("路", "w")}` : ""}`;
           ctx.setAutomationEstimateControlStatus({ running: true, message: ctx.automationEstimateStatusText });
         },
         target: params.targetExperience,
@@ -21246,6 +25186,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             return ctx.computeRoomClearChance(params.state, params.initClientData, room, params.maxEnhancementByItem, {
               includePersonalBuffs: false,
               labyrinthUpgradeLevels: params.labyrinthUpgradeLevels,
+              profile: skillingProfile,
               summaryOnly: true,
               clearStatsCache
             });
@@ -21262,6 +25203,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
               seed: 173,
               reuseSimulation: true,
               parallel: true,
+              priority: 1,
+              profile: combatProfile,
               labyrinthUpgradeLevels: params.labyrinthUpgradeLevels
             }
           );
@@ -21303,7 +25246,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = buttonClass;
-        button.textContent = text("按经验效率推荐", "Recommend by EXP/hour");
+        button.textContent = text("按经验推荐", "By EXP");
         ctx.listen(button, "click", () => ctx.runAutomationRecommendCalculation("experience"));
         row.append(button);
         form = document.createElement("section");
@@ -21311,24 +25254,34 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         const summary = document.createElement("h4");
         summary.id = `${formId}-title`;
         form.setAttribute("aria-labelledby", summary.id);
-        summary.textContent = text("经验目标 · K/h", "EXP goals · K/h");
+        summary.textContent = text("经验目标 (K/h)", "EXP goals (K/h)");
         const grid = document.createElement("div");
         grid.className = "mwi-labyrinth-calc-experience-inputs";
-        const lifeHeading = document.createElement("div");
-        lifeHeading.className = "mwi-labyrinth-calc-life-goals-heading";
-        lifeHeading.textContent = text("生活项目", "Life skills");
-        grid.append(lifeHeading);
+        const createGroup = (kind, titleText, titleTip) => {
+          const group = document.createElement("div");
+          group.className = "mwi-labyrinth-calc-experience-group";
+          group.dataset.group = kind;
+          const heading = document.createElement("div");
+          heading.className =
+            kind === "life" ? "mwi-labyrinth-calc-life-goals-heading" : "mwi-labyrinth-calc-combat-goals-heading";
+          heading.textContent = titleText;
+          if (titleTip) heading.title = titleTip;
+          const list = document.createElement("div");
+          list.className = "mwi-labyrinth-calc-experience-list";
+          group.append(heading, list);
+          grid.append(group);
+          return list;
+        };
+        const lifeList = createGroup("life", text("生活", "Life"));
+        const combatList = createGroup(
+          "combat",
+          text("战斗", "Combat"),
+          text(
+            "七项战斗技能总经验（K/h），含失败与入场耗时",
+            "Total EXP across 7 combat skills (K/h), including failures and entry time"
+          )
+        );
         for (const entry of rooms) {
-          if (entry === rooms[skills.length]) {
-            const heading = document.createElement("div");
-            heading.className = "mwi-labyrinth-calc-combat-goals-heading";
-            heading.textContent = text("战斗项目 · 七项技能总经验", "Combat rooms · total EXP across seven skills");
-            heading.title = text(
-              "每个候选等级使用设置的战斗场数，经验效率包含失败和入场耗时。",
-              "Each level uses the configured battle count; EXP/hour includes failures and entry time."
-            );
-            grid.append(heading);
-          }
           const label = document.createElement("label"),
             name = document.createElement("span"),
             input = document.createElement("input");
@@ -21352,7 +25305,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           input.type = "number";
           input.min = "0";
           input.step = "any";
-          input.placeholder = text("未设置", "Not set");
+          input.placeholder = "—";
           input.inputMode = "decimal";
           input.dataset.skill = entry.key;
           input.setAttribute("aria-label", `${skillName} ${text("目标经验", "target EXP")} (K/h)`);
@@ -21361,12 +25314,12 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             ctx.saveExperienceTarget(entry.key, target);
             input.setCustomValidity(
               input.validity.badInput || (input.value && target === null)
-                ? text("请输入不小于 0 的有效数值（K/h）", "Enter a valid nonnegative amount in K/h")
+                ? text("请输入不小于 0 的数值（K/h）", "Enter a nonnegative amount (K/h)")
                 : ""
             );
           });
           label.append(name, input);
-          grid.append(label);
+          (entry.isCombat ? combatList : lifeList).append(label);
         }
         const scanLabel = document.createElement("label");
         scanLabel.className = "mwi-labyrinth-calc-experience-scan";
@@ -21374,30 +25327,40 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         scan.type = "checkbox";
         scan.dataset.experienceFullScan = "";
         const caption = document.createElement("span");
-        caption.textContent = text("完整扫描战斗等级", "Scan all combat levels");
+        caption.textContent = text("完整扫描", "Full scan");
         scanLabel.append(scan, caption);
         ctx.listen(scan, "change", () => ctx.saveExperienceScanMode(scan.checked ? "full" : "quick"));
-        const note = document.createElement("p");
-        note.dataset.experienceScanNote = "";
-        note.id = `${formId}-scan-note`;
-        note.className = "mwi-labyrinth-calc-experience-note";
-        scan.setAttribute("aria-describedby", note.id);
+        const precisionLabel = document.createElement("label");
+        precisionLabel.className = "mwi-labyrinth-calc-curve-precision";
+        const precision = document.createElement("input");
+        precision.type = "checkbox";
+        precision.dataset.curveFullPrecision = "";
+        const precisionCaption = document.createElement("span");
+        precisionCaption.textContent = text("曲线全精算", "Full curve");
+        precisionLabel.title = text(
+          "后台 1~300 级战斗曲线表全部按满场数精算；默认仅精算胜率过渡区（±15 级）。",
+          "Refine all 1–300 combat curve levels to full trials; default refines transition band (+/-15 levels) only."
+        );
+        precision.title = precisionLabel.title;
+        precisionLabel.append(precision, precisionCaption);
+        ctx.listen(precision, "change", () => {
+          ctx.setCurveFullPrecisionSetting?.(precision.checked);
+          const liveState = ctx.getGameState?.();
+          if (liveState?.characterLabyrinth) ctx.scheduleBackgroundCurvePrecompute?.(liveState);
+        });
         const warning = document.createElement("div");
         warning.dataset.experienceSaveError = "";
         warning.className = "mwi-labyrinth-calc-experience-save-error";
         warning.setAttribute("role", "status");
         warning.hidden = true;
         const message = document.createElement("span");
-        message.textContent = text(
-          "没能保存经验设置。本次修改仍在，请重试并暂勿关闭页面。",
-          "Could not save EXP settings. Your edits remain here; retry before closing this page."
-        );
+        message.textContent = text("经验设置保存失败，修改已保留。", "Failed to save EXP settings; edits kept.");
         const retry = document.createElement("button");
         retry.type = "button";
         retry.textContent = text("重试保存", "Retry save");
         ctx.listen(retry, "click", ctx.persistExperienceSettings);
         warning.append(message, retry);
-        form.append(summary, scanLabel, note, warning, grid);
+        form.append(summary, scanLabel, precisionLabel, warning, grid);
         control.append(row, form);
       }
       // Reuse native sprite URLs, without hard-coding versioned asset names.
@@ -21440,7 +25403,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         button.textContent =
           running && ctx.automationRecommendBasis === "experience" && ctx.automationEstimateRunningMode === "recommend"
             ? ctx.t("calculating")
-            : text("按经验效率推荐", "Recommend by EXP/hour");
+            : text("按经验推荐", "By EXP");
     };
     const cellContent = ctx.upsertAutomationRecommendCellContent;
     ctx.upsertAutomationRecommendCellContent = (cell, estimate) => {
@@ -21464,16 +25427,27 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       cell.setAttribute(ctx.AUTOMATION_RECOMMEND_CELL_RENDER_TOKEN_ATTR, token);
       cell.textContent = "";
       const main = document.createElement("strong");
+      const rawMessage = String(estimate.message || "");
+      const displayMessage =
+        estimate.status === "error" &&
+        [
+          "扫描范围内未达标",
+          "未找到达到目标的等级",
+          "No level in range exceeds goal",
+          "No level meets the target"
+        ].includes(rawMessage)
+          ? ctx.t("targetNotMet")
+          : rawMessage;
       main.textContent =
         estimate.status === "ready"
           ? ctx.formatAutomationSignedDelta(estimate.levelDelta + 1)
           : estimate.status === "excluded"
             ? "-"
-            : estimate.message;
+            : displayMessage;
       cell.append(main);
       cell.removeAttribute("title");
       if (a)
-        cell.title = `${a.scanMode === "quick" ? text("快速扫描", "Quick scan") : text("完整扫描", "Full scan")} · ${text("已检查", "Checked")} Lv.${a.minLevel}–${a.maxLevel}${a.stoppedEarly ? (a.stopReason === "certified-upper-bound" ? text(" · 后续等级均不达标", " · Remaining levels cannot meet target") : text(" · 连续六级未达标，后续未检查", " · Six consecutive misses; later levels unchecked")) : a.atSearchLimit ? text(" · 已到扫描上限", " · Search limit reached") : ""}`;
+        cell.title = `${estimate.status === "error" ? text("扫描范围内未达标 · ", "Not met in range · ") : ""}${a.scanMode === "quick" ? text("快速扫描", "Quick scan") : text("完整扫描", "Full scan")} · ${text("已检查", "Checked")} Lv.${a.minLevel}–${a.maxLevel}${a.stoppedEarly ? (a.stopReason === "certified-upper-bound" ? text(" · 后续等级均不达标", " · Remaining levels cannot meet target") : text(" · 连续六级未达标，后续未检查", " · Six consecutive misses; later levels unchecked")) : a.atSearchLimit ? text(" · 已到扫描上限", " · Search limit reached") : ""}`;
     };
     const preview = ctx.renderSkillingPreviewTooltip;
     ctx.renderSkillingPreviewTooltip = (data) => {
@@ -21544,25 +25518,22 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       const element = document.createElement("style");
       element.id = "mwi-labyrinth-calc-experience-style";
       element.textContent = `
-.mwi-labyrinth-calc-experience-actions{flex-basis:100%;margin-top:8px;}
-.mwi-labyrinth-calc-experience-scan{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;}
-#${formId} [data-experience-full-scan]{width:16px;min-width:16px;height:16px;padding:0;accent-color:var(--ml-action,#43c4ad);}
-#${formId} [data-experience-save-error]{color:var(--ml-warn,#e9c487);display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0;}
+.mwi-labyrinth-calc-experience-actions{flex-basis:100%;margin-top:6px;}
+.mwi-labyrinth-calc-experience-scan{display:inline-flex;align-items:center;gap:4px;}
+#${formId} :is([data-experience-full-scan],[data-curve-full-precision]){width:14px;min-width:14px;height:14px;padding:0;accent-color:var(--ml-action,#43c4ad);}
+#${formId} [data-experience-save-error]{color:var(--ml-warn,#e9c487);display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:4px 0;}
 #${formId} [data-experience-save-error][hidden]{display:none;}
-.${buttonClass}{font:inherit;font-size:12px;color:#fff;background:#3269c7;border:1px solid #6a94da;border-radius:4px;padding:6px 10px;cursor:pointer;}
+.${buttonClass}{font:inherit;font-size:12px;color:#fff;background:#3269c7;border:1px solid #6a94da;border-radius:4px;padding:4px 8px;cursor:pointer;}
 .${buttonClass}:disabled{opacity:.65;cursor:wait;}
-#${formId}{flex-basis:100%;max-width:620px;color:#eeeef5;font:12px/1.5 system-ui,sans-serif;}
-#${formId} summary{cursor:pointer;padding:6px 0;}
-#${formId} p,.mwi-labyrinth-calc-experience-note{color:#c1c4d8;font-size:12px;line-height:1.5;margin:8px 0;white-space:normal;}
-.mwi-labyrinth-calc-experience-note{flex-basis:100%;max-width:620px;}
-.mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;}
-.mwi-labyrinth-calc-experience-inputs label{display:flex;gap:8px;align-items:center;justify-content:space-between;min-width:0;}
-.mwi-labyrinth-calc-experience-inputs input{width:128px;min-width:0;box-sizing:border-box;background:#161722;color:#eeeef5;border:1px solid #747b9c;border-radius:4px;font:inherit;padding:6px;}
-.mwi-labyrinth-calc-experience-inputs input::placeholder{color:#c1c4d8;opacity:1;}
-.mwi-labyrinth-calc-experience-inputs input:invalid{border-color:#ffba92;}
-.mwi-labyrinth-calc-experience-result{font-size:11px;line-height:1.5;font-weight:400;white-space:normal;max-width:240px;margin-top:4px;overflow-wrap:anywhere;}
-.mwi-labyrinth-calc-experience-result summary{cursor:pointer;}
-@media(max-width:700px){.mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}.mwi-labyrinth-calc-experience-inputs input{width:150px;}}
+#${formId}{flex-basis:100%;max-width:620px;color:#eeeef5;font:12px/1.4 system-ui,sans-serif;}
+.mwi-labyrinth-calc-experience-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;}
+.mwi-labyrinth-calc-experience-list{display:grid;grid-template-columns:1fr;gap:2px;}
+.mwi-labyrinth-calc-experience-list label{display:flex;gap:6px;align-items:center;justify-content:space-between;min-width:0;}
+.mwi-labyrinth-calc-experience-list input{width:54px;min-width:0;box-sizing:border-box;background:#161722;color:#eeeef5;border:1px solid #747b9c;border-radius:4px;font:inherit;padding:2px 5px;text-align:right;}
+.mwi-labyrinth-calc-experience-list input::placeholder{color:#c1c4d8;opacity:.45;}
+.mwi-labyrinth-calc-experience-list input:invalid{border-color:#ffba92;}
+.mwi-labyrinth-calc-experience-result{font-size:11px;line-height:1.4;font-weight:400;white-space:normal;max-width:240px;margin-top:2px;overflow-wrap:anywhere;}
+@media(max-width:480px){.mwi-labyrinth-calc-experience-inputs{grid-template-columns:1fr;}}
 `;
       document.head.append(element);
     };
@@ -21772,9 +25743,9 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (!control) return;
       const running = ctx.automationEstimateRunning;
       const names = {
-        winRate: text("按胜率推荐", "Recommend by win rate"),
-        seconds: text("按耗时推荐", "Recommend by time"),
-        experience: text("按经验推荐", "Recommend by EXP")
+        winRate: text("按胜率推荐", "By Win %"),
+        seconds: text("按耗时推荐", "By Time"),
+        experience: text("按经验推荐", "By EXP")
       };
       for (const button of control.querySelectorAll(".mwi-labyrinth-calc-auto-primary")) {
         const active =
@@ -21861,12 +25832,17 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           }
         }
         const goals = control.querySelector("#mwi-labyrinth-calc-experience-goals");
+        const precisionToggle = goals.querySelector(".mwi-labyrinth-calc-curve-precision");
+        if (precisionToggle) actions.prepend(precisionToggle);
         const experienceHeading = document.createElement("div");
         experienceHeading.className = "mwi-labyrinth-calc-experience-heading";
-        experienceHeading.append(
-          goals.querySelector("h4"),
-          control.querySelector(".mwi-labyrinth-calc-experience-recommend")
-        );
+        const experienceTools = document.createElement("div");
+        experienceTools.className = "mwi-labyrinth-calc-experience-tools";
+        for (const toggle of goals.querySelectorAll(".mwi-labyrinth-calc-experience-scan")) {
+          experienceTools.append(toggle);
+        }
+        experienceTools.append(control.querySelector(".mwi-labyrinth-calc-experience-recommend"));
+        experienceHeading.append(goals.querySelector("h4"), experienceTools);
         goals.prepend(experienceHeading);
         const status = control.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__status`);
         status.classList.add("mwi-labyrinth-calc-auto-status");
@@ -21922,7 +25898,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           set(
             row.children[0],
             "data-mwi-labyrinth-room-group",
-            firstInGroup ? (entry.isCombat ? text("战斗项目", "Combat rooms") : text("生活项目", "Life rooms")) : null
+            firstInGroup ? (entry.isCombat ? text("战斗", "Combat") : text("生活", "Life")) : null
           );
         let current = NaN;
         const editing = row.children[2]?.querySelector("input");
@@ -21946,8 +25922,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         if (!cell) return;
         const label = adjustment
           ? text(
-              `当前 ${current}，推荐 ${adjustment.target}，需${adjustment.direction === "up" ? "调高" : "调低"} ${Math.abs(adjustment.difference)} 级`,
-              `Current ${current}, recommended ${adjustment.target}; ${adjustment.direction === "up" ? "raise" : "lower"} by ${Math.abs(adjustment.difference)}`
+              `当前 ${current} → 推荐 ${adjustment.target}（${adjustment.direction === "up" ? "+" : "-"}${Math.abs(adjustment.difference)}）`,
+              `Current ${current} → Rec ${adjustment.target} (${adjustment.direction === "up" ? "+" : "-"}${Math.abs(adjustment.difference)})`
             )
           : null;
         set(cell, "data-mwi-labyrinth-adjust-hint", label);
@@ -22203,6 +26179,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
             upgrades.push(row);
           }
           if (upgrades.length) showUpgrades(upgrades);
+        } else if (data.upgradeImpactLoading) {
+          const note = document.createElement("div");
+          note.className = `${prefix}-loading`;
+          note.textContent = text("正在按需多核计算升级收益…", "Calculating upgrade impact on demand…");
+          section(text("升级收益", "Upgrade impact"), [note], `${prefix}-upgrades`);
         }
         section(
           text("奖励期望", "Expected rewards"),
@@ -22922,6 +26903,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   "use strict";
   root.MwiLabyrinthCalculatorModules.tokens = function (ctx) {
     const M = root.MwiLabyrinthTokens;
+    const ownedSelector = '[id^="mwi-labyrinth-"], [class^="mwi-labyrinth-"]';
+    const shopSelector = '[class*="LabyrinthPanel_labyrinthShopTab"]';
     const sessions = new Map();
     let store = null,
       view = null,
@@ -22931,29 +26914,11 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     let catalogCache = null,
       catalogKey = "",
       catalogRevision = 0,
-      nativeRevision = 0,
-      catalogHost = null;
-    let catalogObserver = null;
-    const invalidateCatalog = (records) => {
-      if (
-        records.some((record) => {
-          const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
-          if (!target || target.closest('[id^="mwi-labyrinth-"], [class^="mwi-labyrinth-"]')) return false;
-          const relevant = '[class*="LabyrinthPanel_labyrinthShopTab"], svg, use, image, img';
-          return Boolean(
-            target.closest('[class*="LabyrinthPanel_labyrinthShopTab"]') ||
-            target.matches(relevant) ||
-            [...record.addedNodes, ...record.removedNodes].some(
-              (node) =>
-                node.nodeType === 1 &&
-                !node.matches('[id^="mwi-labyrinth-"], [class^="mwi-labyrinth-"]') &&
-                (node.matches(relevant) || node.querySelector(relevant))
-            )
-          );
-        })
-      )
-        nativeRevision++;
-    };
+      domRevision = 0,
+      catalogHost = null,
+      catalogObserver = null,
+      renderScheduled = false;
+
     const identity = (state) => String(state?.character?.id ?? state?.characterId ?? "");
     function session(owner) {
       if (!sessions.has(owner))
@@ -22973,82 +26938,130 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         });
       return sessions.get(owner);
     }
-    function names(state, init) {
-      const native = new Map();
-      for (const item of document.querySelectorAll(
-        '[class*="LabyrinthPanel_labyrinthShopTab"] [class*="LabyrinthPanel_item"]'
-      )) {
-        const name = item.querySelector('[class*="LabyrinthPanel_name"]')?.textContent.trim();
-        for (const icon of item.querySelectorAll("use,image,img")) {
-          const url = icon.getAttribute("href") || icon.getAttribute("xlink:href") || icon.getAttribute("src") || "";
-          const match = url.match(/(?:#|\/)([a-z0-9_]+)(?:\.[a-z]+)?$/i);
-          if (name && match) native.set(`/items/${match[1]}`, name);
+
+    function readNativeItemNames(init) {
+      const outputByItem = new Map();
+      const rawShop = init?.labyrinthShopItemDetailMap;
+      const entries =
+        rawShop && typeof rawShop.values === "function"
+          ? [...rawShop.values()]
+          : rawShop && typeof rawShop === "object"
+            ? Object.values(rawShop)
+            : [];
+      for (const entry of entries) {
+        if (entry?.itemHrid && Number.isSafeInteger(entry.outputCount) && entry.outputCount > 1) {
+          outputByItem.set(entry.itemHrid, entry.outputCount);
         }
       }
-      return (id) =>
-        native.get(id) || ctx.getItemDetailByHrid?.(state, init, id)?.name || id.split("/").at(-1).replaceAll("_", " ");
-    }
-    function decorateCatalog(catalog) {
-      const symbols = [
-        "labyrinth_cooldown",
-        "torch_capacity",
-        "shroud_capacity",
-        "beacon_capacity",
-        "floor_automation",
-        "labyrinth_skilling_speed",
-        "labyrinth_skilling_efficiency",
-        "labyrinth_skilling_success",
-        "labyrinth_double_progress",
-        "labyrinth_combat_damage",
-        "labyrinth_attack_speed",
-        "labyrinth_cast_speed",
-        "labyrinth_critical_rate",
-        "labyrinth_experience"
-      ];
-      const seenIcons = new Map();
-      for (const use of document.querySelectorAll("svg use")) {
-        if (use.closest("#mwi-labyrinth-calc-tokens")) continue;
-        const href = use.getAttribute("href") || use.getAttribute("xlink:href");
-        if (href && href.includes("#") && !/^\s*(javascript|data):/i.test(href))
-          seenIcons.set(href.split("#").at(-1), href);
+      const native = new Map();
+      for (const item of document.querySelectorAll(`${shopSelector} [class*="LabyrinthPanel_item"]`)) {
+        let name = item.querySelector('[class*="LabyrinthPanel_name"]')?.textContent.trim();
+        if (!name) continue;
+        const scope = item.querySelector('[class*="LabyrinthPanel_iconContainer"]') || item;
+        for (const icon of scope.querySelectorAll("use, image, img")) {
+          if (icon.closest('[class*="LabyrinthPanel_price"], .mwi-labyrinth-calc-token-ctrl')) continue;
+          const url = icon.getAttribute("href") || icon.getAttribute("xlink:href") || icon.getAttribute("src") || "";
+          const match = url.match(/(?:#|\/)([a-z0-9_]+)(?:\.[a-z]+)?$/i);
+          if (match) {
+            const itemHrid = `/items/${match[1]}`;
+            const output = outputByItem.get(itemHrid);
+            if (output && name.startsWith(`${output} `)) name = name.slice(String(output).length + 1).trim();
+            native.set(itemHrid, name);
+            break;
+          }
+        }
       }
-      return catalog.map((item, index) => ({
-        ...item,
-        iconHref: seenIcons.get(item.kind === "item" ? item.itemHrid?.split("/").at(-1) : symbols[index]) || null
-      }));
+      return native;
     }
-    function render() {
-      if (!view || ctx.destroyed || document.hidden) return;
-      view.mount(Boolean(currentOwner));
-      view.setOwner?.(currentOwner);
-      if (!currentOwner || !view.isVisible()) return;
-      const s = session(currentOwner);
-      const init = ctx.getInitClientData?.();
+
+    function scheduleRender() {
+      if (renderScheduled || ctx.destroyed) return;
+      renderScheduled = true;
+      Promise.resolve().then(() => {
+        renderScheduled = false;
+        if (!ctx.destroyed && !document.hidden) render();
+      });
+    }
+
+    const handleHostMutations = (records) => {
+      let shopChanged = false;
+      for (const record of records) {
+        const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+        if (!target || target.closest(ownedSelector)) continue;
+        if (record.type === "childList") {
+          const nodes = [...record.addedNodes, ...record.removedNodes].filter(
+            (node) => node.nodeType !== 1 || !node.matches(ownedSelector)
+          );
+          if (!nodes.length) continue;
+          if (
+            target.closest(shopSelector) ||
+            nodes.some(
+              (node) => node.nodeType === 1 && (node.matches(shopSelector) || Boolean(node.querySelector(shopSelector)))
+            )
+          ) {
+            shopChanged = true;
+            break;
+          }
+        } else if (record.type === "characterData") {
+          if (target.closest(shopSelector)) {
+            shopChanged = true;
+            break;
+          }
+        } else if (record.type === "attributes") {
+          if (target.matches(shopSelector) || target.closest(shopSelector) || target.querySelector(shopSelector)) {
+            shopChanged = true;
+            break;
+          }
+        }
+      }
+      if (shopChanged) {
+        domRevision++;
+        scheduleRender();
+      }
+    };
+
+    function syncHostObserver() {
+      if (!catalogObserver) return;
       const host = document.querySelector('[class*="LabyrinthPanel_labyrinthPanel"]');
       if (catalogHost !== host) {
         catalogObserver.disconnect();
         catalogHost = host;
-        nativeRevision++;
-        if (host)
+        if (host) {
           catalogObserver.observe(host, {
             childList: true,
             subtree: true,
             characterData: true,
             attributes: true,
-            attributeFilter: ["href", "xlink:href", "src"]
+            attributeFilter: ["href", "xlink:href", "src", "hidden", "style", "class"]
           });
+        }
       }
+    }
+
+    function render() {
+      if (!view || ctx.destroyed || document.hidden) return;
+      syncHostObserver();
+      view.mount(Boolean(currentOwner));
+      view.setOwner?.(currentOwner);
+      if (!currentOwner || !view.isVisible()) return;
+      const s = session(currentOwner);
+      const init = ctx.getInitClientData?.();
+      const nativeNames = readNativeItemNames(init);
       const shop = init?.labyrinthShopItemDetailMap;
       const nextCatalogKey = JSON.stringify([
         currentOwner,
-        nativeRevision,
         document.documentElement.lang,
+        [...nativeNames.entries()],
         M.definitions.map((entry) => currentState?.characterInfo?.[entry[2]]),
         typeof shop?.values === "function" ? [...shop.values()] : shop
       ]);
       if (nextCatalogKey !== catalogKey) {
         catalogKey = nextCatalogKey;
-        catalogCache = decorateCatalog(M.catalog(currentState, init, names(currentState, init)));
+        const nameOf = (id) =>
+          nativeNames.get(id) ||
+          ctx.getItemDetailByHrid?.(currentState, init, id)?.name ||
+          id.split("/").at(-1).replaceAll("_", " ");
+        catalogCache = M.catalog(currentState, init, nameOf);
         catalogRevision++;
       }
       const snapshot = M.observation(currentState);
@@ -23070,6 +27083,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         data.saveError,
         data.balance,
         catalogRevision,
+        domRevision,
         data.activeRun
       ]);
       if (signature !== lastRender) {
@@ -23077,6 +27091,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         view.update(data);
       }
     }
+
     function overlay(s, profile) {
       if (s.revision !== s.savedRevision) profile.plan = s.profile.plan;
       for (const record of s.pending.values()) {
@@ -23088,6 +27103,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       s.profile = profile;
       s.viewRevision++;
     }
+
     async function load(s) {
       if (!store || s.loaded || s.loading || Date.now() < s.retryAt) return;
       s.loading = true;
@@ -23106,6 +27122,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       if (s.loaded) void flush(s);
     }
+
     async function flush(s) {
       if (!store || !s.loaded || s.saving || ctx.destroyed || Date.now() < s.retryAt) return;
       s.saving = true;
@@ -23133,6 +27150,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         render();
       }
     }
+
     ctx.observeTokenState = (state) => {
       if (!store || ctx.destroyed) return;
       const record = M.observation(state);
@@ -23152,6 +27170,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       if (!s.loaded) void load(s);
       else void flush(s);
     };
+
     const seen = new WeakSet();
     ctx.observeTokenMessage = (raw, event) => {
       if (!store || typeof raw !== "string" || !raw.includes('"labyrinth_updated"') || (event && seen.has(event)))
@@ -23168,6 +27187,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         /* Ignore unrelated or malformed packets. */
       }
     };
+
     ctx.refreshTokens = () => {
       if (!store || ctx.destroyed) return;
       currentState = ctx.getGameState();
@@ -23180,16 +27200,15 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       }
       if (!document.hidden) render();
     };
+
     ctx.startTokens = () => {
       if (store) return;
-      catalogObserver = new MutationObserver(invalidateCatalog);
+      catalogObserver = new MutationObserver(handleHostMutations);
       store = root.MwiLabyrinthTokenStore.create();
       root.MwiLabyrinthTheme.install(document);
       view = root.MwiLabyrinthTokenView.create({
         onOpen() {
-          // Native labels may have changed while this tab was closed.
-          nativeRevision++;
-          ctx.refreshTokens();
+          lastRender = "";
         },
         onPlan(plan) {
           const s = session(currentOwner);
@@ -23208,30 +27227,6 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
           s.error = "";
           if (!s.loaded) void load(s);
           else void flush(s);
-        },
-        onCopy(text) {
-          if (!root.navigator?.clipboard?.writeText) return Promise.reject(new Error("剪贴板不可用"));
-          return root.navigator.clipboard.writeText(text);
-        },
-        onExport(csv) {
-          if (!currentOwner || !session(currentOwner).loaded) return;
-          const blob = new Blob(
-            [
-              csv?.text ??
-                JSON.stringify(
-                  { exportedAt: new Date().toISOString(), owner: currentOwner, ...session(currentOwner).profile },
-                  null,
-                  2
-                )
-            ],
-            { type: csv ? "text/csv;charset=utf-8" : "application/json" }
-          );
-          const url = URL.createObjectURL(blob),
-            anchor = document.createElement("a");
-          anchor.href = url;
-          anchor.download = `${csv?.name || "迷宫代币"}-${currentOwner}-${new Date().toISOString().slice(0, 10)}.${csv ? "csv" : "json"}`;
-          anchor.click();
-          ctx.setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
       });
       ctx.refreshTokens();
@@ -23248,8 +27243,10 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
         for (const s of sessions.values()) void flush(s);
       });
     };
+
     ctx.stopTokens = () => {
       catalogObserver?.disconnect();
+      catalogHost = null;
       view?.destroy();
       store?.close();
     };
@@ -23345,6 +27342,8 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       "live-progress",
       "loadouts",
       "combat",
+      "profile-fingerprint",
+      "curve-engine",
       "controller",
       "game-timing",
       "integration",
@@ -23374,6 +27373,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
       for (const [id, kind] of timers) window[`clear${kind}`](id);
       timers.clear();
       ctx.resetCombatSimulatorWorker(new Error("迷宫助手已停止计算"));
+      ctx.disposeCurveEngine?.();
       ctx.disposeSimulationCache();
       ctx.restoreProgressHook?.();
       ctx.clearAutomationWideLayout();
@@ -23552,7 +27552,7 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
     }
   }
   const instance = Object.freeze({
-    version: "0.12.17",
+    version: "0.12.18",
     status: "ready",
     plan: core?.plan,
     destroy() {

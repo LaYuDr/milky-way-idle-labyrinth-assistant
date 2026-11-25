@@ -317,8 +317,17 @@
     ctx.createProgressTracker = function createProgressTracker(totalUnits) {
       const safeTotal = Math.max(1, Math.floor(ctx.finiteNumber(totalUnits, 1)));
       let completed = 0;
+      let lastPaintAt = 0;
+      let pendingMessage = null;
+      let paintTimer = null;
 
-      function update(message) {
+      function paint(message) {
+        if (paintTimer !== null) {
+          ctx.window.clearTimeout(paintTimer);
+          paintTimer = null;
+        }
+        pendingMessage = null;
+        lastPaintAt = ctx.window.performance?.now?.() ?? Date.now();
         const ratio = ctx.clamp01(completed / safeTotal);
         const percent = Math.round(ratio * 100);
         const msg = message || ctx.t("progressFmt", { percent });
@@ -329,17 +338,33 @@
         });
       }
 
-      update(ctx.t("preparing"));
+      function schedulePaint(message) {
+        pendingMessage = message;
+        const now = ctx.window.performance?.now?.() ?? Date.now();
+        const elapsed = now - lastPaintAt;
+        if (elapsed >= 60 || completed >= safeTotal) {
+          paint(pendingMessage);
+          return;
+        }
+        if (paintTimer === null) {
+          paintTimer = ctx.window.setTimeout(() => {
+            paintTimer = null;
+            paint(pendingMessage);
+          }, 60 - elapsed);
+        }
+      }
+
+      paint(ctx.t("preparing"));
 
       return {
         add(units = 1, message) {
           const value = Math.max(0, Math.floor(ctx.finiteNumber(units, 0)));
           completed = Math.min(safeTotal, completed + value);
-          update(message);
+          schedulePaint(message);
         },
         finish(message) {
           completed = safeTotal;
-          update(message || ctx.t("calcDone"));
+          paint(message || ctx.t("calcDone"));
         }
       };
     };

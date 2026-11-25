@@ -700,6 +700,8 @@
         rewardPreview,
         failureReason: String(result?.combatMeta?.failureReason || ""),
         combatModelSignature: result?.combatMeta?.modelSignature || null,
+        profileHash: String(result?.combatMeta?.profileHash || ""),
+        roomKey: String(result?.combatMeta?.roomKey || ""),
         abilities
       };
     };
@@ -707,15 +709,21 @@
     ctx.getLoadoutWeaponCombatMetaForRoom = function getLoadoutWeaponCombatMetaForRoom(state, initClientData, room) {
       const loadoutInfo = ctx.resolveCombatRoomLoadout(state, room);
       const loadout = loadoutInfo?.loadout;
-      if (!ctx.isCombatLoadout(loadout)) {
+      const useCurrentSetup = loadoutInfo?.source === "current";
+      if (!useCurrentSetup && !ctx.isUsableCombatRoomLoadout(loadout)) {
         return null;
       }
-      const wearableMap = loadout.wearableMap || {};
       const weaponSlots = ["/item_locations/two_hand", "/item_locations/main_hand"];
+      const currentItemsByLocation = useCurrentSetup
+        ? new Map(ctx.getCurrentEquippedCombatItems(state).map((item) => [item.locationHrid, item]))
+        : null;
+      const wearableMap = loadout?.wearableMap || {};
       let styleHrid = "";
       let damageTypeHrid = "";
       for (const slotKey of weaponSlots) {
-        const entry = ctx.parseWearableReference(wearableMap[slotKey]);
+        const entry = useCurrentSetup
+          ? currentItemsByLocation.get(slotKey) || null
+          : ctx.parseWearableReference(wearableMap[slotKey]);
         if (!entry || !entry.itemHrid) {
           continue;
         }
@@ -800,12 +808,60 @@
       tooltip.style.top = `${Math.max(margin, Math.min(top, ctx.window.innerHeight - height - margin))}px`;
     };
 
+    function requestHoverCombatUpgrades(cell, preview) {
+      if (
+        !ctx.COMBAT_UPGRADE_ON_HOVER ||
+        preview?.type !== "combat" ||
+        preview.upgradeImpact !== undefined ||
+        preview.upgradeImpactLoading ||
+        typeof ctx.ensureCombatUpgradeImpactOnHover !== "function"
+      ) {
+        return;
+      }
+      const state = ctx.getGameState?.();
+      const initClientData = ctx.getInitClientData?.();
+      if (!state || !initClientData) return;
+      const room = ctx.getRoomFromCell?.(state, cell) || {
+        roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+        monsterHrid: preview.monsterHrid,
+        recommendedLevel: preview.baseCombatLevel
+      };
+      if (!room?.monsterHrid) return;
+      const upgradeOptions = ctx.getCombatUpgradeOptions?.(ctx.resolveLabyrinthUpgradeLevels?.()) || [];
+      if (!upgradeOptions.some((u) => u.cost !== null)) {
+        preview.upgradeImpact = {};
+        return;
+      }
+      preview.upgradeImpactLoading = true;
+      void ctx
+        .ensureCombatUpgradeImpactOnHover(state, initClientData, room)
+        .then((outcome) => {
+          preview.upgradeImpactLoading = false;
+          if (ctx.destroyed || !outcome?.upgradeImpact) return;
+          if (ctx.combatPreviewByCell.get(cell) !== preview) return;
+          preview.upgradeImpact = outcome.upgradeImpact;
+          renderedPreview = null;
+          if (hoveredCell === cell && pointer) {
+            ctx.showSkillingPreviewTooltip(cell, pointer);
+          }
+        })
+        .catch(() => {
+          preview.upgradeImpactLoading = false;
+          if (ctx.destroyed || ctx.combatPreviewByCell.get(cell) !== preview) return;
+          renderedPreview = null;
+          if (hoveredCell === cell && pointer) {
+            ctx.showSkillingPreviewTooltip(cell, pointer);
+          }
+        });
+    }
+
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
         ctx.hidePreviewTooltip();
         return;
       }
+      requestHoverCombatUpgrades(cell, preview);
       const scrollTop = hoveredCell === cell ? ctx.getPreviewTooltip()?.scrollTop || 0 : 0;
       hoveredCell = cell;
       const existing = ctx.getPreviewTooltip();

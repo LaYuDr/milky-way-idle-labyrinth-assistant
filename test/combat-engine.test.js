@@ -819,3 +819,128 @@ test("损坏的持久化样本回退重算；读取期间取消不派发、不�
     ctx.resetCombatSimulatorWorker();
   }
 });
+
+test("单槽 Worker 报错只重建出错线程并有限重试，不中断其余任务与缓存，重试进度不重复累加", async () => {
+  const { ctx, state } = fixture();
+  ctx.window.navigator = { hardwareConcurrency: 8, deviceMemory: 8 };
+  const targetTrials = 25;
+  let crashedRequestId = null;
+  state.transform = (message) => {
+    if (message.type === "progress" && message.target === targetTrials && message.completed === 10) {
+      if (crashedRequestId === null) {
+        crashedRequestId = message.id;
+        return { type: "error", id: message.id, error: "模拟单槽瞬时故障" };
+      }
+    }
+    return message;
+  };
+  try {
+    // Warm memory cache with case 0 to verify slot failure does not wipe completed cache.
+    const cachedParams = { ...reference.cases[0].params, reuseSimulation: true, parallel: true };
+    const cachedResult = await ctx.simulateCombatRoomWithWorker(cachedParams);
+    const runsAfterWarm = state.runs;
+    const progressByJob = [0, 0, 0, 0];
+    const batchParams = reference.cases.slice(1, 5).map((row, idx) => ({
+      ...row.params,
+      trials: idx === 0 ? targetTrials : row.params.trials,
+      reuseSimulation: true,
+      parallel: true
+    }));
+    const jobs = batchParams.map((p, idx) =>
+      ctx.simulateCombatRoomWithWorker(p, {
+        add(n) {
+          assert.ok(n > 0);
+          progressByJob[idx] += n;
+        }
+      })
+    );
+    const results = await Promise.all(jobs);
+    assert.notEqual(crashedRequestId, null);
+    assert.equal(results.length, 4);
+    for (let i = 0; i < 4; i++) {
+      assert.equal(results[i].trials, batchParams[i].trials);
+      assert.equal(progressByJob[i], batchParams[i].trials);
+    }
+    // Only the single crashed slot worker was terminated; memory cache stayed intact.
+    assert.equal(state.stopped, 1);
+    const runsBeforeReuse = state.runs;
+    assert.deepEqual(await ctx.simulateCombatRoomWithWorker(cachedParams), cachedResult);
+    assert.equal(state.runs, runsBeforeReuse);
+    assert.equal(runsBeforeReuse, runsAfterWarm + 5, "4 jobs + 1 retry");
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});
+
+test("重试耗尽后仅失败任务报错，其余并发与排队任务继续完成", async () => {
+  const { ctx, state } = fixture();
+  ctx.window.navigator = { hardwareConcurrency: 8, deviceMemory: 8 };
+  ctx.COMBAT_JOB_MAX_RETRIES = 1;
+  // Trigger failure only on one specific trial count so other jobs succeed cleanly.
+  const failingTrials = 19;
+  const failedRequestIds = new Set();
+  state.transform = (message) => {
+    if (message.type === "progress" && message.target === failingTrials) {
+      failedRequestIds.add(message.id);
+      return { type: "error", id: message.id, error: "持续故障" };
+    }
+    return message;
+  };
+  try {
+    const params = reference.cases.slice(0, 6).map((row, idx) => ({
+      ...row.params,
+      trials: idx === 1 ? failingTrials : row.params.trials,
+      reuseSimulation: false,
+      parallel: true
+    }));
+    const settled = await Promise.allSettled(params.map((p) => ctx.simulateCombatRoomWithWorker(p)));
+    assert.equal(settled[1].status, "rejected");
+    assert.match(settled[1].reason.message, /持续故障/);
+    assert.equal(failedRequestIds.size, 2, "failed once initially and once on retry");
+    assert.equal(state.stopped, 2, "only the failing slot worker was rebuilt twice");
+    for (const i of [0, 2, 3, 4, 5]) {
+      assert.equal(settled[i].status, "fulfilled", `job ${i} must succeed`);
+      assert.equal(settled[i].value.trials, reference.cases[i].params.trials);
+    }
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});
+
+test("新模拟结果不等缓存落盘即返回，清理缓存等待后台写入完成避免竞态", async () => {
+  const disk = new Map();
+  let releasePut = null;
+  let clearedAfterPut = false;
+  const cache = {
+    get: async (key) => structuredClone(disk.get(key)),
+    put: (key, value) =>
+      new Promise((resolve) => {
+        releasePut = () => {
+          disk.set(key, structuredClone(value));
+          resolve(null);
+        };
+      }),
+    flush: async () => {},
+    clear: async () => {
+      clearedAfterPut = disk.size > 0;
+      disk.clear();
+      return true;
+    }
+  };
+  const { ctx } = fixture({ cache });
+  ctx.storageIdentity = () => "owner";
+  const params = { ...reference.cases[0].params, reuseSimulation: true };
+  try {
+    const result = await ctx.simulateCombatRoomWithWorker(params);
+    assert.equal(result.trials, params.trials);
+    assert.equal(disk.size, 0, "result returned before slow persistent put resolved");
+    assert.equal(typeof releasePut, "function");
+    const clearing = ctx.clearSimulationCache();
+    releasePut();
+    assert.equal(await clearing, true);
+    assert.equal(clearedAfterPut, true, "clear waited for pending background put");
+    assert.equal(disk.size, 0);
+  } finally {
+    ctx.resetCombatSimulatorWorker();
+  }
+});

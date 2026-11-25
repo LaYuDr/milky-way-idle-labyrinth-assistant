@@ -69,7 +69,7 @@ async function checkGuildLayout(page, auto, width) {
         .map((node) => node.outerHTML);
     });
     assert.deepEqual(overflow, [], `${width}px viewport / ${hostWidth}px host: controls must fit`);
-    assert.equal(await auto.locator("input:visible").count(), 24);
+    assert.equal(await auto.locator("input:visible").count(), 25);
     assert.deepEqual(await auto.locator("input").evaluateAll((nodes) => nodes.map((node) => node.value)), values);
     for (const target of [
       auto,
@@ -80,17 +80,20 @@ async function checkGuildLayout(page, auto, width) {
       assert.equal(await target.evaluate((node) => getComputedStyle(node).backgroundColor), "rgba(0, 0, 0, 0)");
     const rows = auto.locator(".mwi-labyrinth-calc-experience-inputs label");
     assert.equal(await rows.count(), 20);
-    const row1 = await rows.nth(0).boundingBox(),
-      row2 = await rows.nth(1).boundingBox();
+    const lifeBox = await auto.locator('[data-group="life"]').boundingBox(),
+      combatBox = await auto.locator('[data-group="combat"]').boundingBox();
     if (hostWidth >= 360) {
-      assert.equal(row1.y, row2.y, "twenty room types retain the same compact two-column rows");
-      assert.ok((await auto.boundingBox()).height < 650, "compact recommendation panel height");
-    } else assert.ok(row2.y >= row1.y + row1.height);
+      assert.equal(lifeBox.y, combatBox.y, "life and combat goal groups sit side by side");
+      assert.ok(combatBox.x >= lifeBox.x + lifeBox.width - 1, "combat group starts right of life group");
+      assert.ok((await auto.boundingBox()).height < 420, "compact recommendation panel height");
+    } else assert.ok(combatBox.y >= lifeBox.y + lifeBox.height);
     await auto.screenshot({ path: path.join(directory, `compact-transparent-${width}-${hostWidth}.png`) });
     const methods = await auto.locator(".mwi-labyrinth-calc-auto-method").all();
     const first = await methods[0].boundingBox(),
       second = await methods[1].boundingBox();
-    assert.ok(second.y >= first.y + first.height, "narrow host stacks recommendation methods");
+    if (hostWidth >= 360)
+      assert.ok(Math.abs(second.y - first.y) < 2, "win rate and time methods share one compact row");
+    else assert.ok(second.y >= first.y + first.height, "ultra-narrow host stacks recommendation methods");
   }
   await auto.evaluate((el, style) => {
     if (style === null) el.removeAttribute("style");
@@ -646,8 +649,11 @@ try {
     assert.deepEqual(await page.locator("td.mwi-labyrinth-calc-auto-estimate-cell").allTextContents(), savedEstimates);
     console.log("Estimates passed", width);
     assert.equal(await auto.locator("select, details, summary").count(), 0);
-    assert.equal(await auto.locator("input:visible").count(), 24);
-    assert.doesNotMatch(await auto.innerText(), /千经验|留空不参与|仅推荐上限|计算设置|推荐依据/);
+    assert.equal(await auto.locator("input:visible").count(), 25);
+    assert.doesNotMatch(
+      await auto.innerText(),
+      /千经验|留空不参与|仅推荐上限|计算设置|推荐依据|连续六级未达标|七项技能总经验|未设置/
+    );
     await page.evaluate(() => {
       window.mwiLabyrinthUpgradeAutomation = true;
     });
@@ -905,7 +911,7 @@ try {
     assert.match(await expCells.nth(2).innerText(), /^[+-]?\d+$/);
     assert.equal(await page.evaluate(() => window.mwiLabyrinthTestUpgradeDuringScan), false);
     assert.ok(await page.evaluate(() => window.mwiLabyrinthTestWorkers.size >= 2));
-    assert.match(await expCells.nth(2).getAttribute("title"), /未达标后追加5级/);
+    assert.match(await expCells.nth(2).getAttribute("title"), /连续六级未达标/);
     assert.match(await expCells.nth(0).innerText(), /^[+-]?\d+$/);
     assert.match(await expCells.nth(1).innerText(), /^[+-]?\d+$/);
     // The completed run kept its snapshot; warm the cache for the new live state.
@@ -954,7 +960,8 @@ try {
       {},
       { timeout: 60000 }
     );
-    assert.match(await expCells.nth(0).innerText(), /扫描范围内未达标/);
+    assert.match(await expCells.nth(0).innerText(), /未达标/);
+    assert.match(await expCells.nth(0).getAttribute("title"), /扫描范围内未达标/);
     assert.equal(await expCells.nth(1).innerText(), "-");
     assert.equal(await expCells.nth(2).innerText(), "-");
     assert.equal(await page.locator("tr[data-mwi-labyrinth-adjust]").count(), 0);

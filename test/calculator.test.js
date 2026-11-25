@@ -1514,3 +1514,230 @@ test("胜率分布开关按角色保存，恢复不启动计算，损坏值回�
   ctx.restoreRoomDistributionSetting();
   assert.equal(ctx.roomDistributionEnabled, false);
 });
+
+test("战斗房切换通用配装（所有技能）或无配装（当前装备）时使用新配装与已装备技能", async () => {
+  const { ctx } = await fixture();
+  const room = {
+    roomType: ctx.LABYRINTH_COMBAT_ROOM_TYPE,
+    monsterHrid: "/monsters/shadow_archer",
+    recommendedLevel: 80
+  };
+  const initClientData = {
+    itemDetailMap: {
+      "/items/old_sword": {
+        equipmentDetail: {
+          type: "/equipment_types/main_hand",
+          combatStats: { combatStyleHrids: ["/combat_styles/slash"], damageType: "/damage_types/physical" }
+        }
+      },
+      "/items/generic_bow": {
+        equipmentDetail: {
+          type: "/equipment_types/two_hand",
+          combatStats: { combatStyleHrids: ["/combat_styles/ranged"], damageType: "/damage_types/physical" }
+        }
+      },
+      "/items/current_staff": {
+        equipmentDetail: {
+          type: "/equipment_types/main_hand",
+          combatStats: { combatStyleHrids: ["/combat_styles/magic"], damageType: "/damage_types/fire" }
+        }
+      },
+      "/items/upgraded_staff": {
+        equipmentDetail: {
+          type: "/equipment_types/main_hand",
+          combatStats: { combatStyleHrids: ["/combat_styles/magic"], damageType: "/damage_types/water" }
+        }
+      },
+      "/items/inventory_decoy": {
+        equipmentDetail: {
+          type: "/equipment_types/head",
+          combatStats: {}
+        }
+      },
+      "/items/cheese_brush": {
+        equipmentDetail: {
+          type: "/equipment_types/milking_tool",
+          noncombatStats: { milkingSpeed: 0.2 }
+        }
+      }
+    },
+    abilityDetailMap: {
+      "/abilities/fireball": { defaultCombatTriggers: [] },
+      "/abilities/cleave": { defaultCombatTriggers: [] }
+    }
+  };
+
+  const state = {
+    character: { id: 1001 },
+    characterLabyrinth: { startedAt: "2026-11-24T00:00:00Z", currentFloor: 1, roomData: [[room]] },
+    characterSetting: { labyrinthLoadoutShadowArcher: 1 },
+    characterSkillMap: new Map([
+      ["/skills/stamina", { level: 90 }],
+      ["/skills/intelligence", { level: 95 }],
+      ["/skills/attack", { level: 90 }],
+      ["/skills/melee", { level: 90 }],
+      ["/skills/defense", { level: 90 }],
+      ["/skills/ranged", { level: 90 }],
+      ["/skills/magic", { level: 90 }]
+    ]),
+    characterItemMap: new Map([
+      [
+        "1001::/item_locations/inventory::/items/generic_bow::12",
+        {
+          itemLocationHrid: "/item_locations/inventory",
+          itemHrid: "/items/generic_bow",
+          enhancementLevel: 12,
+          count: 1
+        }
+      ],
+      [
+        "1001::/item_locations/main_hand::/items/current_staff::9",
+        {
+          itemLocationHrid: "/item_locations/main_hand",
+          itemHrid: "/items/current_staff",
+          enhancementLevel: 9,
+          count: 1
+        }
+      ]
+    ]),
+    characterItemByLocationMap: new Map([
+      [
+        "/item_locations/main_hand",
+        {
+          itemLocationHrid: "/item_locations/main_hand",
+          itemHrid: "/items/current_staff",
+          enhancementLevel: 9,
+          count: 1
+        }
+      ],
+      [
+        "/item_locations/milking_tool",
+        {
+          itemLocationHrid: "/item_locations/milking_tool",
+          itemHrid: "/items/cheese_brush",
+          enhancementLevel: 8,
+          count: 1
+        }
+      ],
+      [
+        "/item_locations/inventory",
+        {
+          itemLocationHrid: "/item_locations/inventory",
+          itemHrid: "/items/inventory_decoy",
+          enhancementLevel: 15,
+          count: 1
+        }
+      ]
+    ]),
+    characterAbilityMap: new Map([
+      ["/abilities/cleave", { abilityHrid: "/abilities/cleave", level: 40, slotNumber: 0 }],
+      ["/abilities/fireball", { abilityHrid: "/abilities/fireball", level: 55, slotNumber: 2 }]
+    ]),
+    abilityCombatTriggersDict: {
+      "/abilities/fireball": [
+        {
+          dependencyHrid: "/combat_trigger_dependencies/self",
+          conditionHrid: "/combat_trigger_conditions/current_mp",
+          comparatorHrid: "/combat_trigger_comparators/greater_than_equal",
+          value: 10
+        }
+      ]
+    },
+    characterLoadoutDict: {
+      1: {
+        id: 1,
+        name: "旧战斗配装",
+        actionTypeHrid: "/action_types/combat",
+        useExactEnhancement: true,
+        wearableMap: {
+          "/item_locations/main_hand": "1001::/item_locations/main_hand::/items/old_sword::5"
+        },
+        abilityMap: { 1: "/abilities/cleave" },
+        abilityCombatTriggersMap: {}
+      },
+      2: {
+        id: 2,
+        name: "新通用配装",
+        actionTypeHrid: "",
+        useExactEnhancement: false,
+        wearableMap: {
+          "/item_locations/two_hand": "1001::/item_locations/two_hand::/items/generic_bow::4",
+          "/item_locations/milking_tool": "1001::/item_locations/milking_tool::/items/cheese_brush::8"
+        },
+        abilityMap: {}
+      }
+    }
+  };
+
+  // 1. 初始使用专属战斗配装
+  ctx.getGameState = () => state;
+  let built = ctx.buildCombatPlayerDtoForRoom(state, initClientData, room, ctx.buildMaxEnhancementByItem(state));
+  assert.equal(built.loadoutInfo.source, "room");
+  assert.equal(built.loadoutInfo.loadoutId, 1);
+  assert.equal(built.playerDto.equipment["/equipment_types/main_hand"].hrid, "/items/old_sword");
+  assert.equal(built.playerDto.abilities[0].hrid, "/abilities/cleave");
+
+  // 2. 切换为“所有技能”通用配装（actionTypeHrid === ""）：不再静默回退旧配装，且沿用当前已装备技能与全局触发器
+  state.characterSetting.labyrinthLoadoutShadowArcher = 2;
+  built = ctx.buildCombatPlayerDtoForRoom(state, initClientData, room, ctx.buildMaxEnhancementByItem(state));
+  assert.equal(built.loadoutInfo.source, "room");
+  assert.equal(built.loadoutInfo.loadoutId, 2);
+  assert.deepEqual(structuredClone(built.playerDto.equipment), {
+    "/equipment_types/two_hand": { hrid: "/items/generic_bow", enhancementLevel: 12 }
+  });
+  assert.equal(built.playerDto.abilities[0], null);
+  assert.equal(built.playerDto.abilities[1].hrid, "/abilities/fireball");
+  assert.equal(built.playerDto.abilities[1].level, 55);
+  assert.equal(built.playerDto.abilities[1].triggers.length, 1);
+  assert.deepEqual(structuredClone(ctx.getLoadoutWeaponCombatMetaForRoom(state, initClientData, room)), {
+    styleHrid: "/combat_styles/ranged",
+    damageTypeHrid: "/damage_types/physical"
+  });
+
+  // 3. 切换为“无配装”（0）：使用角色当前穿戴装备与技能，忽略背包和生活工具；更换当前穿戴后签名与配置同步更新
+  state.characterSetting.labyrinthLoadoutShadowArcher = 0;
+  const sigBeforeSwap = ctx.calculationSignature(state);
+  built = ctx.buildCombatPlayerDtoForRoom(state, initClientData, room, ctx.buildMaxEnhancementByItem(state));
+  assert.equal(built.loadoutInfo.source, "current");
+  assert.equal(built.loadoutInfo.loadoutId, 0);
+  assert.deepEqual(structuredClone(built.playerDto.equipment), {
+    "/equipment_types/main_hand": { hrid: "/items/current_staff", enhancementLevel: 9 }
+  });
+  assert.equal(built.playerDto.abilities[1].hrid, "/abilities/fireball");
+  assert.deepEqual(structuredClone(ctx.getLoadoutWeaponCombatMetaForRoom(state, initClientData, room)), {
+    styleHrid: "/combat_styles/magic",
+    damageTypeHrid: "/damage_types/fire"
+  });
+
+  state.characterItemByLocationMap.set("/item_locations/main_hand", {
+    itemLocationHrid: "/item_locations/main_hand",
+    itemHrid: "/items/upgraded_staff",
+    enhancementLevel: 14,
+    count: 1
+  });
+  const sigAfterSwap = ctx.calculationSignature(state);
+  assert.notEqual(sigAfterSwap, sigBeforeSwap);
+  built = ctx.buildCombatPlayerDtoForRoom(state, initClientData, room, ctx.buildMaxEnhancementByItem(state));
+  assert.deepEqual(structuredClone(built.playerDto.equipment), {
+    "/equipment_types/main_hand": { hrid: "/items/upgraded_staff", enhancementLevel: 14 }
+  });
+  assert.deepEqual(structuredClone(ctx.getLoadoutWeaponCombatMetaForRoom(state, initClientData, room)), {
+    styleHrid: "/combat_styles/magic",
+    damageTypeHrid: "/damage_types/water"
+  });
+
+  // 4. 最小化离线状态不含当前穿戴映射时，保持原有回退逻辑
+  const minimalState = {
+    characterSetting: {},
+    characterSkillMap: state.characterSkillMap,
+    characterLoadoutDict: { 1: state.characterLoadoutDict[1] }
+  };
+  const fallbackBuilt = ctx.buildCombatPlayerDtoForRoom(
+    minimalState,
+    initClientData,
+    room,
+    ctx.buildMaxEnhancementByItem(minimalState)
+  );
+  assert.equal(fallbackBuilt.loadoutInfo.source, "fallback-any");
+  assert.equal(fallbackBuilt.loadoutInfo.loadoutId, 1);
+});

@@ -34,7 +34,7 @@
       if (!skillMap || !hrid) {
         return NaN;
       }
-      if (skillMap instanceof Map) {
+      if (ctx.isMapObject(skillMap)) {
         const entry = skillMap.get(hrid);
         if (Number.isFinite(entry?.experience)) {
           return Number(entry.experience);

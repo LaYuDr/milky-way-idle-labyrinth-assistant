@@ -86,6 +86,8 @@
       "live-progress",
       "loadouts",
       "combat",
+      "profile-fingerprint",
+      "curve-engine",
       "controller",
       "game-timing",
       "integration",
@@ -115,6 +117,7 @@
       for (const [id, kind] of timers) window[`clear${kind}`](id);
       timers.clear();
       ctx.resetCombatSimulatorWorker(new Error("迷宫助手已停止计算"));
+      ctx.disposeCurveEngine?.();
       ctx.disposeSimulationCache();
       ctx.restoreProgressHook?.();
       ctx.clearAutomationWideLayout();
