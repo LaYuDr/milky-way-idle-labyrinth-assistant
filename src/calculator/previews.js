@@ -855,6 +855,35 @@
         });
     }
 
+    function getCellEnteredBadgeText(cell) {
+      if (!cell || typeof cell.querySelector !== "function") return "";
+      const failNode = cell.querySelector('[class*="LabyrinthPanel_roomFailCount"]');
+      const enteredNode = cell.querySelector('[class*="LabyrinthPanel_roomEntered"]');
+      if (!failNode && !enteredNode) return "";
+      const zh = ctx.isChineseUi();
+      const base = zh ? "进入过" : "Entered";
+      const failText = String(failNode?.textContent || "").trim();
+      return failText ? `${base} · ${failText}` : base;
+    }
+
+    function syncTooltipEnteredBadge(tooltip, cell) {
+      const titleNode = tooltip?.querySelector?.(`.${ctx.PREVIEW_TOOLTIP_CLASS}__title`);
+      if (!titleNode) return;
+      const badgeClass = `${ctx.PREVIEW_TOOLTIP_CLASS}__entered-badge`;
+      let badge = titleNode.querySelector(`.${badgeClass}`);
+      const label = getCellEnteredBadgeText(cell);
+      if (!label) {
+        badge?.remove();
+        return;
+      }
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = badgeClass;
+        titleNode.appendChild(badge);
+      }
+      badge.textContent = label;
+    }
+
     ctx.showSkillingPreviewTooltip = function showSkillingPreviewTooltip(cell, event) {
       const preview = ctx.getCellPreview(cell);
       if (!preview) {
@@ -867,6 +896,7 @@
       const existing = ctx.getPreviewTooltip();
       const tooltip =
         renderedPreview === preview && existing?.childElementCount ? existing : ctx.renderCellPreviewTooltip(preview);
+      syncTooltipEnteredBadge(tooltip, cell);
       renderedPreview = preview;
       pointer = { clientX: event.clientX, clientY: event.clientY };
       ctx.positionPreviewTooltip(tooltip, event.clientX, event.clientY);

@@ -167,9 +167,15 @@
     routeSection.append(beaconView.element);
     calculationSlot.id = "mwi-labyrinth-calculation-slot";
     content.append(routeSection, calculationSlot);
+    const launcherHead = document.createElement("div");
+    launcherHead.className = "mwi-lab-launcher-head";
     launcher.className = "mwi-lab-launcher";
     launcherTitle.textContent = "迷宫助手";
-    launcher.append(launcherTitle, zoomControls);
+    launcherHead.append(launcherTitle);
+    const companionLauncher = root.MwiLabyrinthCompanion?.createLauncherIntegration?.(document) || null;
+    if (companionLauncher?.button) launcherHead.append(companionLauncher.button);
+    launcher.append(launcherHead, zoomControls);
+    if (companionLauncher?.popover) launcher.append(companionLauncher.popover);
     panel.append(launcher, content);
     const win = document.defaultView;
     const displayKey = "mwi-labyrinth:route-stop-before-floor:v1";
@@ -419,6 +425,7 @@
         note.hidden = !notices.length;
         draw();
         beaconView.layout();
+        companionLauncher?.sync?.();
         position();
       },
       error(message, grid) {
@@ -436,6 +443,7 @@
         attachZoom(null);
         clear();
         clearBeacons();
+        companionLauncher?.close?.();
         if (root.MwiLabyrinthSidebar.enabled) mount();
         else detach();
         note.textContent = "打开迷宫地图后，可查看路线并计算房间。";
@@ -451,6 +459,7 @@
         attachZoom(null);
         clear();
         beaconView.destroy();
+        companionLauncher?.destroy?.();
         detach();
         style.remove();
         win.removeEventListener("resize", schedulePosition);

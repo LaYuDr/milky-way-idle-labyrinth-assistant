@@ -1,10 +1,11 @@
 # 迷宫助手
 
-银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级。当前版本 **0.12.14**。
+银河奶牛迷宫助手：规划迷宫路线，估算房间胜率与通关耗时，提供推荐等级。当前版本 **0.12.20**。
 
 ## 安装与使用
 
-安装 Tampermonkey 后，导入 [Greasy Fork 正式安装页](https://greasyfork.org/zh-CN/scripts/605612)。正式安装包不依赖本机开发服务。
+1. 先在浏览器安装脚本管理器扩展（推荐在 Edge 扩展商店直接搜索安装 **Tampermonkey** 或 **脚本猫 ScriptCat**，中国大陆可直连使用）。
+2. 点击 [代理下载安装（免翻墙直连）](https://js.nainai.eu.org/proxy/https://update.greasyfork.org/scripts/605612/%E8%BF%B7%E5%AE%AB%E5%8A%A9%E6%89%8B.user.js) 即可唤起安装；经 [银河奶牛资源中心](https://js.nainai.eu.org/) 代理下载后，后续自动更新也会自动走代理（也可访问 [Greasy Fork 原页](https://greasyfork.org/zh-CN/scripts/605612)）。正式安装包不依赖本机开发服务。
 
 启用前请停用原版《迷宫胜率计算器》及本助手的开发加载器，刷新游戏页面；同类计算器只启用一份，避免重复面板与计算。
 
@@ -14,6 +15,13 @@
 - 点击房间查看计算详情；日志与胜率分布从计算面板进入。
 
 默认使用上述原位置布局，右侧页签布局保留为开发选项，默认关闭。
+
+## 配套工具
+
+迷宫助手基于游戏内已配置好的配装进行估算与路线规划，可与同作者的以下配套工具配合使用（均为免费辅助工具，不自动操作游戏）：
+
+- **规划助手（网页版）**：[https://layu.love/#labyrinth](https://layu.love/#labyrinth) — 按角色属性与预算自动计算迷宫 10 怪配装方案。
+- **配装助手（油猴脚本）**：[代理下载安装（免翻墙直连）](https://js.nainai.eu.org/proxy/https://update.greasyfork.org/scripts/602254/%E9%85%8D%E8%A3%85%E5%8A%A9%E6%89%8B.user.js) · [银河奶牛资源中心](https://js.nainai.eu.org/)（也可访问 [Greasy Fork 原页](https://greasyfork.org/zh-CN/scripts/602254)）— 导入规划助手导出的子方案/虚拟配装，在游戏内高亮指引手动切装，经代理安装后自动更新同样免翻墙。
 
 ## 功能与边界
 

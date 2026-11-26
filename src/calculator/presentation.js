@@ -28,6 +28,7 @@
       return panel;
     };
     let disposeCurveListener = null;
+    let companionView = null;
     function formatCurveActionLabel(status) {
       const total = Math.max(1, Number(status?.totalMonsters) || 10);
       const ready = Math.max(0, Math.min(total, Number(status?.readyMonsters) || 0));
@@ -65,6 +66,7 @@
         if (!running) stop.disabled = false;
       }
       syncCurveActionButton(control);
+      companionView?.sync?.();
       const status = control.querySelector(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__status`);
       if (status) status.hidden = !running && ["", ctx.t("pending"), ctx.t("calcDone")].includes(status.textContent);
     }
@@ -100,7 +102,13 @@
           stop.disabled = true;
         });
         actions.append(calculate, stop);
-        heading.append(title, actions);
+        const titleGroup = document.createElement("div");
+        titleGroup.className = "mwi-labyrinth-calc-auto-title-group";
+        titleGroup.append(title);
+        companionView?.dispose?.();
+        companionView = root.MwiLabyrinthCompanion?.createAutomationIntegration?.(ctx) || null;
+        if (companionView?.inlineLink) titleGroup.append(companionView.inlineLink);
+        heading.append(titleGroup, actions);
         for (const [basis, inputClass, buttonClass] of [
           [
             "winRate",
@@ -176,7 +184,8 @@
         control.querySelector(".mwi-labyrinth-calc-experience-actions")?.remove();
         for (const lineBreak of control.querySelectorAll(`.${ctx.AUTOMATION_ESTIMATE_CONTROL_CLASS}__break`))
           lineBreak.remove();
-        control.replaceChildren(heading, toolbar, goals, status);
+        if (companionView?.banner) control.replaceChildren(heading, toolbar, goals, status, companionView.banner);
+        else control.replaceChildren(heading, toolbar, goals, status);
       }
       ctx.getAutomationEstimateTable()?.classList.add("mwi-labyrinth-auto-table");
       syncRecommendationControls(control);
@@ -255,6 +264,7 @@
         set(cell, "data-mwi-labyrinth-adjust-hint", label);
         set(cell, "aria-label", label);
       });
+      if (!ctx.automationEstimateRunning) companionView?.sync?.();
     };
     const status = ctx.setAutomationEstimateControlStatus;
     ctx.setAutomationEstimateControlStatus = (value) => {
@@ -318,6 +328,8 @@
     ctx.disposePresentation = () => {
       disposeCurveListener?.();
       disposeCurveListener = null;
+      companionView?.dispose?.();
+      companionView = null;
       document
         .querySelectorAll("[data-mwi-labyrinth-room-group]")
         .forEach((node) => node.removeAttribute("data-mwi-labyrinth-room-group"));

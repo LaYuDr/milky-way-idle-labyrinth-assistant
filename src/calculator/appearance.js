@@ -55,10 +55,16 @@
   white-space: nowrap;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
-/* Native entered/failure labels occupy the same bottom row. Keep their status
-   visible immediately, including before the next calculator refresh. Details
-   remain available through the room's existing hover handler. */
-[data-room-x][data-room-y]:has([class*="LabyrinthPanel_roomEntered"], [class*="LabyrinthPanel_roomFailCount"]) > .${ctx.BADGE_CLASS},
+/* Hide native entered/fail labels and room progress bar on the cell so our win-rate
+   badge stays visible; entered status is surfaced in the hover tooltip top-right.
+   DOM nodes remain intact for map-reader and are restored on destroy. */
+[data-room-x][data-room-y] [class*="LabyrinthPanel_roomEntered"],
+[data-room-x][data-room-y] [class*="LabyrinthPanel_roomFailCount"],
+[data-room-x][data-room-y] [class*="LabyrinthPanel_roomProgress"],
+[data-room-x][data-room-y] [class*="LabyrinthPanel_progressBar"],
+[data-room-x][data-room-y] [class*="LabyrinthPanel_progress"] {
+  display: none !important;
+}
 [data-room-x][data-room-y][class*="LabyrinthPanel_clearedRoom"] > .${ctx.BADGE_CLASS} {
   display: none;
 }
@@ -678,10 +684,26 @@ table[class*="LabyrinthPanel_automationTable"] tbody td:nth-child(3) {
   display: none;
 }
 .${ctx.PREVIEW_TOOLTIP_CLASS}__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 4px;
   font-size: 11px;
   font-weight: 700;
   color: #9ec4ff;
+}
+.${ctx.PREVIEW_TOOLTIP_CLASS}__entered-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.14);
+  color: #fcd34d;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 .${ctx.PREVIEW_TOOLTIP_CLASS}__row {
   display: flex;

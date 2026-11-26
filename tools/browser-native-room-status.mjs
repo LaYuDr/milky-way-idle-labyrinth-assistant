@@ -31,6 +31,7 @@ body{margin:16px;background:#121318;color:#eee;font:14px system-ui}
 .icon{justify-self:center;align-self:center;font-size:18px}
 .LabyrinthPanel_roomEntered_fixture,.LabyrinthPanel_roomFailCount_fixture{justify-self:center;align-self:end;margin-bottom:1px;font-size:10px;line-height:1}
 .LabyrinthPanel_roomFailCount_fixture{color:#f99}
+.LabyrinthPanel_roomProgress_fixture{justify-self:stretch;align-self:end;height:4px;background:#38bdf8}
 .LabyrinthPanel_clearedRoom_fixture{background:#484872}
 </style><p>原生房间状态 · 离线回归</p><div class="grid"></div>`);
     await page.addScriptTag({ content: scripts });
@@ -56,7 +57,10 @@ body{margin:16px;background:#121318;color:#eee;font:14px system-ui}
       }
       document
         .querySelector('[data-room-x="1"]')
-        .insertAdjacentHTML("beforeend", '<span class="LabyrinthPanel_roomEntered_fixture">已进入</span>');
+        .insertAdjacentHTML(
+          "beforeend",
+          '<span class="LabyrinthPanel_roomEntered_fixture">已进入</span><div class="LabyrinthPanel_roomProgress_fixture"></div>'
+        );
       document
         .querySelector('[data-room-x="2"]')
         .insertAdjacentHTML("beforeend", '<span class="LabyrinthPanel_roomFailCount_fixture">失败: 3</span>');
@@ -68,40 +72,58 @@ body{margin:16px;background:#121318;color:#eee;font:14px system-ui}
         badges: [...document.querySelectorAll(".mwi-labyrinth-calc-clear-rate-badge")].map(
           (node) => getComputedStyle(node).display !== "none"
         ),
-        native: [...document.querySelectorAll('[class*="roomEntered"],[class*="roomFailCount"]')].map((node) => {
-          const rect = node.getBoundingClientRect();
-          return (
-            rect.width > 0 &&
-            rect.height > 0 &&
-            document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === node
-          );
-        })
+        nativeHidden: [
+          ...document.querySelectorAll('[class*="roomEntered"],[class*="roomFailCount"],[class*="roomProgress"]')
+        ].map((node) => getComputedStyle(node).display === "none")
       }));
-      assert.deepEqual(state, { badges: [true, false, false, false], native: [true, true] });
+      assert.deepEqual(state, { badges: [true, true, true, false], nativeHidden: [true, true, true] });
     }
     await page.locator('[data-room-x="1"]').hover();
     await page.locator("#mwi-labyrinth-calc-clear-rate-preview").waitFor({ state: "visible" });
     assert.match(await page.locator("#mwi-labyrinth-calc-clear-rate-preview").innerText(), /75\.0%/);
+    assert.equal(
+      await page
+        .locator("#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-clear-rate-preview__entered-badge")
+        .innerText(),
+      "进入过"
+    );
+    await page.locator('[data-room-x="2"]').hover();
+    assert.equal(
+      await page
+        .locator("#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-clear-rate-preview__entered-badge")
+        .innerText(),
+      "进入过 · 失败: 3"
+    );
+    await page.locator('[data-room-x="0"]').hover();
+    assert.equal(
+      await page
+        .locator("#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-clear-rate-preview__entered-badge")
+        .count(),
+      0
+    );
     await page.mouse.move(width - 5, 750);
     await page.screenshot({ path: path.join(directory, `${width}.png`) });
     await page.evaluate(() => {
       const cell = document.querySelector('[data-room-x="1"]');
       cell.querySelector('[class*="roomEntered"]').remove();
     });
+    await page.locator('[data-room-x="1"]').hover();
+    assert.equal(
+      await page
+        .locator("#mwi-labyrinth-calc-clear-rate-preview .mwi-labyrinth-calc-clear-rate-preview__entered-badge")
+        .count(),
+      0
+    );
     assert.equal(await page.locator('[data-room-x="1"] .mwi-labyrinth-calc-clear-rate-badge').isVisible(), true);
-    await page.evaluate(() => {
-      const cell = document.querySelector('[data-room-x="1"]');
-      const replacement = cell.cloneNode(true);
-      replacement.insertAdjacentHTML("beforeend", '<span class="LabyrinthPanel_roomEntered_new">已进入</span>');
-      cell.replaceWith(replacement);
-    });
-    assert.equal(await page.locator('[data-room-x="1"] .mwi-labyrinth-calc-clear-rate-badge').isVisible(), false);
     assert.deepEqual(errors, []);
     await page.evaluate(() => window.statusTest.destroy());
-    assert.equal(await page.locator('[class*="roomEntered"]').innerText(), "已进入");
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.querySelector('[class*="roomProgress"]')).display !== "none"),
+      true
+    );
     await page.close();
   }
-  console.log("Native entered/failure labels preserved; hover, dynamic state, rebuild, zoom and teardown passed.");
+  console.log("Entered badge moved to hover tooltip top-right; native progress bar hidden and restored on teardown.");
 } finally {
   await browser.close();
 }

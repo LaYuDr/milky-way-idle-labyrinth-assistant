@@ -12,6 +12,7 @@ export default [
   "src/runtime/shrouds.js",
   "src/runtime/beacons.js",
   "src/ui/theme.js",
+  "src/ui/companion-tools.js",
   "src/ui/beacon-view.js",
   "src/ui/planner-view.js",
   "src/ui/recommendation-prefill.js",
